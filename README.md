@@ -1,7 +1,7 @@
 
 # AutoScale-Simplified-Template
 
-To view the workshop, please go here: [GitHub Pages Link](https://fortinetcloudcse.github.io/AutoScale-Simplified-Template/)
+To view the workshop, please go here: [GitHub Pages Link](https://fortinetcloudcse.github.io/Autoscale-Simplified-Template/)
 
 ---
 
