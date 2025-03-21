@@ -1,3 +1,13 @@
+check "config_validation_instances_subnets" {
+  assert {
+    condition = (var.enable_linux_spoke_instances && !var.enable_build_existing_subnets)
+    error_message = "Cannot enable linux spoke instances and disable build existing subnets. No subnets to place the linux instances. Abort."
+  }
+  assert {
+    condition = (var.enable_jump_box && !var.enable_build_management_vpc)
+    error_message = "Cannot enable jump box and disable build management vpc. No subnet to place the jump box. Abort."
+  }
+}
 locals {
   linux_east_az1_ip_address = cidrhost(var.vpc_cidr_east_public_az1, var.linux_host_ip)
 }
@@ -13,7 +23,7 @@ locals {
 }
 
 data "aws_subnet" "subnet-east-public-az1" {
-  count = var.enable_linux_spoke_instances ? 1 : 0
+  count = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on = [ module.subnet-east-public-az1 ]
   filter {
     name   = "tag:Name"
@@ -25,7 +35,7 @@ data "aws_subnet" "subnet-east-public-az1" {
   }
 }
 data "aws_subnet" "subnet-east-public-az2" {
-  count = var.enable_linux_spoke_instances ? 1 : 0
+  count = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on = [ module.subnet-east-public-az2 ]
   filter {
     name   = "tag:Name"
@@ -37,7 +47,7 @@ data "aws_subnet" "subnet-east-public-az2" {
   }
 }
 data "aws_subnet" "subnet-west-public-az1" {
-  count = var.enable_linux_spoke_instances ? 1 : 0
+  count = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on = [ module.subnet-west-public-az1 ]
   filter {
     name   = "tag:Name"
@@ -49,7 +59,7 @@ data "aws_subnet" "subnet-west-public-az1" {
   }
 }
 data "aws_subnet" "subnet-west-public-az2" {
-  count = var.enable_linux_spoke_instances ? 1 : 0
+  count = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on = [ module.subnet-west-public-az2 ]
   filter {
     name   = "tag:Name"
@@ -62,7 +72,7 @@ data "aws_subnet" "subnet-west-public-az2" {
 }
 
 data "aws_vpc" "vpc-east" {
-  count = var.enable_linux_spoke_instances ? 1 : 0
+  count = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on = [ module.vpc-east ]
   filter {
     name   = "tag:Name"
@@ -75,7 +85,7 @@ data "aws_vpc" "vpc-east" {
 }
 
 data "aws_vpc" "vpc-west" {
-  count = var.enable_linux_spoke_instances ? 1 : 0
+  count = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on = [ module.vpc-west ]
   filter {
     name   = "tag:Name"
@@ -96,7 +106,7 @@ data "aws_vpc" "vpc-west" {
 # would not make it to a production template.
 #
 data "template_file" "web_userdata_az1" {
-  count = var.enable_linux_spoke_instances ? 1 : 0
+  count = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   template = file("./config_templates/web-userdata.tpl")
   vars = {
     region                = var.aws_region
@@ -104,7 +114,7 @@ data "template_file" "web_userdata_az1" {
   }
 }
 data "template_file" "web_userdata_az2" {
-  count = var.enable_linux_spoke_instances ? 1 : 0
+  count = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   template = file("./config_templates/web-userdata.tpl")
   vars = {
     region                = var.aws_region
@@ -113,7 +123,7 @@ data "template_file" "web_userdata_az2" {
 }
 
 data "aws_ami" "ubuntu" {
-  count = var.enable_linux_spoke_instances ? 1 : 0
+  count = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   most_recent = true
 
   filter {
@@ -137,7 +147,7 @@ data "aws_ami" "ubuntu" {
 #
 
 module "east_instance_public_az1" {
-  count                       = var.enable_linux_spoke_instances ? 1 : 0
+  count                       = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on                  = [module.vpc-east, module.vpc-transit-gateway-attachment-east]
   source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name       = "${var.cp}-${var.env}-east-public-az1-instance"
@@ -155,7 +165,7 @@ module "east_instance_public_az1" {
 }
 
 module "east_instance_public_az2" {
-  count                       = var.enable_linux_spoke_instances ? 1 : 0
+  count                       = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on                  = [module.vpc-east, module.vpc-transit-gateway-attachment-east]
   source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name       = "${var.cp}-${var.env}-east-public-az2-instance"
@@ -176,7 +186,7 @@ module "east_instance_public_az2" {
 # West Linux Instance for Generating West->East Traffic
 #
 module "west_instance_public_az1" {
-  count                       = var.enable_linux_spoke_instances ? 1 : 0
+  count                       = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on                  = [module.vpc-west, module.vpc-transit-gateway-attachment-west]
   source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name       = "${var.cp}-${var.env}-west-public-az1-instance"
@@ -194,7 +204,7 @@ module "west_instance_public_az1" {
 }
 
 module "west_instance_public_az2" {
-  count                       = var.enable_linux_spoke_instances ? 1 : 0
+  count                       = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   depends_on                  = [module.vpc-west, module.vpc-transit-gateway-attachment-west]
   source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name       = "${var.cp}-${var.env}-west-public-az2-instance"
@@ -215,7 +225,7 @@ module "west_instance_public_az2" {
 # Security Groups are VPC specific, so an "ALLOW ALL" for each VPC
 #
 resource "aws_security_group" "ec2-linux-east-vpc-sg" {
-  count                       = var.enable_linux_spoke_instances ? 1 : 0
+  count                       = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   description                 = "Security Group for Linux Instances in the East Spoke VPC"
   vpc_id                      = data.aws_vpc.vpc-east[0].id
   ingress {
@@ -269,7 +279,7 @@ resource "aws_security_group" "ec2-linux-east-vpc-sg" {
   }
 }
 resource "aws_security_group" "ec2-linux-west-vpc-sg" {
-  count                       = var.enable_linux_spoke_instances ? 1 : 0
+  count                       = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   description                 = "Security Group for Linux Instances in the West Spoke VPC"
   vpc_id                      = data.aws_vpc.vpc-west[0].id
   ingress {
@@ -328,6 +338,6 @@ resource "aws_security_group" "ec2-linux-west-vpc-sg" {
 #
 module "linux_iam_profile" {
   source        = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance_iam_role"
-  count         = var.enable_linux_spoke_instances ? 1 : 0
+  count         = (var.enable_build_existing_subnets && var.enable_linux_spoke_instances) ? 1 : 0
   iam_role_name = "${var.cp}-${var.env}-${random_string.random.result}-linux-instance_role"
 }

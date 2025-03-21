@@ -47,6 +47,7 @@ module "vpc-management" {
 }
 resource "aws_route" "management-public-default-route-igw" {
   depends_on             = [module.vpc-management]
+  count                  = var.enable_build_management_vpc ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = module.vpc-management[0].igw_id
@@ -57,34 +58,34 @@ resource "aws_route" "management-public-default-route-igw" {
 
 resource "aws_route" "public-192-route-tgw-az1" {
   depends_on             = [module.vpc-management]
-  count                  = var.enable_management_tgw_attachment ? 1 : 0
+  count                  = (var.enable_build_management_vpc && var.enable_management_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
   destination_cidr_block = local.rfc1918_192
   transit_gateway_id     = module.vpc-transit-gateway.tgw_id
 }
 resource "aws_route" "public-10-route-tgw" {
   depends_on             = [module.vpc-management]
-  count                  = var.enable_management_tgw_attachment ? 1 : 0
+  count                  = (var.enable_build_management_vpc && var.enable_management_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
   destination_cidr_block = local.rfc1918_10
   transit_gateway_id     = module.vpc-transit-gateway.tgw_id
 }
 resource "aws_route" "public-172-route-tgw" {
   depends_on             = [module.vpc-management]
-  count                  = var.enable_management_tgw_attachment ? 1 : 0
+  count                  = (var.enable_build_management_vpc && var.enable_management_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
   destination_cidr_block = local.rfc1918_172
   transit_gateway_id     = module.vpc-transit-gateway.tgw_id
 }
 resource "aws_ec2_transit_gateway_route" "route-to-west-tgw" {
-  count                          = var.enable_build_existing_subnets ? 1 : 0
+  count                          = (var.enable_build_management_vpc && var.enable_build_existing_subnets) ? 1 : 0
   depends_on                     = [module.vpc-management]
   destination_cidr_block         = var.vpc_cidr_west
   transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-west[0].tgw_attachment_id
   transit_gateway_route_table_id = module.vpc-management[0].management_tgw_route_table_id
 }
 resource "aws_ec2_transit_gateway_route" "route-to-east-tgw" {
-  count                          = var.enable_build_existing_subnets ? 1 : 0
+  count                          = (var.enable_build_management_vpc && var.enable_build_existing_subnets) ? 1 : 0
   depends_on                     = [module.vpc-management]
   destination_cidr_block         = var.vpc_cidr_east
   transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-east[0].tgw_attachment_id
