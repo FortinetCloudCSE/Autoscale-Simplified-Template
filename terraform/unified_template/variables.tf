@@ -129,7 +129,26 @@ variable "asg_license_directory" {
   type        = string
   default     = ""
 }
-
+variable "fortiflex_username" {
+  description = "Fortiflex Username to make FortiFlex API Calls"
+  type        = string
+  default     = ""
+}
+variable "fortiflex_password" {
+    description = "Fortiflex Password to make FortiFlex API Calls"
+    type        = string
+    default     = ""
+}
+variable fortiflex_sn_list {
+    description = "List of Serial Numbers for FortiFlex"
+    type = list(string)
+    default = [""]
+}
+variable fortiflex_configid_list {
+    description = "Config ID for FortiFlex"
+    type = list(string)
+    default = [""]
+}
 variable "base_config_file" {
   description = "Initial Config File for Autoscale Group"
   type        = string
