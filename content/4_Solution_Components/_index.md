@@ -2,7 +2,7 @@
 title: "Solution Components"
 chapter: false
 menuTitle: "Solution Components"
-weight: 30
+weight: 40
 ---
 
 #### Egress Options
