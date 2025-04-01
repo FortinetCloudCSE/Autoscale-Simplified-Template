@@ -38,7 +38,7 @@ resource "aws_ec2_transit_gateway_route_table_association" "east" {
   transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.east[0].id
 }
 resource "aws_ec2_transit_gateway_route" "default-route-east-tgw" {
-  count                          = var.enable_build_existing_subnets ? 1 : 0
+  count                          = (var.enable_management_tgw_attachment && var.enable_build_existing_subnets) ? 1 : 0
   depends_on                     = [aws_ec2_transit_gateway_route_table.east]
   destination_cidr_block         = var.vpc_cidr_management
   transit_gateway_attachment_id  = module.vpc-management[0].management_tgw_attachment_id
@@ -76,7 +76,7 @@ resource "aws_ec2_transit_gateway_route_table_association" "west" {
   transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.west[0].id
 }
 resource "aws_ec2_transit_gateway_route" "default-route-west-tgw" {
-  count                          = var.enable_build_existing_subnets ? 1 : 0
+  count                          = (var.enable_management_tgw_attachment && var.enable_build_existing_subnets) ? 1 : 0
   depends_on                     = [aws_ec2_transit_gateway_route_table.west]
   destination_cidr_block         = var.vpc_cidr_management
   transit_gateway_attachment_id  = module.vpc-management[0].management_tgw_attachment_id

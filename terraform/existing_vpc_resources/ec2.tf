@@ -1,10 +1,10 @@
 check "config_validation_instances_subnets" {
   assert {
-    condition = (var.enable_linux_spoke_instances && !var.enable_build_existing_subnets)
+    condition = (var.enable_linux_spoke_instances == true && !var.enable_build_existing_subnets == false)
     error_message = "Cannot enable linux spoke instances and disable build existing subnets. No subnets to place the linux instances. Abort."
   }
   assert {
-    condition = (var.enable_jump_box && !var.enable_build_management_vpc)
+    condition = (var.enable_jump_box == true && !var.enable_build_management_vpc == false)
     error_message = "Cannot enable jump box and disable build management vpc. No subnet to place the jump box. Abort."
   }
 }
