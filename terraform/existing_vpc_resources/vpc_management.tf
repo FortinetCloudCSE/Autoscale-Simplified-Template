@@ -61,21 +61,21 @@ resource "aws_route" "public-192-route-tgw-az1" {
   count                  = (var.enable_build_management_vpc && var.enable_management_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
   destination_cidr_block = local.rfc1918_192
-  transit_gateway_id     = module.vpc-transit-gateway.tgw_id
+  transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "public-10-route-tgw" {
   depends_on             = [module.vpc-management]
   count                  = (var.enable_build_management_vpc && var.enable_management_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
   destination_cidr_block = local.rfc1918_10
-  transit_gateway_id     = module.vpc-transit-gateway.tgw_id
+  transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "public-172-route-tgw" {
   depends_on             = [module.vpc-management]
   count                  = (var.enable_build_management_vpc && var.enable_management_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
   destination_cidr_block = local.rfc1918_172
-  transit_gateway_id     = module.vpc-transit-gateway.tgw_id
+  transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_ec2_transit_gateway_route" "route-to-west-tgw" {
   count                          = (var.enable_management_tgw_attachment && var.enable_build_management_vpc && var.enable_build_existing_subnets) ? 1 : 0

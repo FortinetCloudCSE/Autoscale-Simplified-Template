@@ -1,6 +1,7 @@
 
 module "vpc-transit-gateway" {
   source                          = "git::https://github.com/40netse/terraform-modules.git//aws_tgw"
+  count                           = var.enable_build_existing_subnets ? 1 : 0
   tgw_name                        = "${var.cp}-${var.env}-tgw"
   default_route_table_association = "disable"
   default_route_table_propagation = "disable"
@@ -18,7 +19,7 @@ module "vpc-transit-gateway-attachment-east" {
                                     module.subnet-east-public-az2]
   tgw_attachment_name            = "${var.cp}-${var.env}-east-tgw-attachment"
 
-  transit_gateway_id             = module.vpc-transit-gateway.tgw_id
+  transit_gateway_id             = module.vpc-transit-gateway[0].tgw_id
   subnet_ids                     = [ module.subnet-east-public-az1[0].id, module.subnet-east-public-az2[0].id ]
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
@@ -27,7 +28,7 @@ module "vpc-transit-gateway-attachment-east" {
 
 resource "aws_ec2_transit_gateway_route_table" "east" {
   count                           = var.enable_build_existing_subnets ? 1 : 0
-  transit_gateway_id              = module.vpc-transit-gateway.tgw_id
+  transit_gateway_id              = module.vpc-transit-gateway[0].tgw_id
   tags = {
       Name = "${var.cp}-${var.env}-east-tgw-rtb"
   }
@@ -55,7 +56,7 @@ module "vpc-transit-gateway-attachment-west" {
                           module.subnet-west-public-az2]
   tgw_attachment_name  = "${var.cp}-${var.env}-west-tgw-attachment"
 
-  transit_gateway_id   = module.vpc-transit-gateway.tgw_id
+  transit_gateway_id   = module.vpc-transit-gateway[0].tgw_id
   subnet_ids           = [ module.subnet-west-public-az1[0].id, module.subnet-west-public-az2[0].id ]
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
@@ -64,7 +65,7 @@ module "vpc-transit-gateway-attachment-west" {
 
 resource "aws_ec2_transit_gateway_route_table" "west" {
   count                           = var.enable_build_existing_subnets ? 1 : 0
-  transit_gateway_id              = module.vpc-transit-gateway.tgw_id
+  transit_gateway_id              = module.vpc-transit-gateway[0].tgw_id
   tags = {
     Name = "${var.cp}-${var.env}-west-tgw-rtb"
   }

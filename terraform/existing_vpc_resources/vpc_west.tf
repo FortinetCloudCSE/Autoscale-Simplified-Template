@@ -42,12 +42,12 @@ resource "aws_route" "default-route-west-public" {
   count                  = var.enable_build_existing_subnets ? 1 : 0
   route_table_id         = module.vpc-west[0].vpc_main_route_table_id
   destination_cidr_block = "0.0.0.0/0"
-  transit_gateway_id     = module.vpc-transit-gateway.tgw_id
+  transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "management-route-west-public" {
   depends_on             = [module.vpc-transit-gateway-attachment-east]
   count                  = var.enable_build_management_vpc ? 1 : 0
   route_table_id         = module.vpc-west[0].vpc_main_route_table_id
   destination_cidr_block = var.vpc_cidr_management
-  transit_gateway_id     = module.vpc-transit-gateway.tgw_id
+  transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }

@@ -1,11 +1,19 @@
 check "config_validation_instances_subnets" {
   assert {
-    condition = (var.enable_linux_spoke_instances == true && !var.enable_build_existing_subnets == false)
+    condition = (var.enable_linux_spoke_instances == true && var.enable_build_existing_subnets == false)
     error_message = "Cannot enable linux spoke instances and disable build existing subnets. No subnets to place the linux instances. Abort."
   }
   assert {
-    condition = (var.enable_jump_box == true && !var.enable_build_management_vpc == false)
+    condition = (var.enable_jump_box == true && var.enable_build_management_vpc == false)
     error_message = "Cannot enable jump box and disable build management vpc. No subnet to place the jump box. Abort."
+  }
+  assert {
+    condition = (var.enable_fortimanager == true && var.enable_build_management_vpc == false)
+    error_message = "Cannot enable Fortimanager and disable build management vpc. No subnet to place the jump box. Abort."
+  }
+  assert {
+    condition = (var.enable_fortianalyzer == true && var.enable_build_management_vpc == false)
+    error_message = "Cannot enable Fortianalyzer and disable build management vpc. No subnet to place the jump box. Abort."
   }
 }
 locals {
