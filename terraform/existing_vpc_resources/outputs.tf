@@ -1,9 +1,9 @@
 output "vpc_id" {
-  value       = var.enable_build_existing_subnets ? module.vpc-management[0].vpc_id : null
+  value       = var.enable_build_management_vpc ? module.vpc-management[0].vpc_id : null
   description = "The VPC Id of the management VPC."
 }
 output "igw_id" {
-  value       = var.enable_build_existing_subnets ? module.vpc-management[0].igw_id : null
+  value       = var.enable_build_management_vpc ? module.vpc-management[0].igw_id : null
   description = "The IGW Id of the management VPC."
 }
 output "jump_box_public_ip" {

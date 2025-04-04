@@ -82,6 +82,22 @@ Fill in the **cp** and **env** variables. The values for these variables will be
 
 ![tgw-name.png](tgw-name.png)
 
+#### asg_license_directory and FortiFlex licensing
+
+See the Licensing section for a complete licensing discussion
+
+![License Variables](license-variables.png)
+
 Follow the comments to fill in the rest of the variables as needed.
 
+#### Template Deployment
 
+Once the terraform.tfvars variable assignment is complete, you can deploy the template using the following commands:
+
+  ``` terraform init ```
+
+  ``` terraform plan ``` 
+
+  ``` terraform apply ```
+
+* This concludes this section

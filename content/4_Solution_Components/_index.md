@@ -47,6 +47,25 @@ When this option is enabled, port2 is taken out of the data plane and cannot be 
 Be aware that setting a dedicated management ENI on a 2-arm router and setting Egress Option to nat_gw will not allocate an EIP to the port2 interface. This is a valid configuration, but you cannot access the management interface from the public internet. You MUST access the firewall on the private interface IP address through an AWS Direct Connect. 
 {{% /notice %}}
 
+#### License Directory
+
+All BYOL licenses allocated to license BYOL instances in the autoscale group my be stored in the directory indicated by the asg_license_directory variable in the terraform.tfvars file. The directory must be in the same directory as the terraform.tfvars file. The licenses found here will be copied to an S3 bucket and allocated to byol instances as they are spawned. Additional instances will be spawned under the on_demand autoscale group, if necessary. 
+
+![License Directory](license-directory.png)
+
+
+#### Enable Dedicated Management ENI
+
+The FortiGate Autoscale solution provides the option to enable a dedicated management ENI. This option is configured in the template terraform.tfvars file by setting the following variable to true:
+
+enable_dedicated_mgmt_eni = true
+
+When this option is enabled, port2 is taken out of the data plane and cannot be used by the Fortigate for data plane traffic. This is done by setting the dedicated-to attribute on the interface definition and putting the interface in a separate vrf. Once this is done, the Fortigate cannot assign a firewall policy to the interface and the interface will have a separate routing table. 
+
+{{% notice note %}}
+Be aware that setting a dedicated management ENI on a 2-arm router and setting Egress Option to nat_gw will not allocate an EIP to the port2 interface. This is a valid configuration, but you cannot access the management interface from the public internet. You MUST access the firewall on the private interface IP address through an AWS Direct Connect. 
+{{% /notice %}}
+
 ![Dedicated Management ENI](management-eni.png)
 
 This can be verified in the Fortigate GUI by looking at the Network->Interface definition. 
@@ -55,17 +74,20 @@ This can be verified in the Fortigate GUI by looking at the Network->Interface d
 
 #### Enable Dedicated Management VPC
 
-The FortiGate Autoscale solution provides the option to enable a dedicated management VPC. This option is configured in the template terraform.tfvars file by setting the following variable to true:
+The FortiGate Autoscale solution provides the option to enable a dedicated management VPC. The dedicated management VPC can be created by the existing_vpc_resources template or the dedicated management VPC can be an existing vpc in your cloud account. To create the management VPC using the existing_vpc_resources, set the following variable in the terraform.tfvars to true: 
 
-enable_dedicated_mgmt_vpc = true
+![Dedicated Management VPC](dedicated_mgmt_vpc.png)
 
-When this option is enabled and "enable_build_management_vpc" was set to true in the "existing_vpc_resources", the template will create a dedicated management eni (described above) in the management VPC created by the "existing_vpc_resources" template. If the "existing_vpc_resources" did not build a management VPC, the simplified template will create a new management vpc and build a dedicated_management_eni (described above) in the management VPC. 
+The existing_vpc_resources template will create a management VPC with default tag values that allow the simplified template to find the management VPC and subnets.  
 
-#### License Directory
+![Default Tags Management VPC](default-tags-mgmt-vpc.png)
+![Default Tags Management Subnets](default-tags-mgmt-subnets.png)
 
-All BYOL licenses allocated to license BYOL instances in the autoscale group my be stored in the directory indicated by the asg_license_directory variable in the terraform.tfvars file. The directory must be in the same directory as the terraform.tfvars file. The licenses found here will be copied to an S3 bucket and allocated to byol instances as they are spawned. Additional instances will be spawned under the on_demand autoscale group, if necessary. 
+If you wish to use a non-default existing management VPC, you will need to set the following variables in the terraform.tfvars file:
 
-![License Directory](license-directory.png)
+![Non Default Tags Management](non-default-tags-mgmt.png)
+
+When the enable_dedicated_management_vpc option is enabled, the template will create a dedicated management eni (described above) in the management VPC identified by the management VPC tags.
 
 #### Autoscale Group Capacity
 

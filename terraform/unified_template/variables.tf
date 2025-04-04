@@ -52,6 +52,15 @@ variable "cp" {
 variable "env" {
   description = "The Tag Environment to differentiate prod/test/dev"
 }
+variable "dedicated_management_vpc_tag" {
+  description = "Tag used by dedicated management VPC"
+}
+variable "dedicated_management_public_az1_subnet_tag" {
+  description = "Tag used by dedicated management public AZ1 subnet"
+}
+variable "dedicated_management_public_az2_subnet_tag" {
+  description = "Tag used by dedicated management public AZ2 subnet"
+}
 variable "enable_dedicated_management_vpc" {
   description = "Boolean to allow creation of dedicated management interface in management VPC"
   type        = bool

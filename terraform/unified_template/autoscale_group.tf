@@ -8,13 +8,13 @@ locals {
   management_device_index = var.firewall_policy_mode == "2-arm" ? 2 : 1
 }
 locals {
-  management_vpc = "${var.cp}-${var.env}-management-vpc"
+  management_vpc = var.dedicated_management_vpc_tag
 }
 locals {
-  management_public_az1 = "${var.cp}-${var.env}-management-public-az1-subnet"
+  management_public_az1 = var.dedicated_management_public_az1_subnet_tag
 }
 locals {
-  management_public_az2 = "${var.cp}-${var.env}-management-public-az2-subnet"
+  management_public_az2 = var.dedicated_management_public_az2_subnet_tag
 }
 locals {
   inspection_management_az1 = "${var.cp}-${var.env}-inspection-management-az1-subnet"
