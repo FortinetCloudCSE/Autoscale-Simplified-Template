@@ -94,3 +94,22 @@ When the enable_dedicated_management_vpc option is enabled, the template will cr
 The initial autoscale group capacity can be set by setting the following variables in the terraform.tfvars file:
 
 ![Autoscale Group Capacity](asg-group-capacity.png)
+
+#### Scale-in Protection for the Primary Instance
+
+The primary instance in the autoscale group can be protected from scale-in events by setting the following variable in the terraform.tfvars file:
+
+![Scale-in Protection](scale-in-protection.png)
+
+Setting scale-in protection on the primary instance prevents AWS Autoscale from choosing the primary instance for scale-in events. This primary instance is responsible for maintaining the autoscale group configuration and config-syncs with the secondary members in the autoscale group. By protecting the primary instance during a scale-in event, unnecessary primary elections can be prevented and the autoscale group can maintain its configuration. 
+
+Setting this variable in the terraform.tfvars file is passed through to the autoscale_group.tf file for each autoscale group (byol, on_demand) during autoscale group deployment. 
+
+![Scale-in Passthru 1](scale-in-passthru-1.png)
+![Scale-in Passthru 2](scale-in-passthru-2.png)
+
+You can verify the scale-in protection by looking at the instance details in the AWS console. 
+
+AWS documentation for using scale-in protection in an autoscale group can be found here: 
+
+[Using AWS Autoscale Scale-in Protection](https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-instance-protection.html).

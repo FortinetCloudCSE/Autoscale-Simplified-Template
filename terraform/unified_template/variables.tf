@@ -69,6 +69,11 @@ variable "enable_dedicated_management_eni" {
   description = "Boolean to allow creation of dedicated management subnets and ENI in the inspection VPC"
   type        = bool
 }
+variable "primary_scalein_protection" {
+  description = "Boolean to set the scale-in protection for the primary instance in the autoscale group"
+  type        = bool
+  default     = true
+}
 variable "create_tgw_routes_for_existing" {
   description = "Boolean to allow creation of TGW routes for the existing_vpc_resources template"
   type        = bool

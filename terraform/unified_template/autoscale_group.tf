@@ -100,8 +100,8 @@ resource "aws_security_group" "management-vpc-sg" {
 }
 
 module "spk_tgw_gwlb_asg_fgt_igw" {
-  source = "git::https://github.com/fortinetdev/terraform-aws-cloud-modules.git//examples/spk_tgw_gwlb_asg_fgt_igw"
-
+  source = "fortinetdev/cloud-modules/aws//examples/spk_tgw_gwlb_asg_fgt_igw"
+  version = "1.1.1"
   ## Note: Please go through all arguments in this file and replace the content with your configuration! This file is just an example.
   ## "<YOUR-OWN-VALUE>" are parameters that you need to specify your own value.
 
@@ -201,6 +201,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   fgt_access_internet_mode = var.access_internet_mode
     asgs = {
     fgt_byol_asg = {
+      primary_scalein_protection = var.primary_scalein_protection
       extra_network_interfaces = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
           device_index = local.management_device_index
@@ -255,6 +256,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       dynamodb_table_name   = "fgt_asg_track_table"
     },
     fgt_on_demand_asg = {
+      primary_scalein_protection = var.primary_scalein_protection
       extra_network_interfaces = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
           device_index = local.management_device_index
