@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.5-labs
 
 #alpine has shell, busybox does not
-FROM hugomods/hugo:std as base
+FROM hugomods/hugo:0.145.0 as base
 
 FROM base as dev
 ADD https://github.com/FortinetCloudCSE/CentralRepo.git#prreviewJune23 /home/CentralRepo
