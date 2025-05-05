@@ -50,6 +50,16 @@ variable "fortimanager_license_file" {
   type        = string
   default     = ""
 }
+variable "fortimanager_vm_name" {
+  description = "FortiManager VM Name"
+  type        = string
+  default     = ""
+}
+variable "fortimanager_admin_password" {
+  description = "FortiManager Admin Password"
+  type        = string
+  default     = ""
+}
 variable "enable_fortianalyzer" {
   description = "Boolean to allow creation of FortiAnalyzer in Inspection VPC"
   type        = bool
@@ -69,6 +79,16 @@ variable "fortianalyzer_os_version" {
 }
 variable "fortianalyzer_license_file" {
   description = "Full path for FortiAnalyzer License"
+  type        = string
+  default     = ""
+}
+variable "fortianalyzer_vm_name" {
+  description = "fortianalyzer VM Name"
+  type        = string
+  default     = ""
+}
+variable "fortianalyzer_admin_password" {
+  description = "fortianalyzer Admin Password"
   type        = string
   default     = ""
 }

@@ -12,6 +12,20 @@ resource "random_string" "random" {
   special          = false
 }
 
+locals {
+  faz_template_file = templatefile("${path.module}/config_templates/faz-userdata.tftpl", {
+    faz_license_file   = var.fortianalyzer_license_file
+    faz_vm_name        = var.fortianalyzer_vm_name
+    faz_admin_password = var.fortianalyzer_admin_password
+  })
+}
+locals {
+  fmgr_template_file = templatefile("${path.module}/config_templates/fmgr-userdata.tftpl", {
+    fmg_license_file   = var.fortimanager_license_file
+    fmg_vm_name        = var.fortimanager_vm_name
+    fmg_admin_password = var.fortimanager_admin_password
+  })
+}
 module "vpc-management" {
   source                         = "git::https://github.com/40netse/terraform-modules.git//aws_management_vpc"
   count                          = var.enable_build_management_vpc ? 1 : 0
@@ -38,9 +52,11 @@ module "vpc-management" {
   fortianalyzer_host_ip          = var.fortianalyzer_host_ip
   fortianalyzer_instance_type    = var.fortianalyzer_instance_type
   fortianalyzer_os_version       = var.fortianalyzer_os_version
+  fortianalyzer_user_data        = local.faz_template_file
   fortimanager_host_ip           = var.fortimanager_host_ip
   fortimanager_instance_type     = var.fortimanager_instance_type
   fortimanager_os_version        = var.fortimanager_os_version
+  fortimanager_user_data         = local.fmgr_template_file
   linux_host_ip                  = var.linux_host_ip
   linux_instance_type            = var.linux_instance_type
   my_ip                          = var.my_ip
