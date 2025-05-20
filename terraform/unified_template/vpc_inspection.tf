@@ -4,12 +4,7 @@ locals {
     Environment = var.env
   }
 }
-provider "aws" {
-  region     = var.aws_region
-  default_tags {
-    tags = local.common_tags
-  }
-}
+
 check "config_validation" {
   assert {
     condition = !(var.enable_dedicated_management_eni && var.enable_dedicated_management_vpc)
