@@ -41,6 +41,7 @@ runuser -l ubuntu -c 'echo "export PATH=$PATH:~/bin" >> ~/.bashrc'
 runuser -l ubuntu -c 'echo "export PATH=$PATH:~/bin" >> ~/.bashrc'
 runuser -l ubuntu -c 'echo "export AWS_ACCESS_KEY_ID=\`aws --profile default configure get aws_access_key_id\`" >> ~/.bashrc'
 runuser -l ubuntu -c 'echo "export AWS_SECRET_ACCESS_KEY=\`aws --profile default configure get aws_secret_access_key\`" >> ~/.bashrc'
+runuser -l ubuntu -c 'echo "export AWS_REGION=\`aws --profile default configure get aws_region\`" >> ~/.bashrc'
 
 cat >> /home/ubuntu/fgt_config.conf <<EOF
 # This is an FortiGate configuration example with two Geneve tunnel: geneve-az1, geneve-az2. Please add or remove based on your own value.
