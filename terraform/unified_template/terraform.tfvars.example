@@ -49,6 +49,10 @@ firewall_policy_mode = "1-arm"
 # NOTE: You should keep this false if you deployed the management vpc from the existing_vpc_resources template.
 #
 enable_dedicated_management_vpc = false
+dedicated_management_vpc_tag = "acme-test-management-vpc"
+dedicated_management_public_az1_subnet_tag = "acme-test-management-public-az1-subnet"
+dedicated_management_public_az2_subnet_tag = "acme-test-management-public-az2-subnet"
+
 
 #
 # allow the creation of a dedicated managment subnet in the inspection VPC. Then create a dedicated management
@@ -96,6 +100,12 @@ asg_module_prefix            = "asg"
 # directory where BYOL Licenses for NS firewall group are stored
 #
 asg_license_directory        = "asg_license"
+
+# fortiflex_username      = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# fortiflex_password      = "xxxxxxxxxxxxxxxxxxxxx"
+# fortiflex_sn_list       = ["FGVMELTMxxxxxxxx", "FGVMELTMxxxxxxxx", "FGVMELTMxxxxxxxx", "FGVMELTMxxxxxxxx"]
+# fortiflex_configid_list = ["STD_ASG_FGT_4XvcpuFortiGate-VM"]
+
 #
 # base fortios configuration file. These files are in the base directory and prefixes are added depending on
 # the configuration being deployed. e.g. 1-arm-wdm-fgt-conf.cfg, 2-arm-fgt-conf.cfg
