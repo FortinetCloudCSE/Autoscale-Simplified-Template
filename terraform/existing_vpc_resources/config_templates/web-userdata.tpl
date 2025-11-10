@@ -88,7 +88,69 @@ config router static
     next
 end
 
+config router
+cat >> /home/ubuntu/fgt_config.conf <<EOF
+# This is an FortiGate configuration example with two Geneve tunnel: geneve-az1, geneve-az2. Please add or remove based on your own value.
+# Geneve tunnel name will be with format 'geneve-az<NUMBER>'. Check 'az_name_map' of the output of template, which is map of Geneve tunnel name to the AZ name that supported in Security VPC.
+#
+# This is an FortiGate configuration example with two Geneve tunnel: geneve-az1, geneve-az2. Please add or remove based on your own value.
+# Geneve tunnel name will be with format 'geneve-az<NUMBER>'. Check 'az_name_map' of the output of template, which is map of Geneve tunnel name to the AZ name that supported in Security VPC.
+# Change port2 to port1 if fgt_intf_mode set to 1-arm.
+
+config system interface
+edit port1
+        set defaultgw disable
+    next
+    edit port2
+        set defaultgw enable
+    next
+end
+config system zone
+    edit "geneve-tunnels"
+        set interface "geneve-az1" "geneve-az2"
+    next
+end
+
+config router static
+    edit 0
+        set dst 192.168.0.0 255.255.0.0
+        set distance 5
+        set priority 100
+        set device "geneve-az1"
+    next
+    edit 0
+        set dst 192.168.0.0 255.255.0.0
+        set distance 5
+        set priority 100
+        set device "geneve-az2"
+    next
+    edit 0
+        set dst 10.0.0.11 255.255.255.255
+        set device "geneve-az1"
+    next
+    edit 0
+        set dst 10.0.0.11 255.255.255.255
+        set device "geneve-az2"
+    next
+end
+
 config router policy
+    edit 1
+        set input-device "geneve-az1"
+        set output-device "geneve-az1"
+    next
+    edit 2
+        set input-device "geneve-az2"
+        set output-device "geneve-az2"
+    next
+end
+
+config firewall address
+    edit "10.0.0.0/8"
+        set subnet 10.0.0.0 255.0.0.0
+    next
+    edit "172.16.0.0/20"
+ policy
     edit 1
         set input-device "geneve-az1"
         set output-device "geneve-az1"

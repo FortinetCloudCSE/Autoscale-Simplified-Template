@@ -11,6 +11,7 @@ config system global
 %{ if fmg_vm_name != "" }
     set hostname "${fmg_vm_name}"
 %{ endif }
+    set fgfm-allow-vm enable
     set adom-status enable
     set clone-name-option keep
     set create-revision enable

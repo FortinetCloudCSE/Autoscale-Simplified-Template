@@ -195,3 +195,25 @@ variable "asg_ondemand_asg_desired_size" {
 variable "acl" {
   description = "The acl for linux instances"
 }
+variable "enable_fortimanager_integration" {
+  description = "Boolean to enable FortiManager integration"
+  type        = bool
+  default     = false
+}
+variable "fortimanager_ip" {
+  description = "IP address of the FortiManager"
+  type        = string
+  default     = ""
+}
+variable "fortimanager_sn" {
+  description = "Serial Number of the FortiManager"
+  type        = string
+  default     = ""
+}
+variable "fortimanager_vrf_select" {
+  description = "VRF to use to reach the Fortianager"
+  type        = number
+  default     = 0
+}
+
+
