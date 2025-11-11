@@ -1,103 +1,345 @@
-
-aws_region                    = "us-west-2"
-availability_zone_1           = "a"
-availability_zone_2           = "c"
-
-
+#====================================================================================================
+# REGION AND AVAILABILITY ZONES
+#====================================================================================================
+# AWS region where all resources will be deployed
+# Availability zones are specified as single letters (a, b, c, etc.) which will be appended to the region
+# Example: us-west-2 + "a" = us-west-2a
 #
-# cp (customer_prefix) and env (environment) prepended to all resources created by the template.
-# Used for identification. e.g. "<customer_prefix>-<prod/test/dev>"
-# these variables decoouple the dedicated management vpc and spoke vpcs from the deployment templates. 
-# If these two variables are the same in both templates, the template will be able to use data sources to find route tables, 
-# subnets, etc to deploy instances into
-#
-cp                                       = "acme"
-env                                      = "test"
+aws_region          = "us-west-2"
+availability_zone_1 = "a"
+availability_zone_2 = "c"
 
+#====================================================================================================
+# RESOURCE IDENTIFICATION
+#====================================================================================================
+# Customer Prefix (cp) and Environment (env) are prepended to all resources for identification
+# Format: "<cp>-<env>-<resource_name>"
+# Example: "acme-test-management-vpc", "acme-test-tgw"
 #
-# enable management_tgw_attachment - attaches dedicated management vpc to the named TGW. 
-#                                    This allows the jump box access to spoke linux instances. NOT FOR PRODUCTION
+# IMPORTANT: These values MUST MATCH between existing_vpc_resources and unified_template
+# The unified_template uses these values to discover resources via AWS resource tags
 #
-enable_management_tgw_attachment         = true
+cp  = "acme"  # Customer prefix - use your company/project name
+env = "test"  # Environment: prod, test, dev, staging, etc.
 
+#====================================================================================================
+# SECURITY VARIABLES
+#====================================================================================================
+# AWS EC2 keypair name for SSH access to instances (must already exist in target region)
+# Use: aws ec2 describe-key-pairs to list available keypairs
 #
-# enable_build_existing_subnets - creates spoke vpcs and linux instances. NOT FOR PRODUCTION
+keypair = ""
+
+# Your public IP address or CIDR for restricting SSH and HTTPS access to created resources
+# Used to create security group rules that only allow connections from your location
+# Format: "x.x.x.x/32" for single IP or "x.x.x.0/24" for subnet
+# Find your IP: curl ifconfig.me
+#
+my_ip = ""
+
+#====================================================================================================
+# NETWORK CIDR CONFIGURATION
+#====================================================================================================
+# Management VPC CIDR - for FortiManager, FortiAnalyzer, and jump box
+# This CIDR should not overlap with inspection VPC or spoke VPCs
+#
+vpc_cidr_management = "10.3.0.0/16"
+
+# Inspection VPC CIDR (reference only - used by unified_template)
+# This value is not used by existing_vpc_resources but documented here to avoid CIDR overlaps
+# The unified_template creates the actual inspection VPC with this CIDR
+#
+vpc_cidr_ns_inspection = "10.0.0.0/16"
+
+# Supernet CIDR that encompasses all spoke VPCs
+# Used for route table summarization and TGW route configuration
+# Must be large enough to contain all individual spoke VPC CIDRs
+#
+vpc_cidr_spoke = "192.168.0.0/16"
+
+# East spoke VPC CIDR and subnet allocations
+# This VPC simulates workload VPC for testing east-west and north-south traffic flows
+#
+vpc_cidr_east            = "192.168.0.0/24"
+vpc_cidr_east_public_az1 = "192.168.0.0/28"   # Public subnet in AZ1 for Linux instances
+vpc_cidr_east_public_az2 = "192.168.0.16/28"  # Public subnet in AZ2 for Linux instances
+
+# West spoke VPC CIDR and subnet allocations
+# This VPC simulates second workload VPC for testing cross-VPC traffic inspection
+#
+vpc_cidr_west            = "192.168.1.0/24"
+vpc_cidr_west_public_az1 = "192.168.1.0/28"   # Public subnet in AZ1 for Linux instances
+vpc_cidr_west_public_az2 = "192.168.1.16/28"  # Public subnet in AZ2 for Linux instances
+
+# Number of bits to use for subnet CIDR calculation
+# Formula: <vpc_cidr>/<vpc_cidr_prefix + subnet_bits>
+# Example: 10.0.0.0/16 with subnet_bits=8 creates /24 subnets (10.0.0.0/24, 10.0.1.0/24, etc.)
+# Recommended: 7 or 8 for most deployments
+#
+subnet_bits = 8
+
+#====================================================================================================
+# MANAGEMENT VPC CONFIGURATION
+#====================================================================================================
+# Enable creation of a dedicated management VPC for FortiManager, FortiAnalyzer, and jump box
+# Set to false if you have an existing management VPC or don't need management infrastructure
+#
+enable_build_management_vpc = true
+
+#====================================================================================================
+# FORTIMANAGER CONFIGURATION
+#====================================================================================================
+# Enable deployment of FortiManager instance in the management VPC
+# FortiManager provides centralized policy management and device orchestration
+# Set to false if you don't need FortiManager or have an existing FortiManager instance
+#
+enable_fortimanager = true
+
+# Attach an Elastic IP (public IP) to FortiManager for internet access
+# Set to true for direct internet access, false if accessing via VPN/Direct Connect
+#
+enable_fortimanager_public_ip = true
+
+# FortiManager instance type - determines CPU, memory, and cost
+# Recommended: m5.large (2 vCPU, 8GB RAM) for small deployments
+#              m5.xlarge (4 vCPU, 16GB RAM) for medium deployments
+#              m5.2xlarge (8 vCPU, 32GB RAM) for large deployments
+#
+fortimanager_instance_type = "m5.xlarge"
+
+# FortiManager OS version to deploy
+# Use format "X.Y.Z" for specific version or "X.Y" for latest patch version
+# Check available versions: https://docs.fortinet.com/product/fortimanager/
+#
+fortimanager_os_version = "7.4.5"
+
+# Host portion of FortiManager private IP address within management VPC
+# Full IP will be: <vpc_cidr_management_base>.<host_ip>
+# Example: 10.3.0.14 if vpc_cidr_management = "10.3.0.0/16"
+#
+fortimanager_host_ip = 14
+
+# Full path to FortiManager BYOL license file
+# IMPORTANT: Do NOT place in the same directory as FortiGate autoscale licenses
+# The autoscale Lambda function will attempt to use any .lic files it finds
+# Leave empty ("") if using PAYG (on-demand) FortiManager from AWS Marketplace
+#
+fortimanager_license_file = "./licenses/fmgr_license.lic"
+
+# Optional: FortiManager VM hostname (will use auto-generated name if empty)
+#
+fortimanager_vm_name = ""
+
+# FortiManager admin password - REQUIRED if deploying FortiManager
+# This becomes the password for the 'admin' user
+# IMPORTANT: Must be specified - if left empty, you will not be able to login to FortiManager
+# Password requirements: Minimum 8 characters
+#
+fortimanager_admin_password = ""
+
+#====================================================================================================
+# FORTIANALYZER CONFIGURATION
+#====================================================================================================
+# Enable deployment of FortiAnalyzer instance in the management VPC
+# FortiAnalyzer provides centralized logging, reporting, and analytics
+# Set to false if you don't need FortiAnalyzer or have an existing FortiAnalyzer instance
+#
+enable_fortianalyzer = false
+
+# Attach an Elastic IP (public IP) to FortiAnalyzer for internet access
+# Set to true for direct internet access, false if accessing via VPN/Direct Connect
+#
+enable_fortianalyzer_public_ip = false
+
+# FortiAnalyzer instance type - determines CPU, memory, storage, and cost
+# Recommended: m5.large (2 vCPU, 8GB RAM) for small deployments (< 10 devices)
+#              m5.xlarge (4 vCPU, 16GB RAM) for medium deployments (10-50 devices)
+#              m5.2xlarge (8 vCPU, 32GB RAM) for large deployments (50+ devices)
+#
+fortianalyzer_instance_type = "m5.xlarge"
+
+# FortiAnalyzer OS version to deploy
+# Use format "X.Y.Z" for specific version or "X.Y" for latest patch version
+# Should generally match FortiManager version for compatibility
+#
+fortianalyzer_os_version = "7.4.5"
+
+# Host portion of FortiAnalyzer private IP address within management VPC
+# Full IP will be: <vpc_cidr_management_base>.<host_ip>
+# Example: 10.3.0.13 if vpc_cidr_management = "10.3.0.0/16"
+#
+fortianalyzer_host_ip = 13
+
+# Full path to FortiAnalyzer BYOL license file
+# IMPORTANT: Do NOT place in the same directory as FortiGate autoscale licenses
+# Leave empty ("") if using PAYG (on-demand) FortiAnalyzer from AWS Marketplace
+#
+fortianalyzer_license_file = "./licenses/faz_license.lic"
+
+# Optional: FortiAnalyzer VM hostname (will use auto-generated name if empty)
+#
+fortianalyzer_vm_name = ""
+
+# FortiAnalyzer admin password - REQUIRED if deploying FortiAnalyzer
+# This becomes the password for the 'admin' user
+# IMPORTANT: Must be specified - if left empty, you will not be able to login to FortiAnalyzer
+# Password requirements: Minimum 8 characters
+#
+fortianalyzer_admin_password = ""
+
+#====================================================================================================
+# JUMP BOX CONFIGURATION
+#====================================================================================================
+# Enable deployment of a Linux jump box (bastion host) in the management VPC
+# Useful for SSH access to private resources and testing connectivity
+# Set to false if you have an existing bastion or don't need jump box access
+#
+enable_jump_box = true
+
+# Attach an Elastic IP (public IP) to jump box for internet access
+# Set to true for direct SSH access from internet, false if accessing via VPN/Direct Connect
+#
+enable_jump_box_public_ip = true
+
+#====================================================================================================
+# TRANSIT GATEWAY CONFIGURATION
+#====================================================================================================
+# Enable creation of AWS Transit Gateway and spoke VPCs for testing/demonstration
+# Transit Gateway provides centralized routing hub for VPC interconnectivity
+# Set to false if connecting to existing Transit Gateway or not using TGW architecture
 #
 enable_build_existing_subnets = true
 
+# Name tag for the Transit Gateway
+# This name is used by the unified_template to discover and attach to this TGW
+# IMPORTANT: Must match "attach_to_tgw_name" in unified_template/terraform.tfvars
+# For production: Change this to match your existing production Transit Gateway name
 #
-# enabled_build_management_vpc - creates the dedicated management VPC
-#
-enable_build_management_vpc   = true
+attach_to_tgw_name = "acme-test-tgw"
 
+# Enable Transit Gateway attachment for management VPC
+# Allows management VPC (jump box, FortiManager, FortiAnalyzer) to reach spoke VPC resources
+# Useful for testing but NOT recommended for production environments
+# Set to false for production deployments to maintain management plane isolation
 #
-# FMGR AND FAZ OPTIONS
-#
-#  Allow creation of FortiManager and FortiAnalyzer instances in the public subnet of the inspection VPC
-# enable assign a public IP to the FortiManager and FortiAnalyzer instances
-#
-enable_fortimanager            = true # create a fortimanager instance in the dedicated mgmt vpc
-enable_fortianalyzer           = false # create a fortianalyzer instance n the dedicated mgmt vpc
-enable_fortimanager_public_ip  = true # attach an EIP to the fmgr instance
-enable_fortianalyzer_public_ip = false # attach an EIP to the faz instance
+enable_management_tgw_attachment = true
 
+#====================================================================================================
+# LINUX INSTANCE CONFIGURATION (TRAFFIC GENERATORS)
+#====================================================================================================
+# Enable deployment of Linux instances in spoke VPCs
+# These instances run HTTP servers and can generate traffic for testing
+# Set to false if you don't need traffic generation or have existing spoke VPC resources
 #
-# Endpoints Variables
-#
-enable_linux_spoke_instances   = true # create linux instances in the spoke vpc for testing/traffic generation
-enable_jump_box                = true # create a linux jump box instance in the dedicated mgmt vpc. This allows access to spoke
-enable_jump_box_public_ip      = true # attach an EIP to the jump box
+enable_linux_spoke_instances = true
 
+# Linux instance type for traffic generators and jump box
+# Recommended: t3.micro or t2.micro for cost optimization (sufficient for testing)
 #
-# Subnet bits = number of bits used in the cidr for subnet.
-# e.g. 10.0.0.0/16 cidr with 8 subnet bits means each subnet is 10.0.0.0/24, 10.0.1.0/24, etc
-#
-subnet_bits                   = 7
-keypair                       = ""
-my_ip                         = ""
+linux_instance_type = "t3.micro"
 
-fortimanager_instance_type  = "m5.xlarge"
-fortianalyzer_instance_type = "m5.xlarge"
+# Host portion of Linux instance IP addresses within their respective spoke VPCs
+# Full IPs will be: <vpc_cidr_east_base>.<host_ip> and <vpc_cidr_west_base>.<host_ip>
+# Example: 192.168.0.11 (east) and 192.168.1.11 (west)
+#
+linux_host_ip = 11
 
-fortimanager_os_version     = "7.4.5"
-fortimanager_host_ip        = 14
-fortianalyzer_os_version    = "7.4.5"
-fortianalyzer_host_ip       = 13
+# ACL type for Linux instances
+# Options: "public" (assigns public IP), "private" (private IP only)
+# For testing with internet access, use "public"
+#
+acl = "public"
 
+#====================================================================================================
+# CONFIGURATION EXAMPLES AND USE CASES
+#====================================================================================================
 #
-# If enable_fortimanager and/or enable_fortianalyzer is enabled, full path for FortiManager and FortiAnalyzer Licenses.
-# Do not use the same directory as FortiGate autoscale licenses. If placed in the same directory,
-# the autoscale lambda function will attempt to use the FortiManager and FortiAnalyzer licenses as FortiGate licenses
-# and the autoscale instance will fail to launch successfully.
+# USE CASE 1: Complete Lab Environment
+# ------------------------------------
+# Full-featured lab with management VPC, Transit Gateway, spoke VPCs, and all optional components
 #
-# If you enable fmgr and/or faz and the file is not found, the templates will fail
+# enable_build_management_vpc      = true
+# enable_fortimanager              = true
+# enable_fortianalyzer             = true
+# enable_jump_box                  = true
+# enable_management_tgw_attachment = true
+# enable_build_existing_subnets    = true
+# enable_linux_spoke_instances     = true
 #
-fortimanager_license_file   = "./licenses/fmgr_license.lic"
-fortianalyzer_license_file  = "./licenses/faz_license.lic"
-
+# USE CASE 2: Management VPC Only
+# --------------------------------
+# Create only management infrastructure without spoke VPCs or Transit Gateway
 #
-# creates a TGW with this name. This should match in the unified_template because all VPC attach to the named TGW
+# enable_build_management_vpc      = true
+# enable_fortimanager              = true
+# enable_fortianalyzer             = true
+# enable_jump_box                  = false
+# enable_management_tgw_attachment = false
+# enable_build_existing_subnets    = false
 #
-attach_to_tgw_name            = "acme-test-tgw"
-
-
+# USE CASE 3: Traffic Generation Only
+# ------------------------------------
+# Create Transit Gateway and spoke VPCs for testing without management infrastructure
 #
-# CIDR blocks for the inspection VPCs
+# enable_build_management_vpc      = false
+# enable_build_existing_subnets    = true
+# enable_linux_spoke_instances     = true
 #
-vpc_cidr_ns_inspection        = "10.0.0.0/16"
-vpc_cidr_management           = "10.3.0.0/16"
-
-vpc_cidr_spoke                = "192.168.0.0/16"
-vpc_cidr_east                 = "192.168.0.0/24"
-vpc_cidr_east_public_az1      = "192.168.0.0/28"
-vpc_cidr_east_public_az2      = "192.168.0.16/28"
-vpc_cidr_west                 = "192.168.1.0/24"
-vpc_cidr_west_public_az1      = "192.168.1.0/28"
-vpc_cidr_west_public_az2      = "192.168.1.16/28"
-acl                           = "private"
-
+# USE CASE 4: Production Integration
+# -----------------------------------
+# Skip this template entirely and deploy only unified_template
+# Use existing production Transit Gateway, management VPC, and workloads
 #
-# Endpoints Variables
+# (Do not deploy existing_vpc_resources template)
 #
-linux_instance_type            = "t2.micro"
-linux_host_ip                  = 11
+#====================================================================================================
+# IMPORTANT NOTES
+#====================================================================================================
+#
+# 1. CIDR PLANNING
+#    - Ensure all CIDRs do not overlap with existing networks
+#    - Management VPC, Inspection VPC, and Spoke VPCs must have non-overlapping CIDRs
+#    - Reserve CIDR space for future spoke VPC expansion
+#
+# 2. MATCHING VALUES WITH UNIFIED_TEMPLATE
+#    - cp and env MUST match between templates for resource discovery
+#    - attach_to_tgw_name MUST match between templates for TGW attachment
+#    - vpc_cidr_management MUST match if using dedicated management VPC integration
+#
+# 3. LICENSING REQUIREMENTS
+#    - FortiManager and FortiAnalyzer require BYOL licenses or use PAYG from AWS Marketplace
+#    - License files must be placed in specified paths before running terraform apply
+#    - Do NOT mix FortiManager/FortiAnalyzer licenses with FortiGate autoscale licenses
+#    - Leave license_file variables empty ("") if using PAYG instances
+#
+# 4. REQUIRED PASSWORDS
+#    - fortimanager_admin_password MUST be set if enable_fortimanager = true
+#    - fortianalyzer_admin_password MUST be set if enable_fortianalyzer = true
+#    - If passwords are left empty, you will NOT be able to login to the instances
+#    - Minimum password length: 8 characters
+#
+# 5. OPTIONAL VARIABLES
+#    - fortimanager_vm_name and fortimanager_admin_password can be left empty
+#    - fortianalyzer_vm_name and fortianalyzer_admin_password can be left empty
+#    - System will auto-generate names and use instance-id as default password
+#
+# 6. COST CONSIDERATIONS
+#    - FortiManager m5.xlarge: ~$0.10/hour (~$73/month)
+#    - FortiAnalyzer m5.xlarge: ~$0.10/hour (~$73/month)
+#    - Transit Gateway: $0.05/hour (~$36/month) + data processing charges
+#    - NAT Gateways: $0.045/hour per AZ + data processing charges
+#    - Destroy resources when not actively testing to minimize costs
+#
+# 7. SECURITY BEST PRACTICES
+#    - Always set my_ip to restrict access to your IP address only
+#    - Use private IPs (disable EIP) for production management resources
+#    - Implement least-privilege IAM policies for Terraform deployment
+#    - Enable VPC Flow Logs for network traffic monitoring
+#
+# 8. PRODUCTION CONSIDERATIONS
+#    - Do NOT enable enable_management_tgw_attachment in production
+#    - Consider deploying management VPC in separate AWS account
+#    - Use existing Transit Gateway instead of creating new one (set enable_build_existing_subnets = false)
+#    - Set enable_jump_box_public_ip = false for production (use VPN/Direct Connect)
+#
+#====================================================================================================

@@ -1,168 +1,384 @@
+#====================================================================================================
+# REGION AND AVAILABILITY ZONES
+#====================================================================================================
+# AWS region where all resources will be deployed
+# Availability zones are specified as single letters (a, b, c, etc.) which will be appended to the region
+# Example: us-west-2 + "a" = us-west-2a
+#
+aws_region          = "us-west-2"
+availability_zone_1 = "a"
+availability_zone_2 = "c"
 
+#====================================================================================================
+# RESOURCE IDENTIFICATION
+#====================================================================================================
+# Customer Prefix (cp) and Environment (env) are prepended to all resources for identification
+# Format: "<cp>-<env>-<resource_name>"
+# Example: "acme-test-inspection-vpc", "acme-test-asg-byol"
 #
-# region and availability zone for the Inspection VPCs
+# CRITICAL: These values MUST MATCH between existing_vpc_resources and unified_template
+# The unified_template uses these values to discover resources via AWS resource tags
+# Mismatched values will cause resource discovery failures
 #
-aws_region                   = "us-west-2"
-availability_zone_1          = "a"
-availability_zone_2          = "c"
+cp  = "acme"  # Customer prefix - use your company/project name
+env = "test"  # Environment: prod, test, dev, staging, etc.
 
+#====================================================================================================
+# SECURITY VARIABLES
+#====================================================================================================
+# AWS EC2 keypair name for SSH access to FortiGate instances (must already exist in target region)
+# Use: aws ec2 describe-key-pairs to list available keypairs
 #
-# cp (customer_prefix) and env (environment) prepended to all resources created by the template.
-# Used for identification. e.g. "<customer_prefix>-<prod/test/dev>". Set these to anything you like.
-# These variables need to match the settings for existing_vpc_resources to make the data sources work
-# and allows this template to find the proper route tables and subnets for deployment
-#
-cp                          = "acme"
-env                         = "test"
+keypair = ""
 
+# Your public IP address or CIDR for restricting SSH and HTTPS access to FortiGate management
+# Used to create security group rules that only allow connections from your location
+# Format: "x.x.x.x/32" for single IP or "x.x.x.0/24" for subnet
+# Find your IP: curl ifconfig.me
 #
-# Keypair is a account/region specific resource used to login to the instances.
-#
-# my_ip is used to restrict security groups to only allow traffic from your IP.
-#
-keypair                     = ""
-my_ip                       = ""
+my_ip = ""
 
+# Default admin password for FortiGate autoscale instances - REQUIRED
+# This password is used for the 'admin' user on all FortiGate instances in the autoscale group
+# IMPORTANT: Must be specified - if left empty, you will not be able to login to FortiGate instances
+# Password requirements: Minimum 8 characters
+# NOTE: If changed from the FortiGate GUI on primary instance, password will sync to other group members
 #
-# default admin password for the Fortigate autoscale instances. This can be changed after the instance is launched.
-# If changed from the Fortigate GUI, the password will be sync'd to other members of the autoscale group.
-#
-fortigate_asg_password      = ""
+fortigate_asg_password = ""
 
-#
-# defines how the fortigates in the autoscale group will access the internet. "nat_gw" or "eip"
-# nat_gw will create a NAT Gateway in the public subnet of the inspection VPC and point the route tables to the NAT Gateway
-# eip will assign an Elastic IP to the Fortigate instances in the autoscale group and point the route tables to the IGW
+#====================================================================================================
+# FORTIGATE ARCHITECTURE CONFIGURATION
+#====================================================================================================
+# Internet egress mode - defines how FortiGates access the internet
+# Options:
+#   "nat_gw" - Use NAT Gateway for centralized egress (predictable source IP, additional cost)
+#   "eip"    - Use Elastic IP per instance (distributed egress, no NAT Gateway cost)
+# See Solution Components documentation for detailed comparison
 #
 access_internet_mode = "nat_gw"
 
-#
-# defines how many interfaces the firewall will have. 2-arm is a public interface and a private interface.
-# 1-arm is a single interface that is used for both public and private traffic.
+# Firewall policy mode - defines FortiGate interface architecture
+# Options:
+#   "1-arm" - Single interface for data plane (hairpin traffic pattern)
+#   "2-arm" - Separate trusted/untrusted interfaces (traditional firewall model)
+# See Solution Components documentation for traffic flow details
 #
 firewall_policy_mode = "1-arm"
 
-#
-# allow the creation of a dedicated management vpc from this template. Its better to do this from existing_vpc_resources template
-# so the management instances are not destroyed by this template.
-#
-# NOTE: You should keep this false if you deployed the management vpc from the existing_vpc_resources template.
+#====================================================================================================
+# MANAGEMENT VPC INTEGRATION
+#====================================================================================================
+# Enable dedicated management VPC - connects FortiGate management interfaces to separate management VPC
+# Set to true if you deployed management VPC with existing_vpc_resources template
+# Set to false if not using dedicated management VPC or managing FortiGates via data plane
 #
 enable_dedicated_management_vpc = false
-dedicated_management_vpc_tag = "acme-test-management-vpc"
+
+# Management VPC resource tags - used to discover management VPC and subnets
+# These values must match the tags on the management VPC created by existing_vpc_resources
+# Only used if enable_dedicated_management_vpc = true
+#
+dedicated_management_vpc_tag               = "acme-test-management-vpc"
 dedicated_management_public_az1_subnet_tag = "acme-test-management-public-az1-subnet"
 dedicated_management_public_az2_subnet_tag = "acme-test-management-public-az2-subnet"
 
+# Enable dedicated management ENI - dedicates port2 to management traffic only
+# When enabled, port2 cannot be used for data plane traffic
+# Recommended for production deployments requiring management plane isolation
+#
+enable_dedicated_management_eni = true
 
+#====================================================================================================
+# TRANSIT GATEWAY INTEGRATION
+#====================================================================================================
+# Enable Transit Gateway attachment - attach inspection VPC to existing Transit Gateway
+# Set to true for centralized egress architectures
+# Set to false for distributed inspection architectures
 #
-# allow the creation of a dedicated managment subnet in the inspection VPC. Then create a dedicated management
-# ENI in the management subnet.
-#
-enable_dedicated_management_eni  = true
+enable_tgw_attachment = true
 
+# Transit Gateway name - name tag of existing Transit Gateway to attach to
+# For lab environment: Use TGW created by existing_vpc_resources (default: "acme-test-tgw")
+# For production: Change to your existing production Transit Gateway name
+# IMPORTANT: TGW must exist and be in "Available" state before deployment
 #
-# allow inspection of traffic between spoke vpcs
-#
-enable_east_west_inspection  = true
+attach_to_tgw_name = "acme-test-tgw"
 
+# Create TGW routes for existing VPC resources - only for lab environments
+# Set to true ONLY if you deployed the existing_vpc_resources template
+# Set to false for production deployments using existing Transit Gateway
 #
-# enable_tgw_attachment allows you to attach the Inspection VPCs to the named TGW.
-# If you are attaching the inspection VPC to an existing TGW, provide the name of the TGW here.
-# The named TGW must exist and be in the "Available" state.
-#
-enable_tgw_attachment           = true
-attach_to_tgw_name              = "acme-test-tgw"
+create_tgw_routes_for_existing = false
 
+# Enable east-west inspection - route spoke-to-spoke traffic through FortiGate for inspection
+# Set to true to inspect inter-VPC traffic
+# Set to false to allow direct spoke-to-spoke communication without inspection
 #
-# Only set create_tgw_routes_for_existing to true if you created the existing_vp_resources template.
-#
-create_tgw_routes_for_existing  = false
+enable_east_west_inspection = true
 
-#
-# Allow the GWLB to load balance to healthy FortiGate instances in a different zone
+#====================================================================================================
+# GATEWAY LOAD BALANCER CONFIGURATION
+#====================================================================================================
+# Allow cross-zone load balancing - GWLB can send traffic to FortiGates in any AZ
+# Recommended: true for production (maximizes availability)
+# Set to false to avoid cross-AZ data transfer charges ($0.01/GB)
 #
 allow_cross_zone_load_balancing = true
 
+# GWLB Endpoint names - used for route table lookups
+# These names are assigned to GWLB endpoints during creation
+# Used by route table configuration to direct traffic through endpoints
 #
-# Subnet bits = number of bits used in the cidr for subnet.
-# e.g. 10.0.0.0/16 cidr with 8 subnet bits means each subnet is 10.0.0.0/24, 10.0.1.0/24, etc
-#
-subnet_bits                 = 8
+endpoint_name_az1 = "asg-gwlbe_az1"
+endpoint_name_az2 = "asg-gwlbe_az2"
 
+#====================================================================================================
+# NETWORK CIDR CONFIGURATION
+#====================================================================================================
+# Inspection VPC CIDR - where FortiGate autoscale group and GWLB are deployed
+# Ensure this does not overlap with management VPC or spoke VPCs
 #
-# Prefixes for resources deployed in the North-South and East-West VPCs
-# All resources deployed in the North-South VPC will have the prefix "ns"
-# All resources deployed in the East-West VPC will have the prefix "ew"
-# These values can be anything you like, but they must be unique or you will encounter resource naming conflicts.
-asg_module_prefix            = "asg"
+vpc_cidr_inspection = "10.0.0.0/16"
 
+# Management VPC CIDR - reference only (must match existing_vpc_resources if deployed)
+# This value is not used by unified_template but documented here to avoid CIDR overlaps
 #
-# directory where BYOL Licenses for NS firewall group are stored
-#
-asg_license_directory        = "asg_license"
+vpc_cidr_management = "10.3.0.0/16"
 
-# fortiflex_username      = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-# fortiflex_password      = "xxxxxxxxxxxxxxxxxxxxx"
-# fortiflex_sn_list       = ["FGVMELTMxxxxxxxx", "FGVMELTMxxxxxxxx", "FGVMELTMxxxxxxxx", "FGVMELTMxxxxxxxx"]
-# fortiflex_configid_list = ["STD_ASG_FGT_4XvcpuFortiGate-VM"]
+# Spoke VPC CIDRs - for route table and TGW configuration
+# vpc_cidr_spoke is the supernet containing all individual spoke VPCs
+#
+vpc_cidr_spoke = "192.168.0.0/16"  # Supernet for all spoke VPCs
+vpc_cidr_east  = "192.168.0.0/24"  # East spoke VPC
+vpc_cidr_west  = "192.168.1.0/24"  # West spoke VPC
 
+# Number of bits to use for subnet CIDR calculation
+# Formula: <vpc_cidr>/<vpc_cidr_prefix + subnet_bits>
+# Example: 10.0.0.0/16 with subnet_bits=8 creates /24 subnets (10.0.0.0/24, 10.0.1.0/24, etc.)
+# Recommended: 8 for most deployments
 #
-# base fortios configuration file. These files are in the base directory and prefixes are added depending on
-# the configuration being deployed. e.g. 1-arm-wdm-fgt-conf.cfg, 2-arm-fgt-conf.cfg
-#
-base_config_file            = "fgt-conf.cfg"
+subnet_bits = 8
 
+#====================================================================================================
+# FORTIGATE INSTANCE CONFIGURATION
+#====================================================================================================
+# FortiGate instance type - determines CPU, memory, network performance, and cost
+# Recommended:
+#   c6i.xlarge (4 vCPU) - Small to medium deployments (~2 Gbps with IPS)
+#   c6i.2xlarge (8 vCPU) - Medium deployments (~4 Gbps with IPS)
+#   c7gn.xlarge (4 vCPU, ARM) - Cost-optimized with excellent network performance
 #
-# EW and NS Min,Max,Desired capacity for the BYOL ASG and OnDemand ASG.
-# You might find it easier to verify traffic flows with a single instance in the ASG.
-# To increase the number of instances in the ASG,
-# change the values in the autoscale group through the GUI to desired values after the stack is created.
-#
-asg_byol_asg_min_size         = 1
-asg_byol_asg_max_size         = 2
-asg_byol_asg_desired_size     = 1
+fgt_instance_type = "c7gn.xlarge"
 
-asg_ondemand_asg_min_size     = 0
-asg_ondemand_asg_max_size     = 2
-asg_ondemand_asg_desired_size = 0
+# FortiOS version to deploy
+# Use format "X.Y.Z" for specific version or "X.Y" for latest patch version
+# Example: "7.4.5" for specific version, "7.4" for latest 7.4.x version
+# Check available versions: https://docs.fortinet.com/product/fortigate/
+#
+fortios_version = "7.4.5"
 
+# FortiGate GUI port - HTTPS port for web management interface
+# Default: 443 (standard HTTPS)
+# Alternative: 8443 (some organizations prefer non-standard port)
 #
-# Fortigate Autoscale Variables
-#
-# Fortigate instance type used by all of the ASGs
-#
-fgt_instance_type           = "c7gn.xlarge"
-#
-# Fortigate version used by all of the ASGs. If you only put the major version, it will use the latest minor version.
-#
-fortios_version             = "7.4.5"
+fortigate_gui_port = 443
 
+#====================================================================================================
+# AUTOSCALE GROUP CAPACITY
+#====================================================================================================
+# Module prefix for autoscale group resources
+# Prepended to autoscale group resource names for identification
+# Default: "asg" results in names like "acme-test-asg-byol", "acme-test-asg-ondemand"
 #
-# Port the fortigate UI is listening on. Default is 443. Some like to move it to 8443
-#
-fortigate_gui_port   = 443
+asg_module_prefix = "asg"
 
+# BYOL Autoscale Group capacity
+# Uses BYOL (Bring Your Own License) or FortiFlex licenses
+# Recommended: Use BYOL/FortiFlex for baseline 24/7 capacity to minimize costs
 #
-# Endpoint names for the inspection VPCs. These are used to setup the route tables for the inspection VPCs.
-# For now, the autoscale templates deploy the endpoints, but do not pass the endpoint ids back the main template.
-# So, the main templates have to lookup the endpoint ids by name for route table manipulations.
-endpoint_name_az1               = "asg-gwlbe_az1"
-endpoint_name_az2               = "asg-gwlbe_az2"
+asg_byol_asg_min_size     = 1  # Minimum instances to maintain
+asg_byol_asg_max_size     = 2  # Maximum instances for scale-out
+asg_byol_asg_desired_size = 1  # Target instance count
 
+# On-Demand (PAYG) Autoscale Group capacity
+# Uses AWS Marketplace Pay-As-You-Go instances
+# Recommended: Use PAYG for burst capacity above BYOL baseline (set min=0, desired=0)
 #
-# CIDR blocks for the inspection VPCs
-#
-vpc_cidr_inspection         = "10.0.0.0/16"
-vpc_cidr_management         = "10.3.0.0/16"
+asg_ondemand_asg_min_size     = 0  # Set to 0 for burst-only capacity
+asg_ondemand_asg_max_size     = 2  # Maximum burst instances
+asg_ondemand_asg_desired_size = 0  # Set to 0 to avoid running PAYG 24/7
 
+# Scale-in protection for primary instance
+# Protects primary instance from termination during scale-in events
+# Recommended: true for production (maintains configuration stability)
 #
-# CIDR blocks for the spoke VPCs.
-#
-vpc_cidr_spoke              = "192.168.0.0/16"
-vpc_cidr_east               = "192.168.0.0/24"
-vpc_cidr_west               = "192.168.1.0/24"
+primary_scalein_protection = true
 
+#====================================================================================================
+# LICENSING CONFIGURATION
+#====================================================================================================
+# BYOL License directory - relative path to directory containing FortiGate BYOL license files
+# Only required if using BYOL licensing (asg_byol_asg_max_size > 0)
+# Place .lic files in this directory before running terraform apply
+# IMPORTANT: Ensure you have at least asg_byol_asg_max_size license files
 #
-# ACL for linux instances
+asg_license_directory = "asg_license"
+
+# FortiFlex API credentials - for FortiFlex usage-based licensing
+# Uncomment and configure if using FortiFlex licensing
+# Leave commented if using BYOL files or PAYG only
 #
-acl                         = "private"
+# fortiflex_username      = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # FortiFlex API username (UUID)
+# fortiflex_password      = "xxxxxxxxxxxxxxxxxxxxx"                  # FortiFlex API password
+# fortiflex_sn_list       = ["FGVMELTMxxxxxxxx", "FGVMELTMxxxxxxxx", "FGVMELTMxxxxxxxx"]  # Optional: Restrict to specific programs
+# fortiflex_configid_list = ["STD_ASG_FGT_4XvcpuFortiGate-VM"]       # Configuration IDs from FortiFlex portal
+
+#====================================================================================================
+# FORTIMANAGER INTEGRATION (OPTIONAL)
+#====================================================================================================
+# Enable FortiManager integration - register primary FortiGate with FortiManager
+# Set to true for centralized policy management and device orchestration
+# Requires FortiManager instance accessible from FortiGate management interfaces
+#
+enable_fortimanager_integration = false
+
+# FortiManager IP address or FQDN
+# Must be reachable from FortiGate management interfaces (via management VPC or data plane)
+# Example: "10.3.0.14" (private IP if using management VPC)
+#
+fortimanager_ip = ""
+
+# FortiManager serial number - for device registration
+# Find in FortiManager: System Settings > Dashboard > System Information
+# Example: "FMGVM0000000001"
+#
+fortimanager_sn = ""
+
+# FortiManager VRF selection - routing domain for FortiManager connectivity
+# 0 = Global VRF (default routing table)
+# 1+ = Specific management VRF (if using separate routing domain)
+# Typically use 1 if enable_dedicated_management_eni = true
+#
+fortimanager_vrf_select = 0
+
+#====================================================================================================
+# ADVANCED CONFIGURATION
+#====================================================================================================
+# Base FortiOS configuration file
+# Template file used to generate FortiGate bootstrap configuration
+# Prefixes are added automatically based on deployment mode (1-arm, 2-arm, etc.)
+# Default: "fgt-conf.cfg" results in files like "1-arm-fgt-conf.cfg", "2-arm-fgt-conf.cfg"
+#
+base_config_file = "fgt-conf.cfg"
+
+# ACL for linux instances (if any are deployed by this template)
+# Options: "public" (assigns public IP), "private" (private IP only)
+# This variable is typically not used by unified_template directly
+#
+acl = "private"
+
+#====================================================================================================
+# CONFIGURATION EXAMPLES AND USE CASES
+#====================================================================================================
+#
+# USE CASE 1: Lab Environment with Transit Gateway
+# ------------------------------------------------
+# Complete testing environment connecting to TGW created by existing_vpc_resources
+#
+# enable_tgw_attachment           = true
+# attach_to_tgw_name              = "acme-test-tgw"
+# create_tgw_routes_for_existing  = true
+# enable_dedicated_management_vpc = true
+# enable_east_west_inspection     = true
+#
+# USE CASE 2: Production Integration with Existing TGW
+# -----------------------------------------------------
+# Deploy FortiGate inspection to existing production Transit Gateway
+#
+# enable_tgw_attachment           = true
+# attach_to_tgw_name              = "production-tgw"  # Your existing TGW name
+# create_tgw_routes_for_existing  = false
+# enable_dedicated_management_vpc = false
+# enable_fortimanager_integration = true
+# fortimanager_ip                 = "10.x.x.x"
+#
+# USE CASE 3: Distributed Inspection (No TGW)
+# --------------------------------------------
+# Bump-in-the-wire inspection where spoke VPCs have their own internet gateways
+#
+# enable_tgw_attachment           = false
+# enable_east_west_inspection     = false
+# firewall_policy_mode            = "1-arm"
+# enable_dedicated_management_vpc = false
+#
+# USE CASE 4: Hybrid Licensing (Cost Optimization)
+# -------------------------------------------------
+# BYOL baseline capacity with PAYG burst capacity
+#
+# asg_byol_asg_min_size           = 2
+# asg_byol_asg_max_size           = 4
+# asg_byol_asg_desired_size       = 2
+# asg_ondemand_asg_min_size       = 0
+# asg_ondemand_asg_max_size       = 6
+# asg_ondemand_asg_desired_size   = 0
+# asg_license_directory           = "asg_license"  # Contains 4 BYOL licenses
+#
+#====================================================================================================
+# IMPORTANT NOTES
+#====================================================================================================
+#
+# 1. MATCHING VALUES WITH EXISTING_VPC_RESOURCES
+#    - cp and env MUST match between templates for resource discovery
+#    - attach_to_tgw_name MUST match between templates for TGW attachment
+#    - vpc_cidr_management MUST match if using dedicated management VPC integration
+#    - dedicated_management_vpc_tag values MUST match management VPC resource tags
+#
+# 2. REQUIRED PASSWORDS
+#    - fortigate_asg_password MUST be set (minimum 8 characters)
+#    - If left empty, you will NOT be able to login to FortiGate instances
+#    - Password syncs across all instances in the autoscale group via HA sync
+#
+# 3. LICENSING REQUIREMENTS
+#    - For BYOL: Place license files in asg_license_directory before deployment
+#    - Ensure license count >= asg_byol_asg_max_size
+#    - For FortiFlex: Configure API credentials and create configurations in FortiFlex portal
+#    - For PAYG: No configuration needed, set BYOL capacity to 0
+#
+# 4. FORTIMANAGER INTEGRATION
+#    - FortiManager 7.6.3+ requires: config system global / set fgfm-allow-vm enable / end
+#    - Only primary FortiGate registers with FortiManager (prevents orphaned devices)
+#    - FortiManager must be reachable from FortiGate management interfaces
+#    - Verify network connectivity and security groups allow TCP 541
+#
+# 5. CIDR PLANNING
+#    - Ensure vpc_cidr_inspection does not overlap with management or spoke VPCs
+#    - Reserve sufficient subnet space for multi-AZ deployment
+#    - Plan for future growth when selecting CIDR ranges
+#
+# 6. CAPACITY PLANNING
+#    - Start with min_size=1, max_size=2 for initial testing
+#    - Monitor CloudWatch metrics to determine appropriate capacity
+#    - Set max_size based on peak traffic + 20% buffer
+#    - Consider FortiGate instance type throughput capabilities
+#
+# 7. COST OPTIMIZATION
+#    - Use BYOL/FortiFlex for baseline capacity (24/7 operation)
+#    - Use PAYG for burst capacity (intermittent scale-out)
+#    - Disable enable_dedicated_management_vpc if using existing management
+#    - Choose access_internet_mode="eip" to avoid NAT Gateway costs if predictable IPs not required
+#
+# 8. PRODUCTION CONSIDERATIONS
+#    - Set primary_scalein_protection = true (prevents primary instance termination)
+#    - Enable FortiManager integration for centralized management
+#    - Use enable_dedicated_management_eni = true for management plane isolation
+#    - Set allow_cross_zone_load_balancing = true for maximum availability
+#    - Implement proper monitoring and alerting for autoscale events
+#    - Test failover and scaling scenarios before production deployment
+#
+# 9. TRANSIT GATEWAY ROUTING
+#    - Verify TGW route tables route spoke traffic to inspection VPC attachments
+#    - For centralized egress: Spoke VPCs route 0.0.0.0/0 to TGW
+#    - For east-west inspection: Spoke-to-spoke routes point to TGW
+#    - Test traffic flows thoroughly before production cutover
+#
+#====================================================================================================

@@ -31,3 +31,5 @@ debug.log
 **/.terraform
 **/__pycache__
 ncc-service-account.json
+fortihugorunner
+fortihugorunner-*
