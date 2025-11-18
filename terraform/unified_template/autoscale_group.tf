@@ -201,13 +201,13 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   fgt_access_internet_mode = var.access_internet_mode
     asgs = {
     fgt_byol_asg = {
-      fmg_integration = !var.enable_fortimanager_integration ? {} : {
+      fmg_integration = var.enable_fortimanager_integration ? {
         ip                  = var.fortimanager_ip
         sn                  = var.fortimanager_sn
         primary_only	    = true
         fgt_lic_mgmt        = "module"
         vrf_select          = 1
-      }
+      } : null
       primary_scalein_protection = var.primary_scalein_protection
       extra_network_interfaces = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
@@ -263,13 +263,13 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       dynamodb_table_name   = "fgt_asg_track_table"
     },
     fgt_on_demand_asg = {
-      fmg_integration = !var.enable_fortimanager_integration ? {} : {
+      fmg_integration = var.enable_fortimanager_integration ? {
         ip                  = var.fortimanager_ip
         sn                  = var.fortimanager_sn
         primary_only	    = true
         fgt_lic_mgmt        = "module"
         vrf_select          = var.fortimanager_vrf_select
-      }
+      } : null
       primary_scalein_protection = var.primary_scalein_protection
       extra_network_interfaces = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
