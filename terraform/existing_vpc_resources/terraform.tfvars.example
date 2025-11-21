@@ -5,9 +5,9 @@
 # Availability zones are specified as single letters (a, b, c, etc.) which will be appended to the region
 # Example: us-west-2 + "a" = us-west-2a
 #
-aws_region          = "us-west-2"
+aws_region          = "us-west-1"
 availability_zone_1 = "a"
-availability_zone_2 = "c"
+availability_zone_2 = "b"
 
 #====================================================================================================
 # RESOURCE IDENTIFICATION
@@ -35,7 +35,7 @@ keypair = ""
 # Format: "x.x.x.x/32" for single IP or "x.x.x.0/24" for subnet
 # Find your IP: curl ifconfig.me
 #
-my_ip = ""
+my_ip = "x.x.x.x/32"
 
 #====================================================================================================
 # NETWORK CIDR CONFIGURATION
@@ -50,6 +50,14 @@ vpc_cidr_management = "10.3.0.0/16"
 # The unified_template creates the actual inspection VPC with this CIDR
 #
 vpc_cidr_ns_inspection = "10.0.0.0/16"
+
+#====================================================================================================
+# NETWORK CIDR CONFIGURATION
+#====================================================================================================
+# Inspection VPC CIDR - where FortiGate autoscale group and GWLB are deployed
+# Ensure this does not overlap with management VPC or spoke VPCs
+#
+vpc_cidr_inspection = "10.0.0.0/16"
 
 # Supernet CIDR that encompasses all spoke VPCs
 # Used for route table summarization and TGW route configuration
@@ -77,6 +85,7 @@ vpc_cidr_west_public_az2 = "192.168.1.16/28"  # Public subnet in AZ2 for Linux i
 # Recommended: 7 or 8 for most deployments
 #
 subnet_bits = 8
+spoke_subnet_bits = 4  # Number of bits for spoke VPC subnets (e.g., /28 subnets)
 
 #====================================================================================================
 # MANAGEMENT VPC CONFIGURATION
@@ -87,13 +96,44 @@ subnet_bits = 8
 enable_build_management_vpc = true
 
 #====================================================================================================
+# FORTIGATE ARCHITECTURE CONFIGURATION
+#====================================================================================================
+# Internet egress mode - defines how FortiGates access the internet
+# Options:
+#   "nat_gw" - Use NAT Gateway for centralized egress (predictable source IP, additional cost)
+#   "eip"    - Use Elastic IP per instance (distributed egress, no NAT Gateway cost)
+# See Solution Components documentation for detailed comparison
+#
+access_internet_mode = "eip"
+
+#====================================================================================================
+# TRANSIT GATEWAY INTEGRATION
+#====================================================================================================
+# Enable Transit Gateway attachment - attach inspection VPC to existing Transit Gateway
+# Set to true for centralized egress architectures
+# Set to false for distributed inspection architectures
+#
+enable_tgw_attachment = true
+
+# Create TGW routes for existing VPC resources - only for lab environments
+# Set to true ONLY if you deployed the existing_vpc_resources template
+# Set to false for production deployments using existing Transit Gateway
+#
+create_tgw_routes_for_existing = false
+
+# ====================================================================================================
+# Create the management subnet in the inspection VPC
+# ====================================================================================================
+create_management_subnet_in_inspection_vpc = false
+
+#====================================================================================================
 # FORTIMANAGER CONFIGURATION
 #====================================================================================================
 # Enable deployment of FortiManager instance in the management VPC
 # FortiManager provides centralized policy management and device orchestration
 # Set to false if you don't need FortiManager or have an existing FortiManager instance
 #
-enable_fortimanager = true
+enable_fortimanager = false
 
 # Attach an Elastic IP (public IP) to FortiManager for internet access
 # Set to true for direct internet access, false if accessing via VPN/Direct Connect
@@ -111,7 +151,7 @@ fortimanager_instance_type = "m5.xlarge"
 # Use format "X.Y.Z" for specific version or "X.Y" for latest patch version
 # Check available versions: https://docs.fortinet.com/product/fortimanager/
 #
-fortimanager_os_version = "7.4.5"
+fortimanager_os_version = "7.6"
 
 # Host portion of FortiManager private IP address within management VPC
 # Full IP will be: <vpc_cidr_management_base>.<host_ip>
@@ -162,7 +202,7 @@ fortianalyzer_instance_type = "m5.xlarge"
 # Use format "X.Y.Z" for specific version or "X.Y" for latest patch version
 # Should generally match FortiManager version for compatibility
 #
-fortianalyzer_os_version = "7.4.5"
+fortianalyzer_os_version = "7.6"
 
 # Host portion of FortiAnalyzer private IP address within management VPC
 # Full IP will be: <vpc_cidr_management_base>.<host_ip>

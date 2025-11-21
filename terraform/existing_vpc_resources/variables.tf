@@ -16,17 +16,40 @@ variable "env" {
 variable subnet_bits {
   description = "Number of bits in the network portion of the subnet CIDR"
 }
+variable spoke_subnet_bits {
+  description = "Number of bits in the network portion of the subnet CIDR in spoke VPCs"
+}
 variable "keypair" {
   description = "Keypair for instances that support keypairs"
 }
 variable "my_ip" {
     description = "CIDR for my IP to restrict security group"
 }
+variable "access_internet_mode" {
+  description = "Variable that defines how the fortigates in the autoscale group will access the internet. 'nat_gw' or 'eip'"
+  type = string
+  default = "nat_gw"
+}
 variable "vpc_cidr_management" {
     description = "CIDR for the management VPC"
 }
+variable "vpc_cidr_inspection" {
+    description = "CIDR for the whole NS inspection VPC"
+}
 variable "vpc_cidr_ns_inspection" {
     description = "CIDR for the inspection VPC"
+}
+variable "enable_tgw_attachment" {
+  description = "Allow Inspection VPC to attach to an existing TGW"
+  type        = bool
+}
+variable "create_tgw_routes_for_existing" {
+  description = "Boolean to allow creation of TGW routes for the existing_vpc_resources template"
+  type        = bool
+}
+variable "create_management_subnet_in_inspection_vpc" {
+  description = "Boolean to allow creation of dedicated management subnets in the inspection VPC"
+  type        = bool
 }
 variable "enable_fortimanager" {
   description = "Boolean to allow creation of FortiManager in Inspection VPC"
@@ -133,20 +156,8 @@ variable "vpc_cidr_east" {
 variable "vpc_cidr_spoke" {
     description = "Super-Net CIDR for the spoke VPC's"
 }
-variable "vpc_cidr_east_public_az1" {
-    description = "CIDR for the AZ1 public subnet in East VPC"
-}
-variable "vpc_cidr_east_public_az2" {
-    description = "CIDR for the AZ2 public subnet in East VPC"
-}
 variable "vpc_cidr_west" {
     description = "CIDR for the whole west VPC"
-}
-variable "vpc_cidr_west_public_az1" {
-    description = "CIDR for the AZ1 public subnet in west VPC"
-}
-variable "vpc_cidr_west_public_az2" {
-    description = "CIDR for the AZ2 public subnet in west VPC"
 }
 variable "acl" {
   description = "The acl for linux instances"

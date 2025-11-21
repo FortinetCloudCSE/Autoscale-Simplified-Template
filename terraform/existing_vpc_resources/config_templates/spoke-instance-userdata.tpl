@@ -37,73 +37,8 @@ runuser -l ubuntu -c 'mkdir ~/bin'
 runuser -l ubuntu -c 'ln -s ~/.tfenv/bin/* ~/bin'
 runuser -l ubuntu -c 'tfenv install 1.7.5'
 runuser -l ubuntu -c 'tfenv use 1.7.5'
-runuser -l ubuntu -c 'echo "export PATH=$PATH:~/bin" >> ~/.bashrc'
-runuser -l ubuntu -c 'echo "export PATH=$PATH:~/bin" >> ~/.bashrc'
-runuser -l ubuntu -c 'echo "export AWS_ACCESS_KEY_ID=\`aws --profile default configure get aws_access_key_id\`" >> ~/.bashrc'
-runuser -l ubuntu -c 'echo "export AWS_SECRET_ACCESS_KEY=\`aws --profile default configure get aws_secret_access_key\`" >> ~/.bashrc'
-runuser -l ubuntu -c 'echo "export AWS_REGION=\`aws --profile default configure get aws_region\`" >> ~/.bashrc'
+runuser -l ubuntu -c 'echo "export PATH=/sbin:/usr/local/bin:$PATH:~/bin" >> ~/.bashrc'
 
-cat >> /home/ubuntu/fgt_config.conf <<EOF
-# This is an FortiGate configuration example with two Geneve tunnel: geneve-az1, geneve-az2. Please add or remove based on your own value.
-# Geneve tunnel name will be with format 'geneve-az<NUMBER>'. Check 'az_name_map' of the output of template, which is map of Geneve tunnel name to the AZ name that supported in Security VPC.
-#
-# This is an FortiGate configuration example with two Geneve tunnel: geneve-az1, geneve-az2. Please add or remove based on your own value.
-# Geneve tunnel name will be with format 'geneve-az<NUMBER>'. Check 'az_name_map' of the output of template, which is map of Geneve tunnel name to the AZ name that supported in Security VPC.
-# Change port2 to port1 if fgt_intf_mode set to 1-arm.
-
-config system interface
-edit port1
-        set defaultgw disable
-    next
-    edit port2
-        set defaultgw enable
-    next
-end
-config system zone
-    edit "geneve-tunnels"
-        set interface "geneve-az1" "geneve-az2"
-    next
-end
-
-config router static
-    edit 0
-        set dst 192.168.0.0 255.255.0.0
-        set distance 5
-        set priority 100
-        set device "geneve-az1"
-    next
-    edit 0
-        set dst 192.168.0.0 255.255.0.0
-        set distance 5
-        set priority 100
-        set device "geneve-az2"
-    next
-    edit 0
-        set dst 10.0.0.11 255.255.255.255
-        set device "geneve-az1"
-    next
-    edit 0
-        set dst 10.0.0.11 255.255.255.255
-        set device "geneve-az2"
-    next
-end
-
-sudo sysctl -w net.ipv4.ip_forward=1
-echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
-
-# Configure iptables NAT
-sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-sudo iptables -A FORWARD -i eth0 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
-sudo iptables -A FORWARD -i eth0 -o eth0 -j ACCEPT
-
-# Save iptables rules (Ubuntu)
-sudo apt-get install iptables-persistent
-sudo netfilter-persistent save
-
-# Or for Amazon Linux
-sudo service iptables save
-
-config router
 cat >> /home/ubuntu/fgt_config.conf <<EOF
 # This is an FortiGate configuration example with two Geneve tunnel: geneve-az1, geneve-az2. Please add or remove based on your own value.
 # Geneve tunnel name will be with format 'geneve-az<NUMBER>'. Check 'az_name_map' of the output of template, which is map of Geneve tunnel name to the AZ name that supported in Security VPC.
@@ -165,22 +100,6 @@ config firewall address
         set subnet 10.0.0.0 255.0.0.0
     next
     edit "172.16.0.0/20"
- policy
-    edit 1
-        set input-device "geneve-az1"
-        set output-device "geneve-az1"
-    next
-    edit 2
-        set input-device "geneve-az2"
-        set output-device "geneve-az2"
-    next
-end
-
-config firewall address
-    edit "10.0.0.0/8"
-        set subnet 10.0.0.0 255.0.0.0
-    next
-    edit "172.16.0.0/20"
         set subnet 172.16.0.0 255.255.240.0
     next
     edit "192.168.0.0/16"
@@ -210,7 +129,3 @@ config firewall addrgrp
 end
 
 EOF
-
-
-
-

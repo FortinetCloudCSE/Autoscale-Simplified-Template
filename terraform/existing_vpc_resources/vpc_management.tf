@@ -26,6 +26,12 @@ locals {
     fmg_admin_password = var.fortimanager_admin_password
   })
 }
+locals {
+  jump_box_template_file = templatefile("${path.module}/config_templates/jump-box-userdata.tpl", {
+    region             = var.aws_region
+    availability_zone  = var.availability_zone_1
+  })
+}
 module "vpc-management" {
   source                         = "git::https://github.com/40netse/terraform-modules.git//aws_management_vpc"
   count                          = var.enable_build_management_vpc ? 1 : 0
@@ -35,6 +41,7 @@ module "vpc-management" {
   env                            = var.env
   vpc_name                       = "${var.cp}-${var.env}-management"
   vpc_cidr                       = var.vpc_cidr_management
+  vpc_cidr_sg                    = [ var.vpc_cidr_management, var.vpc_cidr_west, var.vpc_cidr_east, var.my_ip ]
   subnet_bits                    = var.subnet_bits
   availability_zone_1            = local.availability_zone_1
   availability_zone_2            = local.availability_zone_2
@@ -59,6 +66,7 @@ module "vpc-management" {
   fortimanager_user_data         = local.fmgr_template_file
   linux_host_ip                  = var.linux_host_ip
   linux_instance_type            = var.linux_instance_type
+  linux_user_data                = local.jump_box_template_file
   my_ip                          = var.my_ip
 }
 resource "aws_route" "management-public-default-route-igw" {
@@ -68,29 +76,18 @@ resource "aws_route" "management-public-default-route-igw" {
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = module.vpc-management[0].igw_id
 }
-#
-# This is a bit bruce force. Route all the rfc-1918 space to the TGW. More specific route will handle the local traffic.
-#
-
-resource "aws_route" "public-192-route-tgw-az1" {
+resource "aws_route" "management-public-route-to-east-spoke" {
   depends_on             = [module.vpc-management]
-  count                  = (var.enable_build_management_vpc && var.enable_management_tgw_attachment) ? 1 : 0
+  count                  = (var.enable_management_tgw_attachment && var.enable_build_management_vpc && var.enable_build_existing_subnets) ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
-  destination_cidr_block = local.rfc1918_192
+  destination_cidr_block = var.vpc_cidr_east
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
-resource "aws_route" "public-10-route-tgw" {
+resource "aws_route" "management-public-route-to-west-spoke" {
   depends_on             = [module.vpc-management]
-  count                  = (var.enable_build_management_vpc && var.enable_management_tgw_attachment) ? 1 : 0
+  count                  = (var.enable_management_tgw_attachment && var.enable_build_management_vpc && var.enable_build_existing_subnets) ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
-  destination_cidr_block = local.rfc1918_10
-  transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
-}
-resource "aws_route" "public-172-route-tgw" {
-  depends_on             = [module.vpc-management]
-  count                  = (var.enable_build_management_vpc && var.enable_management_tgw_attachment) ? 1 : 0
-  route_table_id         = module.vpc-management[0].route_table_management_public
-  destination_cidr_block = local.rfc1918_172
+  destination_cidr_block = var.vpc_cidr_west
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_ec2_transit_gateway_route" "route-to-west-tgw" {
