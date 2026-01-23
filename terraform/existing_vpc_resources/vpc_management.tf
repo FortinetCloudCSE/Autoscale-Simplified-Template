@@ -13,18 +13,18 @@ resource "random_string" "random" {
 }
 
 locals {
-  faz_template_file = templatefile("${path.module}/config_templates/faz-userdata.tftpl", {
+  faz_template_file = var.enable_fortianalyzer ? templatefile("${path.module}/config_templates/faz-userdata.tftpl", {
     faz_license_file   = var.fortianalyzer_license_file
     faz_vm_name        = var.fortianalyzer_vm_name
     faz_admin_password = var.fortianalyzer_admin_password
-  })
+  }) : ""
 }
 locals {
-  fmgr_template_file = templatefile("${path.module}/config_templates/fmgr-userdata.tftpl", {
+  fmgr_template_file = var.enable_fortimanager ? templatefile("${path.module}/config_templates/fmgr-userdata.tftpl", {
     fmg_license_file   = var.fortimanager_license_file
     fmg_vm_name        = var.fortimanager_vm_name
     fmg_admin_password = var.fortimanager_admin_password
-  })
+  }) : ""
 }
 module "vpc-management" {
   source                         = "git::https://github.com/40netse/terraform-modules.git//aws_management_vpc"
