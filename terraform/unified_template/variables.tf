@@ -43,8 +43,10 @@ variable "firewall_policy_mode" {
 variable "keypair" {
   description = "Keypair for instances that support keypairs"
 }
-variable "my_ip" {
-    description = "CIDR for my IP to restrict security group"
+variable "vpc_cidr_sg" {
+    description = "List of CIDRs to allow in security group for management access"
+    type        = list(string)
+    default     = []
 }
 variable "cp" {
   description = "Customer Prefix to apply to all resources"

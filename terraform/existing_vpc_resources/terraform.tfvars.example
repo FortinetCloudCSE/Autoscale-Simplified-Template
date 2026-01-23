@@ -30,12 +30,12 @@ env = "test"  # Environment: prod, test, dev, staging, etc.
 #
 keypair = ""
 
-# Your public IP address or CIDR for restricting SSH and HTTPS access to created resources
-# Used to create security group rules that only allow connections from your location
-# Format: "x.x.x.x/32" for single IP or "x.x.x.0/24" for subnet
+# List of CIDRs for restricting SSH and HTTPS access to created resources
+# Used to create security group rules that only allow connections from your locations
+# Format: ["x.x.x.x/32", "y.y.y.0/24"] for multiple CIDRs
 # Find your IP: curl ifconfig.me
 #
-my_ip = ""
+vpc_cidr_sg = []
 
 #====================================================================================================
 # NETWORK CIDR CONFIGURATION
@@ -331,7 +331,7 @@ acl = "public"
 #    - Destroy resources when not actively testing to minimize costs
 #
 # 7. SECURITY BEST PRACTICES
-#    - Always set my_ip to restrict access to your IP address only
+#    - Always set vpc_cidr_sg to restrict access to your IP addresses only
 #    - Use private IPs (disable EIP) for production management resources
 #    - Implement least-privilege IAM policies for Terraform deployment
 #    - Enable VPC Flow Logs for network traffic monitoring

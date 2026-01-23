@@ -15,7 +15,7 @@ output "jump_box_private_ip" {
   description = "The private IP address of the jump box."
 }
 output "fortimanager_public_ip" {
-  value = (var.enable_fortimanager && var.enable_fortimanager_public_ip && var.enable_build_management_vpc) ? module.vpc-management[0].fortimanager_public_ip : null
+  value = (local.enable_fortimanager_public_ip && var.enable_build_management_vpc) ? module.vpc-management[0].fortimanager_public_ip : null
   description = "The public IP address of the FortiManager."
 }
 output "fortimanager_private_ip" {
