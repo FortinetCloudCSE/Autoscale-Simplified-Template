@@ -31,12 +31,12 @@ env = "test"  # Environment: prod, test, dev, staging, etc.
 #
 keypair = ""
 
-# Your public IP address or CIDR for restricting SSH and HTTPS access to FortiGate management
-# Used to create security group rules that only allow connections from your location
-# Format: "x.x.x.x/32" for single IP or "x.x.x.0/24" for subnet
+# List of CIDRs for restricting SSH and HTTPS access to FortiGate management
+# Used to create security group rules that only allow connections from your locations
+# Format: ["x.x.x.x/32", "y.y.y.0/24"] for multiple CIDRs
 # Find your IP: curl ifconfig.me
 #
-my_ip = ""
+vpc_cidr_sg = []
 
 # Default admin password for FortiGate autoscale instances - REQUIRED
 # This password is used for the 'admin' user on all FortiGate instances in the autoscale group

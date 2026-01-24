@@ -19,8 +19,10 @@ variable subnet_bits {
 variable "keypair" {
   description = "Keypair for instances that support keypairs"
 }
-variable "my_ip" {
-    description = "CIDR for my IP to restrict security group"
+variable "vpc_cidr_sg" {
+    description = "List of CIDRs to allow in security group for management access"
+    type        = list(string)
+    default     = []
 }
 variable "vpc_cidr_management" {
     description = "CIDR for the management VPC"
