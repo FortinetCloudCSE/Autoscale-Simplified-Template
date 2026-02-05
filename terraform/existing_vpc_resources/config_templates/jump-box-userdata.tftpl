@@ -1,0 +1,43 @@
+#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
+
+sudo apt update
+sudo apt -y upgrade
+sudo apt -y install sysstat net-tools iperf3 apache2 lnav awscli unzip
+
+# Pre-seed iptables-persistent to avoid interactive prompts
+echo iptables-persistent iptables-persistent/autosave_v4 boolean true | sudo debconf-set-selections
+echo iptables-persistent iptables-persistent/autosave_v6 boolean true | sudo debconf-set-selections
+sudo apt -y install iptables-persistent
+
+#
+# Enable IP forwarding for NAT functionality
+#
+echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+sysctl -p
+
+#
+# Configure iptables NAT/masquerade for spoke VPC traffic
+# This allows east and west spoke instances to use jump box as NAT gateway
+#
+iptables -t nat -A POSTROUTING -s ${east_vpc_cidr} -o ens5 -j MASQUERADE
+iptables -t nat -A POSTROUTING -s ${west_vpc_cidr} -o ens5 -j MASQUERADE
+
+# Allow forwarding from spoke VPCs
+iptables -A FORWARD -s ${east_vpc_cidr} -j ACCEPT
+iptables -A FORWARD -s ${west_vpc_cidr} -j ACCEPT
+iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Save iptables rules to persist across reboots
+netfilter-persistent save
+
+#
+# Terraform environment setup
+#
+runuser -l ubuntu -c 'git clone https://github.com/tfutils/tfenv.git ~/.tfenv'
+runuser -l ubuntu -c 'mkdir ~/bin'
+runuser -l ubuntu -c 'ln -s ~/.tfenv/bin/* ~/bin'
+runuser -l ubuntu -c 'tfenv install 1.14.4'
+runuser -l ubuntu -c 'tfenv use 1.14.4'
+runuser -l ubuntu -c 'echo "export PATH=$PATH:~/bin" >> ~/.bashrc'
+runuser -l ubuntu -c 'echo "export PATH=$PATH:~/bin" >> ~/.bashrc'

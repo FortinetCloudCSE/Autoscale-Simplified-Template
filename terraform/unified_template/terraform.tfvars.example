@@ -74,13 +74,9 @@ firewall_policy_mode = "1-arm"
 #
 enable_dedicated_management_vpc = false
 
-# Management VPC resource tags - used to discover management VPC and subnets
-# These values must match the tags on the management VPC created by existing_vpc_resources
-# Only used if enable_dedicated_management_vpc = true
-#
-dedicated_management_vpc_tag               = "acme-test-management-vpc"
-dedicated_management_public_az1_subnet_tag = "acme-test-management-public-az1-subnet"
-dedicated_management_public_az2_subnet_tag = "acme-test-management-public-az2-subnet"
+# NOTE: Management VPC resources are discovered automatically using Fortinet-Role tags
+# Tags are constructed from cp and env: {cp}-{env}-management-vpc, {cp}-{env}-management-public-az1, etc.
+# Ensure existing_vpc_resources uses the same cp and env values
 
 # Enable dedicated management ENI - dedicates port2 to management traffic only
 # When enabled, port2 cannot be used for data plane traffic
@@ -131,6 +127,13 @@ allow_cross_zone_load_balancing = true
 #
 endpoint_name_az1 = "asg-gwlbe_az1"
 endpoint_name_az2 = "asg-gwlbe_az2"
+
+# Modify existing route tables - allows unified_template to update route tables in the existing VPC
+# When true: Creates routes pointing private subnet traffic to GWLB endpoints for inspection
+# When false: Does not modify existing routes (manual route configuration required)
+# WARNING: Setting to true will replace existing default routes in private subnets
+#
+modify_existing_route_tables = true
 
 #====================================================================================================
 # NETWORK CIDR CONFIGURATION
@@ -328,10 +331,10 @@ acl = "private"
 #====================================================================================================
 #
 # 1. MATCHING VALUES WITH EXISTING_VPC_RESOURCES
-#    - cp and env MUST match between templates for resource discovery
+#    - cp and env MUST match between templates for Fortinet-Role tag discovery
 #    - attach_to_tgw_name MUST match between templates for TGW attachment
 #    - vpc_cidr_management MUST match if using dedicated management VPC integration
-#    - dedicated_management_vpc_tag values MUST match management VPC resource tags
+#    - dedicated_management_vpc_tag values MUST match Fortinet-Role tags on management VPC
 #
 # 2. REQUIRED PASSWORDS
 #    - fortigate_asg_password MUST be set (minimum 8 characters)

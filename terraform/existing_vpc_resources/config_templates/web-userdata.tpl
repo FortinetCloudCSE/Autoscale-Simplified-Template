@@ -7,7 +7,7 @@ sudo apt -y install iperf3
 sudo apt -y install apache2
 sudo apt -y install lnav
 sudo apt -y install awscli
-sudo apt -y install vsftpd
+sudo apt -y install vsftpd unzip
 sudo ufw allow 'Apache'
 sudo sed -i 's/It works!/It works for ${region}${availability_zone}!/' /var/www/html/index.html
 sudo systemctl start apache2
@@ -28,20 +28,17 @@ sudo sed -i 's/#chroot_local_user=YES/chroot_local_user=YES/' /etc/vsftpd.conf
 echo "allow_writeable_chroot=YES" >> /etc/vsftpd.conf
 echo "pasv_enable=Yes" >> /etc/vsftpd.conf
 echo "pasv_min_port=10090" >> /etc/vsftpd.conf
-echo "pasv_max_port=10100" >> /etc/vsftpd.conf
+echo "pasv_max_port=10100" >> /etc/vsftpd.confall
 sudo systemctl restart vsftpd.service
 systemctl enable vsftpd
 
 runuser -l ubuntu -c 'git clone https://github.com/tfutils/tfenv.git ~/.tfenv'
 runuser -l ubuntu -c 'mkdir ~/bin'
 runuser -l ubuntu -c 'ln -s ~/.tfenv/bin/* ~/bin'
-runuser -l ubuntu -c 'tfenv install 1.7.5'
-runuser -l ubuntu -c 'tfenv use 1.7.5'
+runuser -l ubuntu -c 'tfenv install latest'
+runuser -l ubuntu -c 'tfenv use latest'
 runuser -l ubuntu -c 'echo "export PATH=$PATH:~/bin" >> ~/.bashrc'
 runuser -l ubuntu -c 'echo "export PATH=$PATH:~/bin" >> ~/.bashrc'
-runuser -l ubuntu -c 'echo "export AWS_ACCESS_KEY_ID=\`aws --profile default configure get aws_access_key_id\`" >> ~/.bashrc'
-runuser -l ubuntu -c 'echo "export AWS_SECRET_ACCESS_KEY=\`aws --profile default configure get aws_secret_access_key\`" >> ~/.bashrc'
-runuser -l ubuntu -c 'echo "export AWS_REGION=\`aws --profile default configure get aws_region\`" >> ~/.bashrc'
 
 cat >> /home/ubuntu/fgt_config.conf <<EOF
 # This is an FortiGate configuration example with two Geneve tunnel: geneve-az1, geneve-az2. Please add or remove based on your own value.

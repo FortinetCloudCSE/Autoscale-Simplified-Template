@@ -45,9 +45,8 @@ vpc_cidr_sg = []
 #
 vpc_cidr_management = "10.3.0.0/16"
 
-# Inspection VPC CIDR (reference only - used by unified_template)
-# This value is not used by existing_vpc_resources but documented here to avoid CIDR overlaps
-# The unified_template creates the actual inspection VPC with this CIDR
+# Inspection VPC CIDR - where FortiGate autoscale group and GWLB will be deployed
+# This CIDR should not overlap with management VPC or spoke VPCs
 #
 vpc_cidr_ns_inspection = "10.0.0.0/16"
 
@@ -59,17 +58,23 @@ vpc_cidr_spoke = "192.168.0.0/16"
 
 # East spoke VPC CIDR and subnet allocations
 # This VPC simulates workload VPC for testing east-west and north-south traffic flows
+# TGW subnets are dedicated for Transit Gateway attachment to avoid IP conflicts with EC2 instances
 #
 vpc_cidr_east            = "192.168.0.0/24"
 vpc_cidr_east_public_az1 = "192.168.0.0/28"   # Public subnet in AZ1 for Linux instances
 vpc_cidr_east_public_az2 = "192.168.0.16/28"  # Public subnet in AZ2 for Linux instances
+vpc_cidr_east_tgw_az1    = "192.168.0.32/28"  # TGW attachment subnet in AZ1
+vpc_cidr_east_tgw_az2    = "192.168.0.48/28"  # TGW attachment subnet in AZ2
 
 # West spoke VPC CIDR and subnet allocations
 # This VPC simulates second workload VPC for testing cross-VPC traffic inspection
+# TGW subnets are dedicated for Transit Gateway attachment to avoid IP conflicts with EC2 instances
 #
 vpc_cidr_west            = "192.168.1.0/24"
 vpc_cidr_west_public_az1 = "192.168.1.0/28"   # Public subnet in AZ1 for Linux instances
 vpc_cidr_west_public_az2 = "192.168.1.16/28"  # Public subnet in AZ2 for Linux instances
+vpc_cidr_west_tgw_az1    = "192.168.1.32/28"  # TGW attachment subnet in AZ1
+vpc_cidr_west_tgw_az2    = "192.168.1.48/28"  # TGW attachment subnet in AZ2
 
 # Number of bits to use for subnet CIDR calculation
 # Formula: <vpc_cidr>/<vpc_cidr_prefix + subnet_bits>
@@ -77,6 +82,29 @@ vpc_cidr_west_public_az2 = "192.168.1.16/28"  # Public subnet in AZ2 for Linux i
 # Recommended: 7 or 8 for most deployments
 #
 subnet_bits = 8
+
+#====================================================================================================
+# INSPECTION VPC CONFIGURATION
+#====================================================================================================
+# Enable creation of the inspection VPC for FortiGate autoscale group
+# This VPC will contain the GWLB and FortiGate instances deployed by unified_template
+# Set to true to create the inspection VPC infrastructure
+# Set to false if using an existing inspection VPC
+#
+enable_build_inspection_vpc = true
+
+# Internet access mode for FortiGate instances in the inspection VPC
+# Options:
+#   "nat_gw" - Use NAT Gateway for centralized egress (predictable source IP, additional cost)
+#   "eip"    - Use Elastic IP per instance (distributed egress, no NAT Gateway cost)
+#
+inspection_access_internet_mode = "nat_gw"
+
+# Enable dedicated management ENI in inspection VPC
+# Creates separate management subnets and dedicates port2 to management traffic only
+# Set to true for management plane isolation in production environments
+#
+inspection_enable_dedicated_management_eni = false
 
 #====================================================================================================
 # MANAGEMENT VPC CONFIGURATION
@@ -256,8 +284,10 @@ acl = "public"
 #
 # USE CASE 1: Complete Lab Environment
 # ------------------------------------
-# Full-featured lab with management VPC, Transit Gateway, spoke VPCs, and all optional components
+# Full-featured lab with inspection VPC, management VPC, Transit Gateway, spoke VPCs, and all components
 #
+# enable_build_inspection_vpc      = true
+# inspection_access_internet_mode  = "nat_gw"
 # enable_build_management_vpc      = true
 # enable_fortimanager              = true
 # enable_fortianalyzer             = true
@@ -266,10 +296,21 @@ acl = "public"
 # enable_build_existing_subnets    = true
 # enable_linux_spoke_instances     = true
 #
-# USE CASE 2: Management VPC Only
-# --------------------------------
-# Create only management infrastructure without spoke VPCs or Transit Gateway
+# USE CASE 2: Inspection VPC Only (for unified_template)
+# ------------------------------------------------------
+# Create only the inspection VPC infrastructure for FortiGate autoscale deployment
+# No management VPC or spoke VPCs - use with existing production infrastructure
 #
+# enable_build_inspection_vpc      = true
+# inspection_access_internet_mode  = "nat_gw"
+# enable_build_management_vpc      = false
+# enable_build_existing_subnets    = false
+#
+# USE CASE 3: Management VPC Only
+# --------------------------------
+# Create only management infrastructure without inspection VPC, spoke VPCs, or Transit Gateway
+#
+# enable_build_inspection_vpc      = false
 # enable_build_management_vpc      = true
 # enable_fortimanager              = true
 # enable_fortianalyzer             = true
@@ -277,20 +318,24 @@ acl = "public"
 # enable_management_tgw_attachment = false
 # enable_build_existing_subnets    = false
 #
-# USE CASE 3: Traffic Generation Only
+# USE CASE 4: Traffic Generation Only
 # ------------------------------------
 # Create Transit Gateway and spoke VPCs for testing without management infrastructure
 #
+# enable_build_inspection_vpc      = true
 # enable_build_management_vpc      = false
 # enable_build_existing_subnets    = true
 # enable_linux_spoke_instances     = true
 #
-# USE CASE 4: Production Integration
-# -----------------------------------
-# Skip this template entirely and deploy only unified_template
-# Use existing production Transit Gateway, management VPC, and workloads
+# USE CASE 5: Production Integration (No Inspection VPC)
+# -------------------------------------------------------
+# Deploy into existing inspection VPC - unified_template uses Fortinet-Role tags to find resources
+# Use this if your inspection VPC was created outside of this template
 #
-# (Do not deploy existing_vpc_resources template)
+# enable_build_inspection_vpc      = false
+# enable_build_management_vpc      = false
+# enable_build_existing_subnets    = false
+# (Ensure existing resources are tagged with Fortinet-Role tags)
 #
 #====================================================================================================
 # IMPORTANT NOTES
@@ -304,39 +349,48 @@ acl = "public"
 # 2. MATCHING VALUES WITH UNIFIED_TEMPLATE
 #    - cp and env MUST match between templates for resource discovery
 #    - attach_to_tgw_name MUST match between templates for TGW attachment
+#    - vpc_cidr_ns_inspection MUST match inspection_vpc_cidr in unified_template
 #    - vpc_cidr_management MUST match if using dedicated management VPC integration
+#    - inspection_access_internet_mode MUST match access_internet_mode in unified_template
+#    - inspection_enable_dedicated_management_eni MUST match enable_dedicated_management_eni
 #
-# 3. LICENSING REQUIREMENTS
+# 3. FORTINET-ROLE TAGS
+#    - Resources are tagged with Fortinet-Role for discovery by unified_template
+#    - Tag pattern: {cp}-{env}-inspection-<resource-type>
+#    - Examples: acme-test-inspection-vpc, acme-test-inspection-public-az1
+#    - Do NOT modify these tags - unified_template uses them for resource lookup
+#
+# 4. LICENSING REQUIREMENTS
 #    - FortiManager and FortiAnalyzer require BYOL licenses or use PAYG from AWS Marketplace
 #    - License files must be placed in specified paths before running terraform apply
 #    - Do NOT mix FortiManager/FortiAnalyzer licenses with FortiGate autoscale licenses
 #    - Leave license_file variables empty ("") if using PAYG instances
 #
-# 4. REQUIRED PASSWORDS
+# 5. REQUIRED PASSWORDS
 #    - fortimanager_admin_password MUST be set if enable_fortimanager = true
 #    - fortianalyzer_admin_password MUST be set if enable_fortianalyzer = true
 #    - If passwords are left empty, you will NOT be able to login to the instances
 #    - Minimum password length: 8 characters
 #
-# 5. OPTIONAL VARIABLES
+# 6. OPTIONAL VARIABLES
 #    - fortimanager_vm_name and fortimanager_admin_password can be left empty
 #    - fortianalyzer_vm_name and fortianalyzer_admin_password can be left empty
 #    - System will auto-generate names and use instance-id as default password
 #
-# 6. COST CONSIDERATIONS
+# 7. COST CONSIDERATIONS
 #    - FortiManager m5.xlarge: ~$0.10/hour (~$73/month)
 #    - FortiAnalyzer m5.xlarge: ~$0.10/hour (~$73/month)
 #    - Transit Gateway: $0.05/hour (~$36/month) + data processing charges
 #    - NAT Gateways: $0.045/hour per AZ + data processing charges
 #    - Destroy resources when not actively testing to minimize costs
 #
-# 7. SECURITY BEST PRACTICES
+# 8. SECURITY BEST PRACTICES
 #    - Always set vpc_cidr_sg to restrict access to your IP addresses only
 #    - Use private IPs (disable EIP) for production management resources
 #    - Implement least-privilege IAM policies for Terraform deployment
 #    - Enable VPC Flow Logs for network traffic monitoring
 #
-# 8. PRODUCTION CONSIDERATIONS
+# 9. PRODUCTION CONSIDERATIONS
 #    - Do NOT enable enable_management_tgw_attachment in production
 #    - Consider deploying management VPC in separate AWS account
 #    - Use existing Transit Gateway instead of creating new one (set enable_build_existing_subnets = false)

@@ -7,25 +7,23 @@ locals {
 locals {
   management_device_index = var.firewall_policy_mode == "2-arm" ? 2 : 1
 }
+# Management VPC Fortinet-Role tags - auto-constructed from cp and env
 locals {
-  management_vpc = var.dedicated_management_vpc_tag
+  management_vpc = "${var.cp}-${var.env}-management-vpc"
 }
 locals {
-  management_public_az1 = var.dedicated_management_public_az1_subnet_tag
+  management_public_az1 = "${var.cp}-${var.env}-management-public-az1"
 }
 locals {
-  management_public_az2 = var.dedicated_management_public_az2_subnet_tag
+  management_public_az2 = "${var.cp}-${var.env}-management-public-az2"
 }
-locals {
-  inspection_management_az1 = "${var.cp}-${var.env}-inspection-management-az1-subnet"
-}
-locals {
-  inspection_management_az2 = "${var.cp}-${var.env}-inspection-management-az2-subnet"
-}
+
+# Management VPC lookups (for dedicated management VPC mode)
+# Uses Fortinet-Role tags for consistency with inspection VPC resource discovery
 data "aws_vpc" "management_vpc" {
   count = var.enable_dedicated_management_vpc ? 1 : 0
   filter {
-    name   = "tag:Name"
+    name   = "tag:Fortinet-Role"
     values = [local.management_vpc]
   }
   filter {
@@ -36,7 +34,7 @@ data "aws_vpc" "management_vpc" {
 data "aws_subnet" "public_subnet_az1" {
   count = var.enable_dedicated_management_vpc ? 1 : 0
   filter {
-    name   = "tag:Name"
+    name   = "tag:Fortinet-Role"
     values = [local.management_public_az1]
   }
   filter {
@@ -47,7 +45,7 @@ data "aws_subnet" "public_subnet_az1" {
 data "aws_subnet" "public_subnet_az2" {
   count = var.enable_dedicated_management_vpc ? 1 : 0
   filter {
-    name   = "tag:Name"
+    name   = "tag:Fortinet-Role"
     values = [local.management_public_az2]
   }
   filter {
@@ -55,91 +53,73 @@ data "aws_subnet" "public_subnet_az2" {
     values = ["available"]
   }
 }
-data "aws_subnet" "management_subnet_az1" {
-  depends_on = [module.vpc-inspection]
-  count = var.enable_dedicated_management_eni ? 1 : 0
-  filter {
-    name   = "tag:Name"
-    values = [local.inspection_management_az1]
-  }
-  filter {
-    name   = "state"
-    values = ["available"]
-  }
-}
-data "aws_subnet" "management_subnet_az2" {
-  depends_on = [module.vpc-inspection]
-  count = var.enable_dedicated_management_eni ? 1 : 0
-  filter {
-    name   = "tag:Name"
-    values = [local.inspection_management_az2]
-  }
-  filter {
-    name   = "state"
-    values = ["available"]
-  }
-}
+
+# Security group for management interfaces
 resource "aws_security_group" "management-vpc-sg" {
-  count = var.enable_dedicated_management_vpc || var.enable_dedicated_management_eni ? 1 : 0
+  count       = var.enable_dedicated_management_vpc || var.enable_dedicated_management_eni ? 1 : 0
   description = "Security Group for ENI in the management VPC"
-  vpc_id = var.enable_dedicated_management_vpc ? data.aws_vpc.management_vpc[0].id : module.vpc-inspection.vpc_id
+  vpc_id      = var.enable_dedicated_management_vpc ? data.aws_vpc.management_vpc[0].id : data.aws_vpc.inspection.id
   ingress {
-    description = "Allow egress ALL"
-    from_port = 0
-    to_port = 0
-    protocol = "-1"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    description = "Allow ingress ALL"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
     description = "Allow egress ALL"
-    from_port = 0
-    to_port = 0
-    protocol = "-1"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
 module "spk_tgw_gwlb_asg_fgt_igw" {
   source = "git::https://github.com/fortinetdev/terraform-aws-cloud-modules.git//examples/spk_tgw_gwlb_asg_fgt_igw"
 
-  ## Note: Please go through all arguments in this file and replace the content with your configuration! This file is just an example.
-  ## "<YOUR-OWN-VALUE>" are parameters that you need to specify your own value.
+  #
+  # Used for testing development test builds. Never use this in production.
+  #
+
+  #source = "/Users/mwooten/github/40netse/AWSTerraformModules//examples/spk_tgw_gwlb_asg_fgt_igw"
 
   ## Root config
-  region     = var.aws_region
-
+  region        = var.aws_region
   module_prefix = var.asg_module_prefix
+
+  # Use existing inspection VPC resources (looked up by Fortinet-Role tags)
   existing_security_vpc = {
-    id = module.vpc-inspection.vpc_id
+    id = data.aws_vpc.inspection.id
   }
   existing_igw = {
-    id = module.vpc-inspection.igw_id
+    id = data.aws_internet_gateway.inspection.id
   }
   existing_tgw = {
   }
   existing_subnets = {
     fgt_login_az1 = {
-      id = module.vpc-inspection.subnet_public_az1_id
+      id                = data.aws_subnet.inspection_public_az1.id
       availability_zone = local.availability_zone_1
     },
     fgt_login_az2 = {
-      id = module.vpc-inspection.subnet_public_az2_id
+      id                = data.aws_subnet.inspection_public_az2.id
       availability_zone = local.availability_zone_2
     },
     gwlbe_az1 = {
-      id = module.vpc-inspection.subnet_gwlbe_az1_id
+      id                = data.aws_subnet.inspection_gwlbe_az1.id
       availability_zone = local.availability_zone_1
     },
     gwlbe_az2 = {
-     id = module.vpc-inspection.subnet_gwlbe_az2_id
+      id                = data.aws_subnet.inspection_gwlbe_az2.id
       availability_zone = local.availability_zone_2
     },
     fgt_internal_az1 = {
-      id = module.vpc-inspection.subnet_private_az1_id
+      id                = data.aws_subnet.inspection_private_az1.id
       availability_zone = local.availability_zone_1
     },
     fgt_internal_az2 = {
-      id = module.vpc-inspection.subnet_private_az2_id
+      id                = data.aws_subnet.inspection_private_az2.id
       availability_zone = local.availability_zone_2
     }
   }
@@ -169,17 +149,17 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       description = "Security group by Terraform for dedicated management port"
       ingress = {
         all_traffic = {
-          from_port = "0"
-          to_port   = "0"
-          protocol  = "-1"
+          from_port   = "0"
+          to_port     = "0"
+          protocol    = "-1"
           cidr_blocks = ["0.0.0.0/0"]
         }
       }
       egress = {
         all_traffic = {
-          from_port = "0"
-          to_port   = "0"
-          protocol  = "-1"
+          from_port   = "0"
+          to_port     = "0"
+          protocol    = "-1"
           cidr_blocks = ["0.0.0.0/0"]
         }
       }
@@ -187,8 +167,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   }
 
   vpc_cidr_block     = var.vpc_cidr_inspection
-# spoke_cidr_list    = [var.vpc_cidr_east, var.vpc_cidr_west]
-  spoke_cidr_list    = [ ]
+  spoke_cidr_list    = []
   availability_zones = [local.availability_zone_1, local.availability_zone_2]
 
   ## Transit Gateway
@@ -196,30 +175,30 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   tgw_description = "tgw for fortigate autoscale group"
 
   ## Auto scale group
-  # This example is a hybrid license ASG
-  fgt_intf_mode = var.firewall_policy_mode
+  fgt_intf_mode            = var.firewall_policy_mode
   fgt_access_internet_mode = var.access_internet_mode
-    asgs = {
+  asgs = {
     fgt_byol_asg = {
       fmg_integration = var.enable_fortimanager_integration ? {
-        ip                  = var.fortimanager_ip
-        sn                  = var.fortimanager_sn
-        primary_only	    = true
-        fgt_lic_mgmt        = "module"
-        vrf_select          = 1
+        ip           = var.fortimanager_ip
+        sn           = var.fortimanager_sn
+        primary_only = true
+        fgt_lic_mgmt = "module"
+        vrf_select   = 1
       } : null
       primary_scalein_protection = var.primary_scalein_protection
-      extra_network_interfaces = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
+      extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
-          device_index = local.management_device_index
+          device_index     = local.management_device_index
           enable_public_ip = true
+          cross_vpc        = var.enable_dedicated_management_vpc
           subnet = [
             {
-              id = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.management_subnet_az1[0].id
+              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
               zone_name = local.availability_zone_1
             },
             {
-              id = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.management_subnet_az2[0].id
+              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
               zone_name = local.availability_zone_2
             }
           ]
@@ -230,32 +209,25 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
           ]
         }
       }
-      template_name   = "fgt_asg_template"
-      fgt_version     = var.fortios_version
-      license_type    = "byol"
-      instance_type   = var.fgt_instance_type
-      fgt_password    = var.fortigate_asg_password
-      keypair_name    = var.keypair
-      lic_folder_path = var.asg_license_directory
+      template_name           = "fgt_asg_template"
+      fgt_version             = var.fortios_version
+      license_type            = "byol"
+      instance_type           = var.fgt_instance_type
+      fgt_password            = var.fortigate_asg_password
+      keypair_name            = var.keypair
+      lic_folder_path         = var.asg_license_directory
       fortiflex_username      = var.fortiflex_username
       fortiflex_password      = var.fortiflex_password
       fortiflex_sn_list       = var.fortiflex_sn_list
       fortiflex_configid_list = var.fortiflex_configid_list
 
-      # fortiflex_refresh_token = "<YOUR-OWN-VALUE>" # e.g. "NasmPa0CXpd56n6TzJjGqpqZm9Thyw"
-      # fortiflex_sn_list = "<YOUR-OWN-VALUE>" # e.g. ["FGVMMLTM00000001", "FGVMMLTM00000002"]
-      # fortiflex_configid_list = "<YOUR-OWN-VALUE>" # e.g. [2343]
       enable_fgt_system_autoscale = true
       intf_security_group = {
         login_port    = "secgrp1"
         internal_port = "secgrp1"
       }
 
-      user_conf_file_path = local.fgt_config_file
-      # There are 3 options for providing user_conf data:
-      # user_conf_content : FortiGate Configuration
-      # user_conf_file_path : The file path of configuration file
-      # user_conf_s3 : Map of AWS S3
+      user_conf_file_path   = local.fgt_config_file
       asg_max_size          = var.asg_byol_asg_max_size
       asg_min_size          = var.asg_byol_asg_min_size
       asg_desired_capacity  = var.asg_byol_asg_desired_size
@@ -264,24 +236,25 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
     },
     fgt_on_demand_asg = {
       fmg_integration = var.enable_fortimanager_integration ? {
-        ip                  = var.fortimanager_ip
-        sn                  = var.fortimanager_sn
-        primary_only	    = true
-        fgt_lic_mgmt        = "module"
-        vrf_select          = var.fortimanager_vrf_select
+        ip           = var.fortimanager_ip
+        sn           = var.fortimanager_sn
+        primary_only = true
+        fgt_lic_mgmt = "module"
+        vrf_select   = var.fortimanager_vrf_select
       } : null
       primary_scalein_protection = var.primary_scalein_protection
-      extra_network_interfaces = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
+      extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
-          device_index = local.management_device_index
+          device_index     = local.management_device_index
           enable_public_ip = true
+          cross_vpc        = var.enable_dedicated_management_vpc
           subnet = [
             {
-              id = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.management_subnet_az1[0].id
+              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
               zone_name = local.availability_zone_1
             },
             {
-              id = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.management_subnet_az2[0].id
+              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
               zone_name = local.availability_zone_2
             }
           ]
@@ -303,16 +276,11 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         login_port    = "secgrp1"
         internal_port = "secgrp1"
       }
-      user_conf_file_path = local.fgt_config_file
-      # There are 3 options for providing user_conf data:
-      # user_conf_content : FortiGate Configuration
-      # user_conf_file_path : The file path of configuration file
-      # user_conf_s3 : Map of AWS S3
-      asg_max_size          = var.asg_ondemand_asg_max_size
-      asg_min_size          = var.asg_ondemand_asg_min_size
-      asg_desired_capacity  = var.asg_ondemand_asg_desired_size
-      # asg_desired_capacity = 0
-      dynamodb_table_name = "fgt_asg_track_table"
+      user_conf_file_path  = local.fgt_config_file
+      asg_max_size         = var.asg_ondemand_asg_max_size
+      asg_min_size         = var.asg_ondemand_asg_min_size
+      asg_desired_capacity = var.asg_ondemand_asg_desired_size
+      dynamodb_table_name  = "fgt_asg_track_table"
       scale_policies = {
         byol_cpu_above_80 = {
           policy_type        = "SimpleScaling"
@@ -425,21 +393,9 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
 
   ## Spoke VPC
   enable_east_west_inspection = true
-  # "<YOUR-OWN-VALUE>" # e.g.
-  # spk_vpc = {
-  #   # This is optional. The module will create Transit Gateway Attachment under each subnet in argument 'subnet_ids', and also create route table to let all traffic (0.0.0.0/0) forward to the TGW attachment with the subnets associated.
-  #   "spk_vpc1" = {
-  #     vpc_id = "vpc-123456789",
-  #     subnet_ids = [
-  #       "subnet-123456789",
-  #       "subnet-123456789"
-  #     ]
-  #   }
-  # }
 
   ## Tag
   general_tags = {
     "purpose" = "ASG_TEST"
   }
 }
-

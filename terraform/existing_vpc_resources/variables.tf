@@ -120,6 +120,11 @@ variable "enable_management_tgw_attachment" {
   description = "Allow Management VPC to attach to an existing TGW"
   type        = bool
 }
+variable "enable_spoke_tgw_default_route_to_management" {
+  description = "Create default routes (0.0.0.0/0) from spoke TGW route tables to management VPC. Set to false when unified_template takes over routing."
+  type        = bool
+  default     = true
+}
 variable "enable_linux_spoke_instances" {
   description = "Boolean to allow creation of Linux Spoke Instances in East and West VPCs"
   type        = bool
@@ -141,6 +146,12 @@ variable "vpc_cidr_east_public_az1" {
 variable "vpc_cidr_east_public_az2" {
     description = "CIDR for the AZ2 public subnet in East VPC"
 }
+variable "vpc_cidr_east_tgw_az1" {
+    description = "CIDR for the AZ1 TGW attachment subnet in East VPC"
+}
+variable "vpc_cidr_east_tgw_az2" {
+    description = "CIDR for the AZ2 TGW attachment subnet in East VPC"
+}
 variable "vpc_cidr_west" {
     description = "CIDR for the whole west VPC"
 }
@@ -150,6 +161,29 @@ variable "vpc_cidr_west_public_az1" {
 variable "vpc_cidr_west_public_az2" {
     description = "CIDR for the AZ2 public subnet in west VPC"
 }
+variable "vpc_cidr_west_tgw_az1" {
+    description = "CIDR for the AZ1 TGW attachment subnet in West VPC"
+}
+variable "vpc_cidr_west_tgw_az2" {
+    description = "CIDR for the AZ2 TGW attachment subnet in West VPC"
+}
 variable "acl" {
   description = "The acl for linux instances"
+}
+#
+# Inspection VPC Variables
+#
+variable "enable_build_inspection_vpc" {
+  description = "Enable building the inspection VPC"
+  type        = bool
+}
+variable "inspection_access_internet_mode" {
+  description = "Variable that defines how the fortigates in the autoscale group will access the internet. 'nat_gw' or 'eip'"
+  type        = string
+  default     = "nat_gw"
+}
+variable "inspection_enable_dedicated_management_eni" {
+  description = "Boolean to allow creation of dedicated management subnets and ENI in the inspection VPC"
+  type        = bool
+  default     = false
 }

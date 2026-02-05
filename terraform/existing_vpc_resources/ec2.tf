@@ -122,7 +122,7 @@ data "aws_vpc" "vpc-west" {
 #
 
 data "aws_ami" "ubuntu" {
-  count = local.enable_linux_spoke_instances ? 1 : 0
+  count       = (local.enable_linux_spoke_instances || var.enable_jump_box) ? 1 : 0
   most_recent = true
 
   filter {
@@ -147,7 +147,7 @@ data "aws_ami" "ubuntu" {
 
 module "east_instance_public_az1" {
   count                       = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on                  = [module.vpc-east, module.vpc-transit-gateway-attachment-east]
+  depends_on                  = [module.vpc-east, module.vpc-transit-gateway-attachment-east, time_sleep.wait_for_jump_box]
   source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name       = "${var.cp}-${var.env}-east-public-az1-instance"
   enable_public_ips           = false
@@ -165,7 +165,7 @@ module "east_instance_public_az1" {
 
 module "east_instance_public_az2" {
   count                       = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on                  = [module.vpc-east, module.vpc-transit-gateway-attachment-east]
+  depends_on                  = [module.vpc-east, module.vpc-transit-gateway-attachment-east, time_sleep.wait_for_jump_box]
   source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name       = "${var.cp}-${var.env}-east-public-az2-instance"
   enable_public_ips           = false
@@ -186,7 +186,7 @@ module "east_instance_public_az2" {
 #
 module "west_instance_public_az1" {
   count                       = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on                  = [module.vpc-west, module.vpc-transit-gateway-attachment-west]
+  depends_on                  = [module.vpc-west, module.vpc-transit-gateway-attachment-west, time_sleep.wait_for_jump_box]
   source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name       = "${var.cp}-${var.env}-west-public-az1-instance"
   enable_public_ips           = false
@@ -204,7 +204,7 @@ module "west_instance_public_az1" {
 
 module "west_instance_public_az2" {
   count                       = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on                  = [module.vpc-west, module.vpc-transit-gateway-attachment-west]
+  depends_on                  = [module.vpc-west, module.vpc-transit-gateway-attachment-west, time_sleep.wait_for_jump_box]
   source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name       = "${var.cp}-${var.env}-west-public-az2-instance"
   enable_public_ips           = false
@@ -228,53 +228,18 @@ resource "aws_security_group" "ec2-linux-east-vpc-sg" {
   description                 = "Security Group for Linux Instances in the East Spoke VPC"
   vpc_id                      = data.aws_vpc.vpc-east[0].id
   ingress {
-    description = "Allow SSH from Anywhere IPv4 (change this to My IP)"
-    from_port = 22
-    to_port = 22
-    protocol = "tcp"
-    cidr_blocks = concat(var.vpc_cidr_sg, [var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west])
-  }
-  ingress {
-    description = "Allow HTTP from Anywhere IPv4 (change this to My IP)"
-    from_port = 80
-    to_port = 80
-    protocol = "tcp"
-    cidr_blocks = concat(var.vpc_cidr_sg, [var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west])
-  }
-  ingress {
-    description = "Allow FTP from CIDRs in VPC"
-    from_port = 21
-    to_port = 21
-    protocol = "tcp"
-    cidr_blocks = [ var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west]
-  }
-  ingress {
-    description = "Limit PASV ports from CIDRs in VPC"
-    from_port = 10090
-    to_port = 10100
-    protocol = "tcp"
-    cidr_blocks = [ var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west]
-  }
-  ingress {
-    description = "Allow ICMP from connected CIDRs"
-    from_port = -1
-    to_port = -1
-    protocol = "icmp"
-    cidr_blocks = concat(var.vpc_cidr_sg, [var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west])
-  }
-  ingress {
-    description = "Allow Syslog from anywhere IPv4"
-    from_port = 514
-    to_port = 514
-    protocol = "udp"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    description = "Allow All"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
-    description = "Allow egress ALL"
-    from_port = 0
-    to_port = 0
-    protocol = "-1"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    description = "Allow All"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 resource "aws_security_group" "ec2-linux-west-vpc-sg" {
@@ -282,53 +247,18 @@ resource "aws_security_group" "ec2-linux-west-vpc-sg" {
   description                 = "Security Group for Linux Instances in the West Spoke VPC"
   vpc_id                      = data.aws_vpc.vpc-west[0].id
   ingress {
-    description = "Allow SSH from Anywhere IPv4 (change this to My IP)"
-    from_port = 22
-    to_port = 22
-    protocol = "tcp"
-    cidr_blocks = concat(var.vpc_cidr_sg, [var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west])
-  }
-  ingress {
-    description = "Allow HTTP from Anywhere IPv4 (change this to My IP)"
-    from_port = 80
-    to_port = 80
-    protocol = "tcp"
-    cidr_blocks = concat(var.vpc_cidr_sg, [var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west])
-  }
-  ingress {
-    description = "Allow FTP from CIDRs in VPC"
-    from_port = 21
-    to_port = 21
-    protocol = "tcp"
-    cidr_blocks = [ var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west]
-  }
-  ingress {
-    description = "Limit PASV ports from CIDRs in VPC"
-    from_port = 10090
-    to_port = 10100
-    protocol = "tcp"
-    cidr_blocks = [ var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west]
-  }
-  ingress {
-    description = "Allow ICMP from connected CIDRs"
-    from_port = -1
-    to_port = -1
-    protocol = "icmp"
-    cidr_blocks = concat(var.vpc_cidr_sg, [var.vpc_cidr_ns_inspection, var.vpc_cidr_management, var.vpc_cidr_east, var.vpc_cidr_west])
-  }
-  ingress {
-    description = "Allow Syslog from anywhere IPv4"
-    from_port = 514
-    to_port = 514
-    protocol = "udp"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    description = "Allow All"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
-    description = "Allow egress ALL"
-    from_port = 0
-    to_port = 0
-    protocol = "-1"
-    cidr_blocks = [ "0.0.0.0/0" ]
+    description = "Allow All"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 

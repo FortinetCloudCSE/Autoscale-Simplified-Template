@@ -15,12 +15,12 @@ module "vpc-transit-gateway-attachment-east" {
   source                         = "git::https://github.com/40netse/terraform-modules.git//aws_tgw_attachment"
   count                          = var.enable_build_existing_subnets ? 1 : 0
   depends_on                     = [module.vpc-transit-gateway,
-                                    module.subnet-east-public-az1,
-                                    module.subnet-east-public-az2]
+                                    module.subnet-east-tgw-az1,
+                                    module.subnet-east-tgw-az2]
   tgw_attachment_name            = "${var.cp}-${var.env}-east-tgw-attachment"
 
   transit_gateway_id             = module.vpc-transit-gateway[0].tgw_id
-  subnet_ids                     = [ module.subnet-east-public-az1[0].id, module.subnet-east-public-az2[0].id ]
+  subnet_ids                     = [ module.subnet-east-tgw-az1[0].id, module.subnet-east-tgw-az2[0].id ]
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
   vpc_id                                          = module.vpc-east[0].vpc_id
@@ -52,12 +52,12 @@ module "vpc-transit-gateway-attachment-west" {
   source               = "git::https://github.com/40netse/terraform-modules.git//aws_tgw_attachment"
   count                = var.enable_build_existing_subnets ? 1 : 0
   depends_on           = [module.vpc-transit-gateway,
-                          module.subnet-west-public-az1,
-                          module.subnet-west-public-az2]
+                          module.subnet-west-tgw-az1,
+                          module.subnet-west-tgw-az2]
   tgw_attachment_name  = "${var.cp}-${var.env}-west-tgw-attachment"
 
   transit_gateway_id   = module.vpc-transit-gateway[0].tgw_id
-  subnet_ids           = [ module.subnet-west-public-az1[0].id, module.subnet-west-public-az2[0].id ]
+  subnet_ids           = [ module.subnet-west-tgw-az1[0].id, module.subnet-west-tgw-az2[0].id ]
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
   vpc_id                                          = module.vpc-west[0].vpc_id
@@ -84,4 +84,22 @@ resource "aws_ec2_transit_gateway_route" "default-route-west-tgw" {
   transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.west[0].id
 }
 
-
+#
+# Default routes (0.0.0.0/0) from east/west spoke TGW route tables to management VPC
+# Allows spoke instances to use jump box for NAT during cloud-init
+# Set enable_spoke_tgw_default_route_to_management = false when unified_template takes over routing
+#
+resource "aws_ec2_transit_gateway_route" "east-default-route-to-management-tgw" {
+  count                          = (var.enable_build_management_vpc && local.enable_management_tgw_attachment && var.enable_spoke_tgw_default_route_to_management) ? 1 : 0
+  depends_on                     = [aws_ec2_transit_gateway_route_table.east, module.vpc-management]
+  destination_cidr_block         = "0.0.0.0/0"
+  transit_gateway_attachment_id  = module.vpc-management[0].management_tgw_attachment_id
+  transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.east[0].id
+}
+resource "aws_ec2_transit_gateway_route" "west-default-route-to-management-tgw" {
+  count                          = (var.enable_build_management_vpc && local.enable_management_tgw_attachment && var.enable_spoke_tgw_default_route_to_management) ? 1 : 0
+  depends_on                     = [aws_ec2_transit_gateway_route_table.west, module.vpc-management]
+  destination_cidr_block         = "0.0.0.0/0"
+  transit_gateway_attachment_id  = module.vpc-management[0].management_tgw_attachment_id
+  transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.west[0].id
+}
