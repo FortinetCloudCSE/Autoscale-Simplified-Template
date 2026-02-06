@@ -63,7 +63,7 @@ module "vpc-management" {
 }
 
 #
-# Fortinet-Role Tags for management VPC resource discovery by unified_template
+# Fortinet-Role Tags for management VPC resource discovery by autoscale_template
 #
 resource "aws_ec2_tag" "management_vpc_role" {
   count       = var.enable_build_management_vpc ? 1 : 0

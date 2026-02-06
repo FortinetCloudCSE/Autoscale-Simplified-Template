@@ -7,10 +7,10 @@ weight: 52
 
 ## Overview
 
-The `existing_vpc_resources` template creates the **Inspection VPC** and supporting infrastructure required for the FortiGate autoscale deployment. All resources are tagged with `Fortinet-Role` tags that allow the `unified_template` to discover and deploy into them.
+The `existing_vpc_resources` template creates the **Inspection VPC** and supporting infrastructure required for the FortiGate autoscale deployment. All resources are tagged with `Fortinet-Role` tags that allow the `autoscale_template` to discover and deploy into them.
 
 {{% notice warning %}}
-**This template must be run BEFORE unified_template**. The `unified_template` discovers VPCs using `Fortinet-Role` tags created by this template. If you skip this template, you must manually apply the required tags to your existing VPCs.
+**This template must be run BEFORE autoscale_template**. The `autoscale_template` discovers VPCs using `Fortinet-Role` tags created by this template. If you skip this template, you must manually apply the required tags to your existing VPCs.
 {{% /notice %}}
 
 ---
@@ -19,7 +19,7 @@ The `existing_vpc_resources` template creates the **Inspection VPC** and support
 
 ![Existing Resources Diagram](../existing-resources-diagram.png)
 
-The template conditionally creates the following components based on boolean variables. All resources are tagged with `Fortinet-Role` tags for discovery by `unified_template`.
+The template conditionally creates the following components based on boolean variables. All resources are tagged with `Fortinet-Role` tags for discovery by `autoscale_template`.
 
 ### Component Overview
 
@@ -42,7 +42,7 @@ The template conditionally creates the following components based on boolean var
 
 ### 0. Inspection VPC (Required)
 
-**Purpose**: The VPC where FortiGate autoscale group will be deployed by `unified_template`
+**Purpose**: The VPC where FortiGate autoscale group will be deployed by `autoscale_template`
 
 **Configuration variable**:
 ```hcl
@@ -66,7 +66,7 @@ Inspection VPC (10.0.0.0/16)
 └── TGW Attachment (optional - if TGW enabled)
 ```
 
-**Fortinet-Role tags applied** (for unified_template discovery):
+**Fortinet-Role tags applied** (for autoscale_template discovery):
 
 | Resource | Fortinet-Role Tag |
 |----------|-------------------|
@@ -94,7 +94,7 @@ Inspection VPC (10.0.0.0/16)
 {{% notice warning %}}
 **Critical Variable Coordination**
 
-The `cp` and `env` values used here **must match exactly** in `unified_template` for tag discovery to work. Mismatched values will cause `unified_template` to fail with "no matching VPC found" errors.
+The `cp` and `env` values used here **must match exactly** in `autoscale_template` for tag discovery to work. Mismatched values will cause `autoscale_template` to fail with "no matching VPC found" errors.
 {{% /notice %}}
 
 #### Inspection VPC Internet Mode
@@ -124,7 +124,7 @@ Creates additional management subnets within the Inspection VPC for dedicated ma
 - Dedicated VPC with public and private subnets across two Availability Zones
 - Internet Gateway for external connectivity
 - Security groups for management traffic
-- `Fortinet-Role` tags for discovery by `unified_template`
+- `Fortinet-Role` tags for discovery by `autoscale_template`
 
 **Configuration variable**:
 ```hcl
@@ -140,7 +140,7 @@ Management VPC (10.3.0.0/16)
 └── Route Tables
 ```
 
-**Fortinet-Role tags applied** (for unified_template discovery):
+**Fortinet-Role tags applied** (for autoscale_template discovery):
 
 | Resource | Fortinet-Role Tag |
 |----------|-------------------|
@@ -269,7 +269,7 @@ Transit Gateway
 **Attachments**:
 - East Spoke VPC
 - West Spoke VPC
-- Inspection VPC (created by unified_template)
+- Inspection VPC (created by autoscale_template)
 - Management VPC (if `enable_mgmt_vpc_tgw_attachment = true`)
 - Debug attachment (if `enable_debug_tgw_attachment = true`)
 
@@ -446,7 +446,7 @@ enable_build_management_vpc    = false
 enable_build_existing_subnets  = false
 ```
 
-**What you get**: Inspection VPC with Fortinet-Role tags only - minimum required for unified_template
+**What you get**: Inspection VPC with Fortinet-Role tags only - minimum required for autoscale_template
 
 **Cost**: ~$30-50/month (VPC infrastructure only)
 
@@ -527,7 +527,7 @@ env = "test"    # Environment: prod, test, dev
 {{% notice warning %}}
 **Critical: Variable Coordination**
 
-These `cp` and `env` values **must match** between `existing_vpc_resources` and `unified_template` for proper resource discovery via tags.
+These `cp` and `env` values **must match** between `existing_vpc_resources` and `autoscale_template` for proper resource discovery via tags.
 {{% /notice %}}
 
 ### Step 4: Configure Component Flags
@@ -543,7 +543,7 @@ inspection_enable_dedicated_management_eni = false  # or true for dedicated mgmt
 ```
 
 {{% notice info %}}
-**Fortinet-Role Tags**: All Inspection VPC resources are automatically tagged with `Fortinet-Role` tags using the pattern `{cp}-{env}-inspection-*`. These tags are used by `unified_template` to discover the VPC resources.
+**Fortinet-Role Tags**: All Inspection VPC resources are automatically tagged with `Fortinet-Role` tags using the pattern `{cp}-{env}-inspection-*`. These tags are used by `autoscale_template` to discover the VPC resources.
 {{% /notice %}}
 
 #### Management VPC (Optional)
@@ -641,7 +641,7 @@ vpc_cidr_spoke      = "192.168.0.0/16"  # Supernet for all spoke VPCs
 
 Ensure CIDRs:
 - Don't overlap with existing networks
-- Match between `existing_vpc_resources` and `unified_template`
+- Match between `existing_vpc_resources` and `autoscale_template`
 - Have sufficient address space for growth
 - Align with corporate IP addressing standards
 {{% /notice %}}
@@ -774,35 +774,35 @@ curl http://<east-linux-ip>
 # Expected: "Hello from ip-192-168-0-50"
 ```
 
-### Step 10: Save Outputs for unified_template
+### Step 10: Save Outputs for autoscale_template
 
-Save key outputs for use in `unified_template` configuration:
+Save key outputs for use in `autoscale_template` configuration:
 
 ```bash
 # Save all outputs
 terraform output > ../outputs.txt
 
 # Or save specific values
-echo "tgw_name: $(terraform output -raw tgw_name)" >> ../unified_template/terraform.tfvars
-echo "fortimanager_ip: $(terraform output -raw fortimanager_private_ip)" >> ../unified_template/terraform.tfvars
+echo "tgw_name: $(terraform output -raw tgw_name)" >> ../autoscale_template/terraform.tfvars
+echo "fortimanager_ip: $(terraform output -raw fortimanager_private_ip)" >> ../autoscale_template/terraform.tfvars
 ```
 
 ---
 
 ## Outputs Reference
 
-The template provides these outputs. Note that `unified_template` discovers resources via `Fortinet-Role` tags rather than using output values directly.
+The template provides these outputs. Note that `autoscale_template` discovers resources via `Fortinet-Role` tags rather than using output values directly.
 
 ### Inspection VPC Outputs
 
 | Output | Description | Notes |
 |--------|-------------|-------|
-| `inspection_vpc_id` | ID of inspection VPC | Discovered by unified_template via Fortinet-Role tag |
+| `inspection_vpc_id` | ID of inspection VPC | Discovered by autoscale_template via Fortinet-Role tag |
 | `inspection_vpc_cidr` | CIDR of inspection VPC | Used for route table configuration |
 
 ### Management and Supporting Infrastructure Outputs
 
-| Output | Description | Used By unified_template |
+| Output | Description | Used By autoscale_template |
 |--------|-------------|-------------------------|
 | `management_vpc_id` | ID of management VPC | VPC peering or TGW routing |
 | `management_vpc_cidr` | CIDR of management VPC | Route table configuration |
@@ -817,7 +817,7 @@ The template provides these outputs. Note that `unified_template` discovers reso
 | `west_linux_instance_ip` | West spoke instance IP | Connectivity testing |
 
 {{% notice info %}}
-**Tag-Based Discovery**: The `unified_template` discovers Inspection VPC resources using `Fortinet-Role` tags rather than relying on output values. This allows the templates to be run independently as long as the `cp` and `env` values match.
+**Tag-Based Discovery**: The `autoscale_template` discovers Inspection VPC resources using `Fortinet-Role` tags rather than relying on output values. This allows the templates to be run independently as long as the `cp` and `env` values match.
 {{% /notice %}}
 
 ---
@@ -845,7 +845,7 @@ If you enabled FortiManager and plan to integrate with autoscale group:
    - Device Manager > ADOM
    - Create ADOM for organizing autoscale FortiGates
 
-5. **Note FortiManager details** for unified_template:
+5. **Note FortiManager details** for autoscale_template:
    - Private IP: From outputs
    - Serial number: Get from CLI: `get system status`
 
@@ -1041,11 +1041,11 @@ Type `yes` when prompted.
 {{% notice warning %}}
 **Destroy Order is Critical**
 
-If you also deployed `unified_template`, **destroy it FIRST** before destroying `existing_vpc_resources`:
+If you also deployed `autoscale_template`, **destroy it FIRST** before destroying `existing_vpc_resources`:
 
 ```bash
-# Step 1: Destroy unified_template
-cd terraform/unified_template
+# Step 1: Destroy autoscale_template
+cd terraform/autoscale_template
 terraform destroy
 
 # Step 2: Destroy existing_vpc_resources  
@@ -1091,7 +1091,7 @@ aws ec2 describe-instances --filters "Name=instance-state-name,Values=running" "
 
 ## Next Steps
 
-After deploying `existing_vpc_resources`, proceed to deploy the [unified_template](../5_3_unified_template/) to create the FortiGate autoscale group and inspection VPC.
+After deploying `existing_vpc_resources`, proceed to deploy the [autoscale_template](../5_3_autoscale_template/) to create the FortiGate autoscale group and inspection VPC.
 
 **Key information to carry forward**:
 - Transit Gateway name (from outputs)
@@ -1100,6 +1100,6 @@ After deploying `existing_vpc_resources`, proceed to deploy the [unified_templat
 - Same `cp` and `env` values
 
 **Recommended next reading**:
-- [unified_template Deployment Guide](../5_3_unified_template/)
+- [autoscale_template Deployment Guide](../5_3_autoscale_template/)
 - [FortiManager Integration Configuration](../../4_solution_components/4_5_fortimanager_integration/)
 - [Licensing Options](../../3_licensing/)

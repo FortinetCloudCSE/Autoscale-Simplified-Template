@@ -1,13 +1,13 @@
 ---
-title: "unified_template"
+title: "autoscale_template"
 chapter: false
-menuTitle: "unified_template"
+menuTitle: "autoscale_template"
 weight: 53
 ---
 
 ## Overview
 
-The `unified_template` deploys the FortiGate autoscale group **into an existing Inspection VPC**. It discovers VPC resources using `Fortinet-Role` tags created by the [existing_vpc_resources](../5_2_existing_vpc_resources/) template.
+The `autoscale_template` deploys the FortiGate autoscale group **into an existing Inspection VPC**. It discovers VPC resources using `Fortinet-Role` tags created by the [existing_vpc_resources](../5_2_existing_vpc_resources/) template.
 
 {{% notice warning %}}
 **Prerequisites**: You must run `existing_vpc_resources` FIRST to create the Inspection VPC with proper `Fortinet-Role` tags. Alternatively, you can manually apply the required tags to existing VPCs.
@@ -21,7 +21,7 @@ The `unified_template` deploys the FortiGate autoscale group **into an existing 
 
 ## What It Creates
 
-The unified_template discovers the existing Inspection VPC via `Fortinet-Role` tags and deploys FortiGate autoscale components into it:
+The autoscale_template discovers the existing Inspection VPC via `Fortinet-Role` tags and deploys FortiGate autoscale components into it:
 
 ### Resource Discovery (via Fortinet-Role Tags)
 
@@ -63,7 +63,7 @@ The unified_template discovers the existing Inspection VPC via `Fortinet-Role` t
 
 ## Architecture Patterns
 
-The unified_template supports multiple deployment patterns:
+The autoscale_template supports multiple deployment patterns:
 
 ### Pattern 1: Centralized Architecture with TGW
 
@@ -130,11 +130,11 @@ Management: FortiGate → Management VPC → FortiManager
 
 ### Fortinet-Role Tag Discovery
 
-The `unified_template` discovers all Inspection VPC resources using `Fortinet-Role` tags. This is how it finds the VPC, subnets, route tables, and other resources created by `existing_vpc_resources`.
+The `autoscale_template` discovers all Inspection VPC resources using `Fortinet-Role` tags. This is how it finds the VPC, subnets, route tables, and other resources created by `existing_vpc_resources`.
 
 **How discovery works**:
 ```hcl
-# unified_template looks up resources like this:
+# autoscale_template looks up resources like this:
 data "aws_vpc" "inspection" {
   filter {
     name   = "tag:Fortinet-Role"
@@ -151,7 +151,7 @@ data "aws_subnet" "inspection_public_az1" {
 ```
 
 {{% notice warning %}}
-**Critical**: The `cp` and `env` variables must match exactly between `existing_vpc_resources` and `unified_template` for tag discovery to work.
+**Critical**: The `cp` and `env` variables must match exactly between `existing_vpc_resources` and `autoscale_template` for tag discovery to work.
 {{% /notice %}}
 
 ### Integration with existing_vpc_resources
@@ -230,7 +230,7 @@ fortimanager_sn = "FMGVM1234567890"
 ### Step 1: Navigate to Template Directory
 
 ```bash
-cd Autoscale-Simplified-Template/terraform/unified_template
+cd Autoscale-Simplified-Template/terraform/autoscale_template
 ```
 
 ### Step 2: Create terraform.tfvars
@@ -437,7 +437,7 @@ asg_license_directory = "asg_license"  # Directory containing .lic files
 
 2. Place license files in the directory:
    ```
-   terraform/unified_template/
+   terraform/autoscale_template/
    ├── terraform.tfvars
    ├── asg_license/
    │   ├── FGVM01-001.lic
@@ -1413,10 +1413,10 @@ terraform output
 
 ### Destroying the Deployment
 
-To destroy the unified_template infrastructure:
+To destroy the autoscale_template infrastructure:
 
 ```bash
-cd terraform/unified_template
+cd terraform/autoscale_template
 terraform destroy
 ```
 
@@ -1427,14 +1427,14 @@ Type `yes` when prompted.
 
 If you also deployed `existing_vpc_resources`, destroy in this order:
 
-1. **First**: Destroy `unified_template` (this template)
+1. **First**: Destroy `autoscale_template` (this template)
 2. **Second**: Destroy `existing_vpc_resources`
 
 **Why?** The inspection VPC has a Transit Gateway attachment to the TGW created by `existing_vpc_resources`. Destroying the TGW first will cause the attachment deletion to fail.
 
 ```bash
 # Correct order:
-cd terraform/unified_template
+cd terraform/autoscale_template
 terraform destroy
 
 cd ../existing_vpc_resources
@@ -1483,7 +1483,7 @@ aws lambda list-functions --query 'Functions[?contains(FunctionName, `acme`)]'
 
 ## Summary
 
-The unified_template deploys FortiGate autoscale into an existing Inspection VPC discovered via `Fortinet-Role` tags:
+The autoscale_template deploys FortiGate autoscale into an existing Inspection VPC discovered via `Fortinet-Role` tags:
 
 ✅ **Tag-based resource discovery**: Finds Inspection VPC resources via `Fortinet-Role` tags
 ✅ **Complete autoscale infrastructure**: FortiGate ASG, GWLB, Lambda, IAM

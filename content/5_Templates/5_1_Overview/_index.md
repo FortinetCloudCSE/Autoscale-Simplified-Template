@@ -10,12 +10,12 @@ weight: 51
 The FortiGate Autoscale Simplified Template consists of two complementary Terraform templates that work together to deploy a complete FortiGate autoscale architecture in AWS:
 
 1. **[existing_vpc_resources](../5_2_existing_vpc_resources/)** (Required First): Creates the Inspection VPC and supporting infrastructure with `Fortinet-Role` tags for resource discovery
-2. **[unified_template](../5_3_unified_template/)** (Required Second): Deploys the FortiGate autoscale group into the existing Inspection VPC
+2. **[autoscale_template](../5_3_autoscale_template/)** (Required Second): Deploys the FortiGate autoscale group into the existing Inspection VPC
 
 {{% notice warning %}}
 **Important Workflow Change**
 
-The `unified_template` now deploys **into existing VPCs** rather than creating them. You must run `existing_vpc_resources` first to create the Inspection VPC with proper `Fortinet-Role` tags, then run `unified_template` to deploy the FortiGate autoscale group.
+The `autoscale_template` now deploys **into existing VPCs** rather than creating them. You must run `existing_vpc_resources` first to create the Inspection VPC with proper `Fortinet-Role` tags, then run `autoscale_template` to deploy the FortiGate autoscale group.
 {{% /notice %}}
 
 This modular approach allows you to:
@@ -54,7 +54,7 @@ This modular approach allows you to:
 └─────────────────────────────────────────────────────────────────┘
                        │ (Fortinet-Role tag discovery)
 ┌──────────────────────┼──────────────────────────────────────────┐
-│ unified_template (Run Second)   │                               │
+│ autoscale_template (Run Second)   │                               │
 │                      │                                          │
 │  ┌────────────────── ▼ ────────────────┐                        │
 │  │ Deploys INTO Inspection VPC         │                        │
@@ -70,7 +70,7 @@ This modular approach allows you to:
 
 ### Fortinet-Role Tag Discovery
 
-The `unified_template` discovers existing resources using `Fortinet-Role` tags. This tag-based approach provides:
+The `autoscale_template` discovers existing resources using `Fortinet-Role` tags. This tag-based approach provides:
 
 - **Decoupled lifecycle management**: VPC infrastructure can persist while FortiGate deployments are updated
 - **Flexible integration**: Works with any VPC that has the correct tags, not just those created by `existing_vpc_resources`
@@ -84,37 +84,37 @@ Use this decision tree to determine your deployment approach:
 
 ```
 1. Do you have existing VPCs with Fortinet-Role tags?
-   ├─ YES → Deploy unified_template only
+   ├─ YES → Deploy autoscale_template only
    │         (Resources discovered via Fortinet-Role tags)
    │
    └─ NO → Continue to question 2
 
 2. Do you need a complete lab environment for testing?
    ├─ YES → Deploy existing_vpc_resources (all components)
-   │         Then deploy unified_template
+   │         Then deploy autoscale_template
    │         See: Lab Environment Pattern
    │
    └─ NO → Continue to question 3
 
 3. Do you need centralized management (FortiManager/FortiAnalyzer)?
    ├─ YES → Deploy existing_vpc_resources (with management VPC)
-   │         Then deploy unified_template
+   │         Then deploy autoscale_template
    │         See: Management VPC Pattern
    │
    └─ NO → Deploy existing_vpc_resources (inspection VPC only)
-           Then deploy unified_template
+           Then deploy autoscale_template
            See: Minimal Deployment Pattern
 ```
 
 {{% notice info %}}
-**Key Point**: The `unified_template` always requires an existing Inspection VPC with `Fortinet-Role` tags. Use `existing_vpc_resources` to create this infrastructure, or manually tag your existing VPCs.
+**Key Point**: The `autoscale_template` always requires an existing Inspection VPC with `Fortinet-Role` tags. Use `existing_vpc_resources` to create this infrastructure, or manually tag your existing VPCs.
 {{% /notice %}}
 
 ---
 
 ## Template Comparison
 
-| Aspect | existing_vpc_resources | unified_template |
+| Aspect | existing_vpc_resources | autoscale_template |
 |--------|----------------------|------------------|
 | **Required?** | Yes (creates Inspection VPC) | Yes (deploys FortiGate) |
 | **Run Order** | First | Second |
@@ -135,7 +135,7 @@ Use this decision tree to determine your deployment approach:
 
 **Templates needed**:
 1. ✅ existing_vpc_resources (with all components enabled including Inspection VPC)
-2. ✅ unified_template (deploys into Inspection VPC via Fortinet-Role tags)
+2. ✅ autoscale_template (deploys into Inspection VPC via Fortinet-Role tags)
 
 **What you get**:
 - Inspection VPC with Fortinet-Role tags for resource discovery
@@ -160,7 +160,7 @@ Use this decision tree to determine your deployment approach:
 **Templates needed**:
 1. ⚠️ Manual tagging of existing VPCs with Fortinet-Role tags, OR
 1. ✅ existing_vpc_resources (inspection VPC only, to create properly tagged infrastructure)
-2. ✅ unified_template (discovers resources via Fortinet-Role tags)
+2. ✅ autoscale_template (discovers resources via Fortinet-Role tags)
 
 **Prerequisites**:
 - Existing VPCs must have `Fortinet-Role` tags (see [Required Tags](#required-fortinet-role-tags))
@@ -186,7 +186,7 @@ Use this decision tree to determine your deployment approach:
 
 **Templates needed**:
 1. ✅ existing_vpc_resources (Inspection VPC + management VPC components)
-2. ✅ unified_template (with FortiManager integration enabled)
+2. ✅ autoscale_template (with FortiManager integration enabled)
 
 **What you get**:
 - Inspection VPC with Fortinet-Role tags
@@ -208,7 +208,7 @@ Use this decision tree to determine your deployment approach:
 
 **Templates needed**:
 1. ✅ existing_vpc_resources (Inspection VPC only)
-2. ✅ unified_template (without TGW attachment)
+2. ✅ autoscale_template (without TGW attachment)
 
 **Configuration**:
 ```hcl
@@ -233,7 +233,7 @@ enable_build_existing_subnets = false
 
 ## Required Fortinet-Role Tags
 
-The `unified_template` discovers existing resources using `Fortinet-Role` tags. These tags are automatically created by `existing_vpc_resources`, or you can manually apply them to existing VPCs.
+The `autoscale_template` discovers existing resources using `Fortinet-Role` tags. These tags are automatically created by `existing_vpc_resources`, or you can manually apply them to existing VPCs.
 
 ### Required Tags for Inspection VPC
 
@@ -295,8 +295,8 @@ terraform init && terraform apply
 # Step 2: Note outputs (Fortinet-Role tags created automatically)
 terraform output  # Save TGW name and FortiManager IP
 
-# Step 3: Deploy unified_template (discovers VPCs via Fortinet-Role tags)
-cd ../unified_template
+# Step 3: Deploy autoscale_template (discovers VPCs via Fortinet-Role tags)
+cd ../autoscale_template
 cp terraform.tfvars.example terraform.tfvars
 # Edit: Use SAME cp and env values (critical for tag discovery)
 #       Set attach_to_tgw_name from Step 2 output
@@ -326,7 +326,7 @@ curl http://<linux-instance-ip>  # Test connectivity
 
 If you have existing VPCs you want to use:
 1. Apply Fortinet-Role tags to your existing VPC resources (see [Required Tags](#required-fortinet-role-tags))
-2. Deploy unified_template with matching `cp` and `env` values
+2. Deploy autoscale_template with matching `cp` and `env` values
 
 **Option B: Create New Inspection VPC (Recommended)**
 
@@ -341,8 +341,8 @@ cp terraform.tfvars.example terraform.tfvars
 #   attach_to_tgw_name            = "production-tgw"  # existing TGW
 terraform init && terraform apply
 
-# Step 2: Deploy unified_template
-cd ../unified_template
+# Step 2: Deploy autoscale_template
+cd ../autoscale_template
 cp terraform.tfvars.example terraform.tfvars
 # Edit: Use SAME cp and env values
 #       Set attach_to_tgw_name to production TGW
@@ -358,7 +358,7 @@ terraform init && terraform apply
 
 **Time to complete**: 20-30 minutes
 
-**See detailed guide**: [unified_template](../5_3_unified_template/)
+**See detailed guide**: [autoscale_template](../5_3_autoscale_template/)
 
 ---
 
@@ -385,8 +385,8 @@ config system global
     set fgfm-allow-vm enable
 end
 
-# Step 3: Deploy unified_template
-cd ../unified_template
+# Step 3: Deploy autoscale_template
+cd ../autoscale_template
 cp terraform.tfvars.example terraform.tfvars
 # Edit: Use SAME cp and env values
 #       enable_fortimanager_integration = true
@@ -418,8 +418,8 @@ cp terraform.tfvars.example terraform.tfvars
 #   inspection_access_internet_mode = "eip"  # simpler, lower cost
 terraform init && terraform apply
 
-# Step 2: Deploy unified_template
-cd ../unified_template
+# Step 2: Deploy autoscale_template
+cd ../autoscale_template
 cp terraform.tfvars.example terraform.tfvars
 # Edit: Use SAME cp and env values
 #       enable_tgw_attachment = false
@@ -448,7 +448,7 @@ The `existing_vpc_resources` template is required to create the Inspection VPC w
 ✅ **Any new FortiGate autoscale deployment**
 - Creates Inspection VPC with all required subnets and tags
 - Can optionally include Management VPC, TGW, and spoke VPCs
-- Provides foundation for `unified_template` deployment
+- Provides foundation for `autoscale_template` deployment
 
 ✅ **Creating a lab or test environment**
 - Enable all components for complete testing environment
@@ -467,9 +467,9 @@ The `existing_vpc_resources` template is required to create the Inspection VPC w
 - Ensures all required resources (subnets, route tables, IGW, etc.) are properly tagged
 - Useful when you cannot create new VPCs
 
-### unified_template - Always Required Second
+### autoscale_template - Always Required Second
 
-The `unified_template` deploys FortiGate into the existing Inspection VPC:
+The `autoscale_template` deploys FortiGate into the existing Inspection VPC:
 
 ✅ **All FortiGate autoscale deployments**
 - Discovers Inspection VPC via Fortinet-Role tags
@@ -491,14 +491,14 @@ When using both templates together, **certain variables must match exactly** for
 
 | Variable | Purpose | Impact if Mismatched |
 |----------|---------|---------------------|
-| `cp` (customer prefix) | Fortinet-Role tag prefix | **unified_template cannot find VPCs** |
-| `env` (environment) | Fortinet-Role tag prefix | **unified_template cannot find VPCs** |
+| `cp` (customer prefix) | Fortinet-Role tag prefix | **autoscale_template cannot find VPCs** |
+| `env` (environment) | Fortinet-Role tag prefix | **autoscale_template cannot find VPCs** |
 | `aws_region` | AWS region | Resources in wrong region |
 | `availability_zone_1` | First AZ | Subnet discovery fails |
 | `availability_zone_2` | Second AZ | Subnet discovery fails |
 
 {{% notice warning %}}
-**Critical**: The `cp` and `env` variables form the prefix for all Fortinet-Role tags. If these don't match between templates, the `unified_template` will fail with "no matching VPC/Subnet found" errors.
+**Critical**: The `cp` and `env` variables form the prefix for all Fortinet-Role tags. If these don't match between templates, the `autoscale_template` will fail with "no matching VPC/Subnet found" errors.
 {{% /notice %}}
 
 ### Example Coordinated Configuration
@@ -514,7 +514,7 @@ vpc_cidr_ns_inspection = "10.0.0.0/16"
 vpc_cidr_management    = "10.3.0.0/16"
 ```
 
-**unified_template/terraform.tfvars**:
+**autoscale_template/terraform.tfvars**:
 ```hcl
 aws_region          = "us-west-2"  # MUST MATCH
 availability_zone_1 = "a"          # MUST MATCH
@@ -529,10 +529,10 @@ attach_to_tgw_name = "acme-test-tgw"  # Matches cp-env naming convention
 
 ### How Tag Discovery Works
 
-When `unified_template` runs, it looks up resources like this:
+When `autoscale_template` runs, it looks up resources like this:
 
 ```hcl
-# unified_template/vpc_inspection.tf
+# autoscale_template/vpc_inspection.tf
 data "aws_vpc" "inspection" {
   filter {
     name   = "tag:Fortinet-Role"
@@ -550,7 +550,7 @@ This is why matching `cp` and `env` values is essential.
 Choose your deployment pattern and proceed to the appropriate template guide:
 
 1. **Lab/Test Environment**: Start with [existing_vpc_resources Template](../5_2_existing_vpc_resources/)
-2. **Production Deployment**: Go directly to [unified_template](../5_3_unified_template/)
+2. **Production Deployment**: Go directly to [autoscale_template](../5_3_autoscale_template/)
 3. **Need to review components?**: See [Solution Components](../../4_solution_components/)
 4. **Need licensing guidance?**: See [Licensing Options](../../3_licensing/)
 
@@ -563,12 +563,12 @@ The FortiGate Autoscale Simplified Template uses a two-phase deployment approach
 | Template | Purpose | Run Order | Creates |
 |----------|---------|-----------|---------|
 | existing_vpc_resources | VPC infrastructure | First | Inspection VPC, Management VPC, TGW, Spoke VPCs (with Fortinet-Role tags) |
-| unified_template | FortiGate deployment | Second | FortiGate ASG, GWLB, Lambda (discovers VPCs via tags) |
+| autoscale_template | FortiGate deployment | Second | FortiGate ASG, GWLB, Lambda (discovers VPCs via tags) |
 
 **Key Principles**:
 1. **Run existing_vpc_resources first** - Creates Inspection VPC with Fortinet-Role tags
 2. **Match cp and env values** - Critical for tag discovery between templates
-3. **unified_template deploys into existing VPCs** - Does not create VPC infrastructure
+3. **autoscale_template deploys into existing VPCs** - Does not create VPC infrastructure
 
 **Recommended Starting Point**:
 - First-time users: Deploy both templates for complete lab environment

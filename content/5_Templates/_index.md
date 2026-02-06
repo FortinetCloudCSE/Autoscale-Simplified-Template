@@ -17,7 +17,7 @@ Understand the template architecture, choose deployment patterns, and learn how 
 ### [existing_vpc_resources Template](5_2_existing_vpc_resources/) (Optional)
 Create supporting infrastructure for lab and test environments including management VPC, Transit Gateway, and spoke VPCs with traffic generators.
 
-### [unified_template](5_3_unified_template/) (Required)
+### [autoscale_template](5_3_autoscale_template/) (Required)
 Deploy the core FortiGate autoscale infrastructure including inspection VPC, Gateway Load Balancer, and FortiGate autoscale groups.
 
 ---
@@ -27,13 +27,13 @@ Deploy the core FortiGate autoscale infrastructure including inspection VPC, Gat
 ### For Lab/Test Environments
 1. Start with [Templates Overview](5_1_overview/) to understand architecture
 2. Deploy [existing_vpc_resources](5_2_existing_vpc_resources/) for complete test environment
-3. Deploy [unified_template](5_3_unified_template/) connected to created resources
+3. Deploy [autoscale_template](5_3_autoscale_template/) connected to created resources
 4. Time: ~30-40 minutes
 
 ### For Production Deployments
 1. Review [Templates Overview](5_1_overview/) for integration patterns
 2. Skip existing_vpc_resources template
-3. Deploy [unified_template](5_3_unified_template/) to existing infrastructure
+3. Deploy [autoscale_template](5_3_autoscale_template/) to existing infrastructure
 4. Time: ~15-20 minutes
 
 ---
@@ -56,5 +56,5 @@ See [Templates Overview](5_1_overview/) for detailed coordination requirements.
 
 - **New to autoscale?** Start with [Templates Overview](5_1_overview/)
 - **Need lab environment?** Go to [existing_vpc_resources](5_2_existing_vpc_resources/)
-- **Ready to deploy?** Go to [unified_template](5_3_unified_template/)
+- **Ready to deploy?** Go to [autoscale_template](5_3_autoscale_template/)
 - **Need configuration details?** See [Solution Components](../4_solution_components/)

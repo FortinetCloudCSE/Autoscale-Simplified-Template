@@ -121,7 +121,7 @@ variable "enable_management_tgw_attachment" {
   type        = bool
 }
 variable "enable_spoke_tgw_default_route_to_management" {
-  description = "Create default routes (0.0.0.0/0) from spoke TGW route tables to management VPC. Set to false when unified_template takes over routing."
+  description = "Create default routes (0.0.0.0/0) from spoke TGW route tables to management VPC. Set to false when autoscale_template takes over routing."
   type        = bool
   default     = true
 }
