@@ -82,7 +82,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   # Used for testing development test builds. Never use this in production.
   #
 
-  #source = "/Users/mwooten/github/40netse/AWSTerraformModules//examples/spk_tgw_gwlb_asg_fgt_igw"
+ #source = "/Users/mwooten/github/40netse/AWSTerraformModules//examples/spk_tgw_gwlb_asg_fgt_igw"
 
   ## Root config
   region        = var.aws_region
@@ -191,7 +191,6 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         "dedicated_port" = {
           device_index     = local.management_device_index
           enable_public_ip = true
-          cross_vpc        = var.enable_dedicated_management_vpc
           subnet = [
             {
               id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
@@ -247,7 +246,6 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         "dedicated_port" = {
           device_index     = local.management_device_index
           enable_public_ip = true
-          cross_vpc        = var.enable_dedicated_management_vpc
           subnet = [
             {
               id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
