@@ -87,7 +87,7 @@ resource "aws_ec2_transit_gateway_route" "default-route-west-tgw" {
 #
 # Default routes (0.0.0.0/0) from east/west spoke TGW route tables to management VPC
 # Allows spoke instances to use jump box for NAT during cloud-init
-# Set enable_spoke_tgw_default_route_to_management = false when unified_template takes over routing
+# Set enable_spoke_tgw_default_route_to_management = false when autoscale_template takes over routing
 #
 resource "aws_ec2_transit_gateway_route" "east-default-route-to-management-tgw" {
   count                          = (var.enable_build_management_vpc && local.enable_management_tgw_attachment && var.enable_spoke_tgw_default_route_to_management) ? 1 : 0

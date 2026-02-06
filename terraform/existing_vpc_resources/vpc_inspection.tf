@@ -1,8 +1,8 @@
 #
 # Inspection VPC for FortiGate Autoscale Group
 #
-# This VPC will be used by the unified_template to deploy the FortiGate autoscale group.
-# Resources are tagged with Fortinet-Role for discovery by the unified_template.
+# This VPC will be used by the autoscale_template to deploy the FortiGate autoscale group.
+# Resources are tagged with Fortinet-Role for discovery by the autoscale_template.
 #
 
 locals {
@@ -25,8 +25,8 @@ module "vpc-inspection" {
 }
 
 #
-# Fortinet-Role Tags for resource discovery by unified_template
-# These tags allow the unified_template to find resources created by this template
+# Fortinet-Role Tags for resource discovery by autoscale_template
+# These tags allow the autoscale_template to find resources created by this template
 #
 
 # VPC Tag
@@ -251,7 +251,7 @@ resource "aws_route" "inspection-public-default-route-igw-az2" {
 
 #
 # Private subnet route tables - NO default route
-# The unified_template will create the default route pointing to GWLB endpoints
+# The autoscale_template will create the default route pointing to GWLB endpoints
 # when modify_existing_route_tables = true
 #
 
@@ -343,7 +343,7 @@ resource "aws_ec2_transit_gateway_route" "inspection-route-to-east-tgw" {
 #
 # NOTE: Default routes (0.0.0.0/0) from east/west spoke TGW route tables are created
 # in tgw.tf pointing to management VPC (jump box) for spoke instance cloud-init.
-# The unified_template will replace these routes to point to GWLB endpoints
+# The autoscale_template will replace these routes to point to GWLB endpoints
 # for FortiGate inspection.
 #
 
