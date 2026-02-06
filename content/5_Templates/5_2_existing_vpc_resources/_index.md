@@ -7,10 +7,10 @@ weight: 52
 
 ## Overview
 
-The `existing_vpc_resources` template is an **optional** Terraform template designed for testing, demonstration, and lab environments. It creates supporting infrastructure that allows you to validate the FortiGate autoscale deployment without requiring existing production resources.
+The `existing_vpc_resources` template creates the **Inspection VPC** and supporting infrastructure required for the FortiGate autoscale deployment. All resources are tagged with `Fortinet-Role` tags that allow the `unified_template` to discover and deploy into them.
 
-{{% notice info %}}
-**This template is completely optional**. If you have existing VPCs, Transit Gateway, and workloads, you can skip this template entirely and deploy only the [unified_template](../5_3_unified_template/).
+{{% notice warning %}}
+**This template must be run BEFORE unified_template**. The `unified_template` discovers VPCs using `Fortinet-Role` tags created by this template. If you skip this template, you must manually apply the required tags to your existing VPCs.
 {{% /notice %}}
 
 ---
@@ -19,12 +19,13 @@ The `existing_vpc_resources` template is an **optional** Terraform template desi
 
 ![Existing Resources Diagram](../existing-resources-diagram.png)
 
-The template conditionally creates the following components based on boolean variables:
+The template conditionally creates the following components based on boolean variables. All resources are tagged with `Fortinet-Role` tags for discovery by `unified_template`.
 
 ### Component Overview
 
 | Component | Purpose | Required | Typical Cost/Month |
 |-----------|---------|----------|-------------------|
+| **Inspection VPC** | **VPC for FortiGate autoscale deployment** | **Yes** | ~$50 (VPC/networking) |
 | Management VPC | Centralized management infrastructure | No | ~$50 (VPC/networking) |
 | FortiManager | Policy management and orchestration | No | ~$73 (m5.large) |
 | FortiAnalyzer | Logging and reporting | No | ~$73 (m5.large) |
@@ -39,6 +40,82 @@ The template conditionally creates the following components based on boolean var
 
 ## Component Details
 
+### 0. Inspection VPC (Required)
+
+**Purpose**: The VPC where FortiGate autoscale group will be deployed by `unified_template`
+
+**Configuration variable**:
+```hcl
+enable_build_inspection_vpc = true
+```
+
+**What gets created**:
+```
+Inspection VPC (10.0.0.0/16)
+├── Public Subnet AZ1 (FortiGate login/management)
+├── Public Subnet AZ2
+├── GWLBE Subnet AZ1 (Gateway Load Balancer Endpoints)
+├── GWLBE Subnet AZ2
+├── Private Subnet AZ1 (TGW attachment)
+├── Private Subnet AZ2
+├── Management Subnet AZ1 (optional - dedicated management ENI)
+├── Management Subnet AZ2 (optional)
+├── Internet Gateway
+├── NAT Gateways (optional - if nat_gw mode)
+├── Route Tables (per subnet type and AZ)
+└── TGW Attachment (optional - if TGW enabled)
+```
+
+**Fortinet-Role tags applied** (for unified_template discovery):
+
+| Resource | Fortinet-Role Tag |
+|----------|-------------------|
+| VPC | `{cp}-{env}-inspection-vpc` |
+| IGW | `{cp}-{env}-inspection-igw` |
+| Public Subnet AZ1 | `{cp}-{env}-inspection-public-az1` |
+| Public Subnet AZ2 | `{cp}-{env}-inspection-public-az2` |
+| GWLBE Subnet AZ1 | `{cp}-{env}-inspection-gwlbe-az1` |
+| GWLBE Subnet AZ2 | `{cp}-{env}-inspection-gwlbe-az2` |
+| Private Subnet AZ1 | `{cp}-{env}-inspection-private-az1` |
+| Private Subnet AZ2 | `{cp}-{env}-inspection-private-az2` |
+| Public RT AZ1 | `{cp}-{env}-inspection-public-rt-az1` |
+| Public RT AZ2 | `{cp}-{env}-inspection-public-rt-az2` |
+| GWLBE RT AZ1 | `{cp}-{env}-inspection-gwlbe-rt-az1` |
+| GWLBE RT AZ2 | `{cp}-{env}-inspection-gwlbe-rt-az2` |
+| Private RT AZ1 | `{cp}-{env}-inspection-private-rt-az1` |
+| Private RT AZ2 | `{cp}-{env}-inspection-private-rt-az2` |
+| NAT GW AZ1 | `{cp}-{env}-inspection-natgw-az1` (if nat_gw mode) |
+| NAT GW AZ2 | `{cp}-{env}-inspection-natgw-az2` (if nat_gw mode) |
+| TGW Attachment | `{cp}-{env}-inspection-tgw-attachment` (if TGW enabled) |
+| TGW Route Table | `{cp}-{env}-inspection-tgw-rtb` (if TGW enabled) |
+
+**Example**: For `cp="acme"` and `env="test"`, tags would be `acme-test-inspection-vpc`, `acme-test-inspection-public-az1`, etc.
+
+{{% notice warning %}}
+**Critical Variable Coordination**
+
+The `cp` and `env` values used here **must match exactly** in `unified_template` for tag discovery to work. Mismatched values will cause `unified_template` to fail with "no matching VPC found" errors.
+{{% /notice %}}
+
+#### Inspection VPC Internet Mode
+
+```hcl
+inspection_access_internet_mode = "nat_gw"  # or "eip"
+```
+
+- **nat_gw**: Creates NAT Gateways for FortiGate internet access (recommended for production)
+- **eip**: FortiGates use Elastic IPs directly (simpler, lower cost)
+
+#### Inspection VPC Dedicated Management ENI
+
+```hcl
+inspection_enable_dedicated_management_eni = true
+```
+
+Creates additional management subnets within the Inspection VPC for dedicated management interfaces on FortiGate instances.
+
+---
+
 ### 1. Management VPC (Optional)
 
 **Purpose**: Centralized management infrastructure isolated from production traffic
@@ -47,7 +124,7 @@ The template conditionally creates the following components based on boolean var
 - Dedicated VPC with public and private subnets across two Availability Zones
 - Internet Gateway for external connectivity
 - Security groups for management traffic
-- Standardized resource tags for discovery by `unified_template`
+- `Fortinet-Role` tags for discovery by `unified_template`
 
 **Configuration variable**:
 ```hcl
@@ -63,12 +140,13 @@ Management VPC (10.3.0.0/16)
 └── Route Tables
 ```
 
-**Resource tags applied** (for unified_template discovery):
-```
-Name: {cp}-{env}-management-vpc
-Name: {cp}-{env}-management-public-az1-subnet
-Name: {cp}-{env}-management-public-az2-subnet
-```
+**Fortinet-Role tags applied** (for unified_template discovery):
+
+| Resource | Fortinet-Role Tag |
+|----------|-------------------|
+| VPC | `{cp}-{env}-management-vpc` |
+| Public Subnet AZ1 | `{cp}-{env}-management-public-az1` |
+| Public Subnet AZ2 | `{cp}-{env}-management-public-az2` |
 
 #### FortiManager (Optional within Management VPC)
 
@@ -270,6 +348,11 @@ The debug attachment bypasses FortiGate inspection entirely. **Do not enable in 
 **Use case**: Full-featured lab for testing all capabilities
 
 ```hcl
+# Inspection VPC (Required)
+enable_build_inspection_vpc            = true
+inspection_access_internet_mode        = "nat_gw"
+inspection_enable_dedicated_management_eni = false
+
 # Management VPC Components
 enable_build_management_vpc    = true
 enable_fortimanager            = true
@@ -277,14 +360,14 @@ enable_fortianalyzer           = true
 enable_jump_box                = true
 enable_mgmt_vpc_tgw_attachment = true
 
-# Spoke VPC Components  
+# Spoke VPC Components
 enable_build_existing_subnets  = true
 enable_east_linux_instances    = true
 enable_west_linux_instances    = true
 enable_debug_tgw_attachment    = true
 ```
 
-**What you get**: Complete environment with management, spoke VPCs, traffic generators, and debug path
+**What you get**: Complete environment with inspection VPC (with Fortinet-Role tags), management, spoke VPCs, traffic generators, and debug path
 
 **Cost**: ~$300-400/month
 
@@ -292,11 +375,15 @@ enable_debug_tgw_attachment    = true
 
 ---
 
-### Scenario 2: Management VPC Only
+### Scenario 2: Inspection + Management VPC Only
 
 **Use case**: Testing FortiManager/FortiAnalyzer integration without spoke VPCs
 
 ```hcl
+# Inspection VPC (Required)
+enable_build_inspection_vpc            = true
+inspection_access_internet_mode        = "eip"
+
 # Management VPC Components
 enable_build_management_vpc    = true
 enable_fortimanager            = true
@@ -308,7 +395,7 @@ enable_mgmt_vpc_tgw_attachment = false
 enable_build_existing_subnets  = false
 ```
 
-**What you get**: Management VPC with FortiManager and FortiAnalyzer only
+**What you get**: Inspection VPC (with Fortinet-Role tags) and Management VPC with FortiManager and FortiAnalyzer
 
 **Cost**: ~$200/month
 
@@ -316,11 +403,15 @@ enable_build_existing_subnets  = false
 
 ---
 
-### Scenario 3: Traffic Generation Only
+### Scenario 3: Inspection VPC + Traffic Generation
 
 **Use case**: Testing autoscale with traffic generators, no management VPC
 
 ```hcl
+# Inspection VPC (Required)
+enable_build_inspection_vpc            = true
+inspection_access_internet_mode        = "nat_gw"
+
 # Management VPC Components
 enable_build_management_vpc    = false
 
@@ -331,7 +422,7 @@ enable_west_linux_instances    = true
 enable_debug_tgw_attachment    = false
 ```
 
-**What you get**: Transit Gateway and spoke VPCs with Linux instances for testing
+**What you get**: Inspection VPC (with Fortinet-Role tags), Transit Gateway, and spoke VPCs with Linux instances
 
 **Cost**: ~$100-150/month
 
@@ -339,30 +430,27 @@ enable_debug_tgw_attachment    = false
 
 ---
 
-### Scenario 4: Minimal Test Environment
+### Scenario 4: Minimal Inspection VPC Only
 
-**Use case**: Lowest cost configuration for basic connectivity testing
+**Use case**: Lowest cost configuration - Inspection VPC only
 
 ```hcl
+# Inspection VPC (Required)
+enable_build_inspection_vpc            = true
+inspection_access_internet_mode        = "eip"  # Lower cost than nat_gw
+
 # Management VPC Components
-enable_build_management_vpc    = true
-enable_fortimanager            = false
-enable_fortianalyzer           = false
-enable_jump_box                = true
-enable_mgmt_vpc_tgw_attachment = true
+enable_build_management_vpc    = false
 
 # Spoke VPC Components
-enable_build_existing_subnets  = true
-enable_east_linux_instances    = true
-enable_west_linux_instances    = false
-enable_debug_tgw_attachment    = true
+enable_build_existing_subnets  = false
 ```
 
-**What you get**: Management VPC with jump box, TGW, one spoke VPC with traffic generator, debug path
+**What you get**: Inspection VPC with Fortinet-Role tags only - minimum required for unified_template
 
-**Cost**: ~$60-80/month
+**Cost**: ~$30-50/month (VPC infrastructure only)
 
-**Best for**: Cost-sensitive testing, basic connectivity validation
+**Best for**: Minimal FortiGate testing, cost-sensitive environments, integration with existing TGW/spoke VPCs
 
 ---
 
@@ -444,7 +532,21 @@ These `cp` and `env` values **must match** between `existing_vpc_resources` and 
 
 ### Step 4: Configure Component Flags
 
-#### Management VPC
+#### Inspection VPC (Required)
+
+The Inspection VPC is **required** and must be enabled. This creates the VPC where FortiGate autoscale group will be deployed.
+
+```hcl
+enable_build_inspection_vpc            = true
+inspection_access_internet_mode        = "nat_gw"  # or "eip"
+inspection_enable_dedicated_management_eni = false  # or true for dedicated mgmt ENI
+```
+
+{{% notice info %}}
+**Fortinet-Role Tags**: All Inspection VPC resources are automatically tagged with `Fortinet-Role` tags using the pattern `{cp}-{env}-inspection-*`. These tags are used by `unified_template` to discover the VPC resources.
+{{% /notice %}}
+
+#### Management VPC (Optional)
 
 ![Build Management VPC](../build-management-vpc.png)
 
@@ -452,7 +554,7 @@ These `cp` and `env` values **must match** between `existing_vpc_resources` and 
 enable_build_management_vpc = true
 ```
 
-#### Spoke VPCs and Transit Gateway
+#### Spoke VPCs and Transit Gateway (Optional)
 
 ![Build Existing Subnets](../build-existing-subnets.png)
 
@@ -689,7 +791,16 @@ echo "fortimanager_ip: $(terraform output -raw fortimanager_private_ip)" >> ../u
 
 ## Outputs Reference
 
-The template provides these outputs for use by `unified_template`:
+The template provides these outputs. Note that `unified_template` discovers resources via `Fortinet-Role` tags rather than using output values directly.
+
+### Inspection VPC Outputs
+
+| Output | Description | Notes |
+|--------|-------------|-------|
+| `inspection_vpc_id` | ID of inspection VPC | Discovered by unified_template via Fortinet-Role tag |
+| `inspection_vpc_cidr` | CIDR of inspection VPC | Used for route table configuration |
+
+### Management and Supporting Infrastructure Outputs
 
 | Output | Description | Used By unified_template |
 |--------|-------------|-------------------------|
@@ -704,6 +815,10 @@ The template provides these outputs for use by `unified_template`:
 | `jump_box_public_ip` | Jump box public IP | SSH bastion access |
 | `east_linux_instance_ip` | East spoke instance IP | Connectivity testing |
 | `west_linux_instance_ip` | West spoke instance IP | Connectivity testing |
+
+{{% notice info %}}
+**Tag-Based Discovery**: The `unified_template` discovers Inspection VPC resources using `Fortinet-Role` tags rather than relying on output values. This allows the templates to be run independently as long as the `cp` and `env` values match.
+{{% /notice %}}
 
 ---
 

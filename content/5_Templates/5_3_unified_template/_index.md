@@ -7,23 +7,37 @@ weight: 53
 
 ## Overview
 
-The `unified_template` is the **required** Terraform template that deploys the core FortiGate autoscale infrastructure. This template is used for **all deployments** and can operate independently or integrate with resources created by the [existing_vpc_resources](../5_2_existing_vpc_resources/) template.
+The `unified_template` deploys the FortiGate autoscale group **into an existing Inspection VPC**. It discovers VPC resources using `Fortinet-Role` tags created by the [existing_vpc_resources](../5_2_existing_vpc_resources/) template.
+
+{{% notice warning %}}
+**Prerequisites**: You must run `existing_vpc_resources` FIRST to create the Inspection VPC with proper `Fortinet-Role` tags. Alternatively, you can manually apply the required tags to existing VPCs.
+{{% /notice %}}
 
 {{% notice info %}}
-**This template is required for all deployments**. It creates the inspection VPC, FortiGate autoscale group, Gateway Load Balancer, and all components necessary for traffic inspection.
+**This template is required for all deployments**. It deploys the FortiGate autoscale group, Gateway Load Balancer, Lambda functions, and configures routes for traffic inspection.
 {{% /notice %}}
 
 ---
 
 ## What It Creates
 
-The unified_template deploys a complete FortiGate autoscale solution including:
+The unified_template discovers the existing Inspection VPC via `Fortinet-Role` tags and deploys FortiGate autoscale components into it:
 
-### Core Components
+### Resource Discovery (via Fortinet-Role Tags)
+
+| Resource | Tag Pattern | Purpose |
+|----------|-------------|---------|
+| Inspection VPC | `{cp}-{env}-inspection-vpc` | VPC for FortiGate deployment |
+| Subnets | `{cp}-{env}-inspection-{type}-{az}` | Public, GWLBE, Private subnets |
+| Route Tables | `{cp}-{env}-inspection-{type}-rt-{az}` | For route modifications |
+| IGW | `{cp}-{env}-inspection-igw` | Internet connectivity |
+| NAT Gateways | `{cp}-{env}-inspection-natgw-{az}` | If nat_gw mode |
+| TGW Attachment | `{cp}-{env}-inspection-tgw-attachment` | If TGW enabled |
+
+### Components Created
 
 | Component | Purpose | Always Created |
 |-----------|---------|----------------|
-| **Inspection VPC** | Dedicated VPC for FortiGate instances and GWLB | ✅ Yes |
 | **FortiGate Autoscale Groups** | BYOL and/or on-demand instance groups | ✅ Yes |
 | **Gateway Load Balancer** | Distributes traffic across FortiGate instances | ✅ Yes |
 | **GWLB Endpoints** | Connection points in each AZ | ✅ Yes |
@@ -33,6 +47,7 @@ The unified_template deploys a complete FortiGate autoscale solution including:
 | **IAM Roles** | Permissions for Lambda and EC2 instances | ✅ Yes |
 | **Security Groups** | Network access control | ✅ Yes |
 | **CloudWatch Alarms** | Autoscaling triggers | ✅ Yes |
+| **Route Modifications** | Points private subnets to GWLB endpoints | ✅ Yes (if enabled) |
 
 ### Optional Components
 
@@ -113,28 +128,52 @@ Management: FortiGate → Management VPC → FortiManager
 
 ## Integration Modes
 
+### Fortinet-Role Tag Discovery
+
+The `unified_template` discovers all Inspection VPC resources using `Fortinet-Role` tags. This is how it finds the VPC, subnets, route tables, and other resources created by `existing_vpc_resources`.
+
+**How discovery works**:
+```hcl
+# unified_template looks up resources like this:
+data "aws_vpc" "inspection" {
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-vpc"]
+  }
+}
+
+data "aws_subnet" "inspection_public_az1" {
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-public-az1"]
+  }
+}
+```
+
+{{% notice warning %}}
+**Critical**: The `cp` and `env` variables must match exactly between `existing_vpc_resources` and `unified_template` for tag discovery to work.
+{{% /notice %}}
+
 ### Integration with existing_vpc_resources
 
 When deploying after `existing_vpc_resources`:
 
 **Required variable coordination**:
 ```hcl
-# Must match existing_vpc_resources values
+# MUST MATCH existing_vpc_resources values (for Fortinet-Role tag discovery)
 aws_region          = "us-west-2"
 availability_zone_1 = "a"
 availability_zone_2 = "c"
-cp                  = "acme"      # MUST MATCH
-env                 = "test"      # MUST MATCH
+cp                  = "acme"      # MUST MATCH - used for tag lookup
+env                 = "test"      # MUST MATCH - used for tag lookup
 
-# Connect to created TGW
+# Connect to created TGW (if enabled in existing_vpc_resources)
 enable_tgw_attachment = true
 attach_to_tgw_name    = "acme-test-tgw"  # From existing_vpc_resources output
 
-# Connect to management VPC (if created)
+# Connect to management VPC (if created in existing_vpc_resources)
 enable_dedicated_management_vpc = true
-dedicated_management_vpc_tag = "acme-test-management-vpc"
-dedicated_management_public_az1_subnet_tag = "acme-test-management-public-az1-subnet"
-dedicated_management_public_az2_subnet_tag = "acme-test-management-public-az2-subnet"
+# Management VPC also discovered via Fortinet-Role tags
 
 # FortiManager integration (if enabled in existing_vpc_resources)
 enable_fortimanager_integration = true
@@ -144,17 +183,22 @@ fortimanager_sn = "FMGVM0000000001"
 
 ---
 
-### Integration with Existing Production Infrastructure
+### Integration with Manually Tagged VPCs
 
-When deploying to existing production environment:
+If you have existing VPCs that you want to use instead of creating new ones with `existing_vpc_resources`, you must apply `Fortinet-Role` tags to all required resources:
 
-**Required information**:
-- Existing Transit Gateway name (or skip TGW entirely)
-- Existing management VPC details (or skip)
-- Network CIDR ranges to avoid overlaps
+**Required tags** (see [Templates Overview](../5_1_overview/#required-fortinet-role-tags) for complete list):
+- VPC: `{cp}-{env}-inspection-vpc`
+- Subnets: `{cp}-{env}-inspection-{public|gwlbe|private}-az{1|2}`
+- Route Tables: `{cp}-{env}-inspection-{type}-rt-az{1|2}`
+- IGW: `{cp}-{env}-inspection-igw`
 
 **Configuration**:
 ```hcl
+# Match your tag prefix
+cp  = "acme"
+env = "prod"
+
 # Connect to existing production TGW
 enable_tgw_attachment = true
 attach_to_tgw_name = "production-tgw"  # Your existing TGW
@@ -176,7 +220,12 @@ fortimanager_sn = "FMGVM1234567890"
 - ✅ AWS CLI configured with credentials
 - ✅ SSH keypair created in target AWS region
 - ✅ FortiGate licenses (if using BYOL) or FortiFlex account (if using FortiFlex)
-- ✅ `existing_vpc_resources` deployed (if using lab environment)
+- ✅ **`existing_vpc_resources` deployed** (creates Inspection VPC with Fortinet-Role tags)
+- ✅ **OR** existing VPCs with `Fortinet-Role` tags applied manually
+
+{{% notice warning %}}
+**Required**: The Inspection VPC must exist with proper `Fortinet-Role` tags before running this template. Run `existing_vpc_resources` first, or manually tag your existing VPCs.
+{{% /notice %}}
 
 ### Step 1: Navigate to Template Directory
 
@@ -220,9 +269,19 @@ Mismatched values will cause resource discovery failures and deployment errors.
 ![Customer Prefix and Environment](../cp-env.png)
 
 ```hcl
-cp  = "acme"    # Customer prefix
-env = "test"    # Environment: prod, test, dev
+cp  = "acme"    # Customer prefix - MUST MATCH existing_vpc_resources
+env = "test"    # Environment - MUST MATCH existing_vpc_resources
 ```
+
+{{% notice warning %}}
+**Critical for Tag Discovery**
+
+These values form the prefix for `Fortinet-Role` tags used to discover the Inspection VPC. For example, with `cp="acme"` and `env="test"`, the template looks for:
+- VPC with tag `Fortinet-Role = acme-test-inspection-vpc`
+- Subnets with tags like `Fortinet-Role = acme-test-inspection-public-az1`
+
+If these don't match the tags created by `existing_vpc_resources`, the template will fail with "no matching VPC found" errors.
+{{% /notice %}}
 
 ### Step 4: Configure Security Variables
 
@@ -1424,13 +1483,18 @@ aws lambda list-functions --query 'Functions[?contains(FunctionName, `acme`)]'
 
 ## Summary
 
-The unified_template is the core component of the FortiGate Autoscale Simplified Template, providing:
+The unified_template deploys FortiGate autoscale into an existing Inspection VPC discovered via `Fortinet-Role` tags:
 
+✅ **Tag-based resource discovery**: Finds Inspection VPC resources via `Fortinet-Role` tags
 ✅ **Complete autoscale infrastructure**: FortiGate ASG, GWLB, Lambda, IAM
 ✅ **Flexible deployment options**: Centralized, distributed, or hybrid architectures
 ✅ **Multiple licensing models**: BYOL, FortiFlex, PAYG, or hybrid
 ✅ **Management options**: Dedicated ENI, dedicated VPC, FortiManager integration
 ✅ **Production-ready**: High availability, autoscaling, lifecycle management
+
+**Key Requirements**:
+- Run `existing_vpc_resources` first to create Inspection VPC with Fortinet-Role tags
+- Ensure `cp` and `env` values match between both templates for tag discovery
 
 **Next Steps**:
 - Review [Solution Components](../../4_solution_components/) for configuration options
