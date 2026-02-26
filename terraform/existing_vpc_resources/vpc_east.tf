@@ -12,6 +12,13 @@ locals {
 locals {
   availability_zone_2 = "${var.aws_region}${var.availability_zone_2}"
 }
+
+locals {
+  east_public_subnet_cidr_az1 = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 0)
+  east_tgw_subnet_cidr_az1    = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 1)
+  east_public_subnet_cidr_az2 = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 2)
+  east_tgw_subnet_cidr_az2    = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 3)
+}
 #
 # east VPC
 #
@@ -31,7 +38,7 @@ module "subnet-east-public-az1" {
   subnet_name       = "${var.cp}-${var.env}-east-public-az1-subnet"
   vpc_id            = module.vpc-east[0].vpc_id
   availability_zone = local.availability_zone_1
-  subnet_cidr       = var.vpc_cidr_east_public_az1
+  subnet_cidr       = local.east_public_subnet_cidr_az1
 }
 module "subnet-east-public-az2" {
   source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
@@ -41,7 +48,7 @@ module "subnet-east-public-az2" {
 
   vpc_id                     = module.vpc-east[0].vpc_id
   availability_zone          = local.availability_zone_2
-  subnet_cidr                = var.vpc_cidr_east_public_az2
+  subnet_cidr                = local.east_public_subnet_cidr_az2
 }
 
 #
@@ -54,7 +61,7 @@ module "subnet-east-tgw-az1" {
   subnet_name       = "${var.cp}-${var.env}-east-tgw-az1-subnet"
   vpc_id            = module.vpc-east[0].vpc_id
   availability_zone = local.availability_zone_1
-  subnet_cidr       = var.vpc_cidr_east_tgw_az1
+  subnet_cidr       = local.east_tgw_subnet_cidr_az1
 }
 module "subnet-east-tgw-az2" {
   source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
@@ -63,7 +70,7 @@ module "subnet-east-tgw-az2" {
   subnet_name       = "${var.cp}-${var.env}-east-tgw-az2-subnet"
   vpc_id            = module.vpc-east[0].vpc_id
   availability_zone = local.availability_zone_2
-  subnet_cidr       = var.vpc_cidr_east_tgw_az2
+  subnet_cidr       = local.east_tgw_subnet_cidr_az2
 }
 
 #

@@ -35,7 +35,7 @@ keypair = ""
 # Format: ["x.x.x.x/32", "y.y.y.0/24"] for multiple CIDRs
 # Find your IP: curl ifconfig.me
 #
-vpc_cidr_sg = []
+management_cidr_sg = []
 
 #====================================================================================================
 # NETWORK CIDR CONFIGURATION
@@ -48,6 +48,7 @@ vpc_cidr_management = "10.3.0.0/16"
 # Inspection VPC CIDR - where FortiGate autoscale group and GWLB will be deployed
 # This CIDR should not overlap with management VPC or spoke VPCs
 #
+vpc_cidr_inspection    = "10.0.0.0/16"
 vpc_cidr_ns_inspection = "10.0.0.0/16"
 
 # Supernet CIDR that encompasses all spoke VPCs
@@ -56,27 +57,19 @@ vpc_cidr_ns_inspection = "10.0.0.0/16"
 #
 vpc_cidr_spoke = "192.168.0.0/16"
 
-# East spoke VPC CIDR and subnet allocations
-# This VPC simulates workload VPC for testing east-west and north-south traffic flows
-# TGW subnets are dedicated for Transit Gateway attachment to avoid IP conflicts with EC2 instances
+# East and West spoke VPC CIDRs
+# These VPCs simulate workload VPCs for testing east-west and north-south traffic flows
+# Subnet CIDRs are automatically computed from vpc_cidr + spoke_subnet_bits
 #
-vpc_cidr_east            = "192.168.0.0/24"
-vpc_cidr_east_public_az1 = "192.168.0.0/28"   # Public subnet in AZ1 for Linux instances
-vpc_cidr_east_public_az2 = "192.168.0.16/28"  # Public subnet in AZ2 for Linux instances
-vpc_cidr_east_tgw_az1    = "192.168.0.32/28"  # TGW attachment subnet in AZ1
-vpc_cidr_east_tgw_az2    = "192.168.0.48/28"  # TGW attachment subnet in AZ2
+vpc_cidr_east = "192.168.0.0/24"
+vpc_cidr_west = "192.168.1.0/24"
 
-# West spoke VPC CIDR and subnet allocations
-# This VPC simulates second workload VPC for testing cross-VPC traffic inspection
-# TGW subnets are dedicated for Transit Gateway attachment to avoid IP conflicts with EC2 instances
+# Number of bits for spoke VPC subnet CIDR calculation
+# Creates smaller subnets in spoke VPCs (e.g., /28 subnets from /24 VPC with spoke_subnet_bits=4)
 #
-vpc_cidr_west            = "192.168.1.0/24"
-vpc_cidr_west_public_az1 = "192.168.1.0/28"   # Public subnet in AZ1 for Linux instances
-vpc_cidr_west_public_az2 = "192.168.1.16/28"  # Public subnet in AZ2 for Linux instances
-vpc_cidr_west_tgw_az1    = "192.168.1.32/28"  # TGW attachment subnet in AZ1
-vpc_cidr_west_tgw_az2    = "192.168.1.48/28"  # TGW attachment subnet in AZ2
+spoke_subnet_bits = 4
 
-# Number of bits to use for subnet CIDR calculation
+# Number of bits to use for inspection/management VPC subnet CIDR calculation
 # Formula: <vpc_cidr>/<vpc_cidr_prefix + subnet_bits>
 # Example: 10.0.0.0/16 with subnet_bits=8 creates /24 subnets (10.0.0.0/24, 10.0.1.0/24, etc.)
 # Recommended: 7 or 8 for most deployments
@@ -93,18 +86,22 @@ subnet_bits = 8
 #
 enable_build_inspection_vpc = true
 
-# Internet access mode for FortiGate instances in the inspection VPC
-# Options:
-#   "nat_gw" - Use NAT Gateway for centralized egress (predictable source IP, additional cost)
-#   "eip"    - Use Elastic IP per instance (distributed egress, no NAT Gateway cost)
+# Deployment mode selection (mutually exclusive)
 #
-inspection_access_internet_mode = "nat_gw"
+enable_autoscale_deployment = true
+enable_ha_pair_deployment   = false
 
-# Enable dedicated management ENI in inspection VPC
+# Create NAT Gateway subnets for centralized internet egress
+# Set to true for NAT Gateway (predictable source IP, additional cost)
+# Set to false to use Elastic IP per instance (distributed egress, no NAT Gateway cost)
+#
+create_nat_gateway_subnets = false
+
+# Create dedicated management subnets in inspection VPC
 # Creates separate management subnets and dedicates port2 to management traffic only
 # Set to true for management plane isolation in production environments
 #
-inspection_enable_dedicated_management_eni = false
+create_management_subnet_in_inspection_vpc = false
 
 #====================================================================================================
 # MANAGEMENT VPC CONFIGURATION
@@ -238,12 +235,22 @@ enable_jump_box_public_ip = true
 #
 enable_build_existing_subnets = true
 
+# Enable TGW attachment for inspection VPC
+#
+enable_tgw_attachment = true
+
 # Name tag for the Transit Gateway
 # This name is used by the unified_template to discover and attach to this TGW
 # IMPORTANT: Must match "attach_to_tgw_name" in unified_template/terraform.tfvars
 # For production: Change this to match your existing production Transit Gateway name
 #
 attach_to_tgw_name = "acme-test-tgw"
+
+# Create TGW routes from spoke VPCs to management VPC
+# Populates Transit Gateway route tables with default routes for management access
+# Recommended for test environments only. Leave false for production.
+#
+create_tgw_routes_for_existing = false
 
 # Enable Transit Gateway attachment for management VPC
 # Allows management VPC (jump box, FortiManager, FortiAnalyzer) to reach spoke VPC resources
@@ -287,7 +294,7 @@ acl = "public"
 # Full-featured lab with inspection VPC, management VPC, Transit Gateway, spoke VPCs, and all components
 #
 # enable_build_inspection_vpc      = true
-# inspection_access_internet_mode  = "nat_gw"
+# create_nat_gateway_subnets       = true
 # enable_build_management_vpc      = true
 # enable_fortimanager              = true
 # enable_fortianalyzer             = true
@@ -302,7 +309,7 @@ acl = "public"
 # No management VPC or spoke VPCs - use with existing production infrastructure
 #
 # enable_build_inspection_vpc      = true
-# inspection_access_internet_mode  = "nat_gw"
+# create_nat_gateway_subnets       = true
 # enable_build_management_vpc      = false
 # enable_build_existing_subnets    = false
 #
@@ -351,8 +358,8 @@ acl = "public"
 #    - attach_to_tgw_name MUST match between templates for TGW attachment
 #    - vpc_cidr_ns_inspection MUST match inspection_vpc_cidr in unified_template
 #    - vpc_cidr_management MUST match if using dedicated management VPC integration
-#    - inspection_access_internet_mode MUST match access_internet_mode in unified_template
-#    - inspection_enable_dedicated_management_eni MUST match enable_dedicated_management_eni
+#    - create_nat_gateway_subnets MUST match access_internet_mode in unified_template
+#    - create_management_subnet_in_inspection_vpc MUST match enable_dedicated_management_eni
 #
 # 3. FORTINET-ROLE TAGS
 #    - Resources are tagged with Fortinet-Role for discovery by unified_template
@@ -385,7 +392,7 @@ acl = "public"
 #    - Destroy resources when not actively testing to minimize costs
 #
 # 8. SECURITY BEST PRACTICES
-#    - Always set vpc_cidr_sg to restrict access to your IP addresses only
+#    - Always set management_cidr_sg to restrict access to your IP addresses only
 #    - Use private IPs (disable EIP) for production management resources
 #    - Implement least-privilege IAM policies for Terraform deployment
 #    - Enable VPC Flow Logs for network traffic monitoring

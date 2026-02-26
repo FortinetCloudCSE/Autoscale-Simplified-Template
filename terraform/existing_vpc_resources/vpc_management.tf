@@ -59,7 +59,7 @@ module "vpc-management" {
   fortimanager_user_data         = local.fmgr_template_file
   linux_host_ip                  = var.linux_host_ip
   linux_instance_type            = var.linux_instance_type
-  vpc_cidr_sg                    = var.vpc_cidr_sg
+  vpc_cidr_sg                    = var.management_cidr_sg
 }
 
 #
@@ -152,7 +152,7 @@ resource "aws_security_group" "jump_box_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = var.vpc_cidr_sg
+    cidr_blocks = var.management_cidr_sg
   }
   ingress {
     description = "All from RFC1918"

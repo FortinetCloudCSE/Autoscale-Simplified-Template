@@ -6,7 +6,7 @@
 #
 
 locals {
-  inspection_enable_nat_gateway = var.inspection_access_internet_mode == "nat_gw" ? true : false
+  inspection_enable_nat_gateway = var.create_nat_gateway_subnets
 }
 
 module "vpc-inspection" {
@@ -20,8 +20,8 @@ module "vpc-inspection" {
   availability_zone_2             = local.availability_zone_2
   enable_nat_gateway              = local.inspection_enable_nat_gateway
   named_tgw                       = var.attach_to_tgw_name
-  enable_tgw_attachment           = var.enable_build_existing_subnets
-  enable_dedicated_management_eni = var.inspection_enable_dedicated_management_eni
+  enable_tgw_attachment           = var.enable_tgw_attachment
+  enable_dedicated_management_eni = var.create_management_subnet_in_inspection_vpc
 }
 
 #
@@ -95,13 +95,13 @@ resource "aws_ec2_tag" "inspection_subnet_natgw_az2_role" {
 
 # Subnet Tags - Management (conditional)
 resource "aws_ec2_tag" "inspection_subnet_management_az1_role" {
-  count       = (var.enable_build_inspection_vpc && var.inspection_enable_dedicated_management_eni) ? 1 : 0
+  count       = (var.enable_build_inspection_vpc && var.create_management_subnet_in_inspection_vpc) ? 1 : 0
   resource_id = module.vpc-inspection[0].subnet_management_az1_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-management-az1"
 }
 resource "aws_ec2_tag" "inspection_subnet_management_az2_role" {
-  count       = (var.enable_build_inspection_vpc && var.inspection_enable_dedicated_management_eni) ? 1 : 0
+  count       = (var.enable_build_inspection_vpc && var.create_management_subnet_in_inspection_vpc) ? 1 : 0
   resource_id = module.vpc-inspection[0].subnet_management_az2_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-management-az2"
@@ -165,13 +165,13 @@ resource "aws_ec2_tag" "inspection_rt_natgw_az2_role" {
 
 # Route Table Tags - Management (conditional)
 resource "aws_ec2_tag" "inspection_rt_management_az1_role" {
-  count       = (var.enable_build_inspection_vpc && var.inspection_enable_dedicated_management_eni) ? 1 : 0
+  count       = (var.enable_build_inspection_vpc && var.create_management_subnet_in_inspection_vpc) ? 1 : 0
   resource_id = module.vpc-inspection[0].route_table_management_az1_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-management-rt-az1"
 }
 resource "aws_ec2_tag" "inspection_rt_management_az2_role" {
-  count       = (var.enable_build_inspection_vpc && var.inspection_enable_dedicated_management_eni) ? 1 : 0
+  count       = (var.enable_build_inspection_vpc && var.create_management_subnet_in_inspection_vpc) ? 1 : 0
   resource_id = module.vpc-inspection[0].route_table_management_az2_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-management-rt-az2"
