@@ -87,17 +87,17 @@ resource "aws_ec2_transit_gateway_route" "default-route-west-tgw" {
 #
 # Default routes (0.0.0.0/0) from east/west spoke TGW route tables to management VPC
 # Allows spoke instances to use jump box for NAT during cloud-init
-# Set enable_spoke_tgw_default_route_to_management = false when autoscale_template takes over routing
+# Set create_tgw_routes_for_existing = false when autoscale_template takes over routing
 #
 resource "aws_ec2_transit_gateway_route" "east-default-route-to-management-tgw" {
-  count                          = (var.enable_build_management_vpc && local.enable_management_tgw_attachment && var.enable_spoke_tgw_default_route_to_management) ? 1 : 0
+  count                          = (var.enable_build_management_vpc && local.enable_management_tgw_attachment && var.create_tgw_routes_for_existing) ? 1 : 0
   depends_on                     = [aws_ec2_transit_gateway_route_table.east, module.vpc-management]
   destination_cidr_block         = "0.0.0.0/0"
   transit_gateway_attachment_id  = module.vpc-management[0].management_tgw_attachment_id
   transit_gateway_route_table_id = aws_ec2_transit_gateway_route_table.east[0].id
 }
 resource "aws_ec2_transit_gateway_route" "west-default-route-to-management-tgw" {
-  count                          = (var.enable_build_management_vpc && local.enable_management_tgw_attachment && var.enable_spoke_tgw_default_route_to_management) ? 1 : 0
+  count                          = (var.enable_build_management_vpc && local.enable_management_tgw_attachment && var.create_tgw_routes_for_existing) ? 1 : 0
   depends_on                     = [aws_ec2_transit_gateway_route_table.west, module.vpc-management]
   destination_cidr_block         = "0.0.0.0/0"
   transit_gateway_attachment_id  = module.vpc-management[0].management_tgw_attachment_id

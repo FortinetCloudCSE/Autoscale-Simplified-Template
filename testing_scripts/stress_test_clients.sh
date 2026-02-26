@@ -1,0 +1,167 @@
+#!/bin/bash
+
+# Stress Test - iperf Clients
+# Creates byobu session with iperf3 clients on West AZ1 and East AZ2
+# RUN THIS AFTER stress_test_servers.sh
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MD_FILE="${SCRIPT_DIR}/logs/network_diagram.md"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+print_info() { echo -e "${YELLOW}[INFO]${NC} $1"; }
+print_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
+print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# Check dependencies
+check_deps() {
+    command -v byobu >/dev/null 2>&1 || { print_error "Missing byobu. Install with: brew install byobu"; exit 1; }
+}
+
+# Clean byobu cache to avoid errors
+clean_byobu_cache() {
+    rm -rf ~/.cache/byobu/.last.tmux 2>/dev/null || true
+    rm -rf ~/.cache/byobu/* 2>/dev/null || true
+    rm -rf ~/.byobu/.last.tmux 2>/dev/null || true
+}
+
+# Check terminal size
+check_terminal_size() {
+    TERM_COLS=$(tput cols)
+    TERM_LINES=$(tput lines)
+    local min_cols=100
+    local min_lines=30
+
+    echo "Terminal size: ${TERM_COLS}x${TERM_LINES} (columns x rows)"
+
+    if [ "$TERM_COLS" -lt "$min_cols" ] || [ "$TERM_LINES" -lt "$min_lines" ]; then
+        print_error "Terminal too small!"
+        echo "  Current:  ${TERM_COLS} columns x ${TERM_LINES} rows"
+        echo "  Required: ${min_cols} columns x ${min_lines} rows (minimum)"
+        exit 1
+    fi
+    print_ok "Terminal size OK"
+}
+
+# Check if network_diagram.md exists
+check_md_file() {
+    if [ ! -f "$MD_FILE" ]; then
+        print_error "network_diagram.md not found at: $MD_FILE"
+        echo "Run ./verify_scripts/generate_network_diagram.sh first"
+        exit 1
+    fi
+}
+
+# Parse values from network_diagram.md
+parse_md_file() {
+    print_info "Parsing $MD_FILE..."
+
+    # Column 5 is Public IP (Name|ID|Private|Public)
+    JUMP_BOX_PUBLIC=$(grep "jump-box-instance" "$MD_FILE" | head -1 | awk -F'|' '{print $5}' | tr -d ' ')
+    EAST_AZ1_PRIVATE=$(grep "east-public-az1-instance" "$MD_FILE" | awk -F'|' '{print $3}' | tr -d ' ')
+    EAST_AZ2_PRIVATE=$(grep "east-public-az2-instance" "$MD_FILE" | awk -F'|' '{print $3}' | tr -d ' ')
+    WEST_AZ1_PRIVATE=$(grep "west-public-az1-instance" "$MD_FILE" | awk -F'|' '{print $3}' | tr -d ' ')
+    WEST_AZ2_PRIVATE=$(grep "west-public-az2-instance" "$MD_FILE" | awk -F'|' '{print $3}' | tr -d ' ')
+
+    if [ -z "$JUMP_BOX_PUBLIC" ]; then
+        print_error "Could not find Jump Box public IP"
+        exit 1
+    fi
+
+    print_ok "Jump Box: $JUMP_BOX_PUBLIC"
+    print_ok "West AZ1 (client) -> East AZ1: $WEST_AZ1_PRIVATE -> $EAST_AZ1_PRIVATE"
+    print_ok "East AZ2 (client) -> West AZ2: $EAST_AZ2_PRIVATE -> $WEST_AZ2_PRIVATE"
+}
+
+# Build remaining panes in background
+# Final layout (like a map - West on left, East on right):
+#   +------------------+------------------+
+#   | West AZ1 client  | East AZ2 client  |
+#   | -> East AZ1      | -> West AZ2      |
+#   +------------------+------------------+
+build_remaining_panes() {
+    local SESSION="$1"
+    sleep 2
+
+    # Split horizontally to create left/right columns
+    byobu split-window -t $SESSION:0.0 -h
+    # Now: pane 0 = West client (left), pane 1 = East client (right)
+    byobu send-keys -t $SESSION:0.1 "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o 'ProxyCommand=ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -W %h:%p ubuntu@$JUMP_BOX_PUBLIC' ubuntu@$EAST_AZ2_PRIVATE" Enter
+    sleep 3
+    byobu send-keys -t $SESSION:0.1 "echo '=== East AZ2 -> West AZ2 Client ==='" Enter
+    byobu send-keys -t $SESSION:0.1 "while true; do iperf3 -c $WEST_AZ2_PRIVATE -R -t 10 -b 17M -i 2 -P 100; sleep 1; done" Enter
+}
+
+# Create the byobu session
+create_session() {
+    local SESSION="iperf-clients"
+
+    # Kill existing session if it exists
+    byobu kill-session -t $SESSION 2>/dev/null || true
+
+    print_info "Creating byobu session: $SESSION"
+
+    # Create session with first pane - West AZ1 client
+    byobu new-session -d -s $SESSION -n 'Clients' -x "$TERM_COLS" -y "$TERM_LINES"
+
+    byobu send-keys -t $SESSION:0.0 "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o 'ProxyCommand=ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -W %h:%p ubuntu@$JUMP_BOX_PUBLIC' ubuntu@$WEST_AZ1_PRIVATE" Enter
+    sleep 2
+    byobu send-keys -t $SESSION:0.0 "echo '=== West AZ1 -> East AZ1 Client ==='" Enter
+    byobu send-keys -t $SESSION:0.0 "while true; do iperf3 -c $EAST_AZ1_PRIVATE -R -t 10 -b 17M -i 2 -P 100; sleep 1; done" Enter
+
+    print_ok "Session created - attaching now!"
+    echo ""
+    echo "=========================================="
+    echo "iperf3 Clients Session"
+    echo "=========================================="
+    echo ""
+    echo "Layout (like a map):"
+    echo "  Left:  West AZ1 client (-> East AZ1 server)"
+    echo "  Right: East AZ2 client (-> West AZ2 server)"
+    echo ""
+    echo "Traffic started automatically (10s intervals for GWLB rehashing):"
+    echo "  Left:  while true; do iperf3 -c $EAST_AZ1_PRIVATE -R -t 10 ... ; done"
+    echo "  Right: while true; do iperf3 -c $WEST_AZ2_PRIVATE -R -t 10 ... ; done"
+    echo ""
+    echo "Navigation:"
+    echo "  Shift+Arrows - Move between panes"
+    echo "  F6 - Detach"
+    echo ""
+
+    # Start background builder
+    build_remaining_panes "$SESSION" &
+
+    # Attach immediately
+    byobu attach -t $SESSION
+}
+
+#==========================================================================
+# Main
+#==========================================================================
+echo ""
+echo "=========================================="
+echo "iperf3 Clients (Start After Servers)"
+echo "=========================================="
+echo ""
+
+check_deps
+clean_byobu_cache
+check_terminal_size
+check_md_file
+parse_md_file
+
+echo ""
+read -p "Create session? (y/n) " -n 1 -r
+echo ""
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    create_session
+else
+    print_info "Aborted"
+fi

@@ -16,19 +16,39 @@ variable "env" {
 variable subnet_bits {
   description = "Number of bits in the network portion of the subnet CIDR"
 }
+variable "spoke_subnet_bits" {
+  description = "Number of bits for spoke VPC subnet CIDR calculation"
+  type        = number
+  default     = 4
+}
 variable "keypair" {
   description = "Keypair for instances that support keypairs"
 }
-variable "vpc_cidr_sg" {
+variable "management_cidr_sg" {
     description = "List of CIDRs to allow in security group for management access"
     type        = list(string)
-    default     = []
+    default     = ["0.0.0.0/0"]
 }
 variable "vpc_cidr_management" {
     description = "CIDR for the management VPC"
 }
+variable "vpc_cidr_inspection" {
+    description = "CIDR for the inspection VPC"
+    type        = string
+    default     = "10.0.0.0/16"
+}
 variable "vpc_cidr_ns_inspection" {
     description = "CIDR for the inspection VPC"
+}
+variable "enable_autoscale_deployment" {
+  description = "Deploy FortiGate AutoScale group with Gateway Load Balancer"
+  type        = bool
+  default     = true
+}
+variable "enable_ha_pair_deployment" {
+  description = "Deploy FortiGate HA Pair with Active-Passive FGCP clustering"
+  type        = bool
+  default     = false
 }
 variable "enable_fortimanager" {
   description = "Boolean to allow creation of FortiManager in Inspection VPC"
@@ -120,10 +140,10 @@ variable "enable_management_tgw_attachment" {
   description = "Allow Management VPC to attach to an existing TGW"
   type        = bool
 }
-variable "enable_spoke_tgw_default_route_to_management" {
-  description = "Create default routes (0.0.0.0/0) from spoke TGW route tables to management VPC. Set to false when autoscale_template takes over routing."
+variable "create_tgw_routes_for_existing" {
+  description = "Populate TGW route tables with routes between Management VPC and Spoke VPCs. Recommended for test environments only."
   type        = bool
-  default     = true
+  default     = false
 }
 variable "enable_linux_spoke_instances" {
   description = "Boolean to allow creation of Linux Spoke Instances in East and West VPCs"
@@ -134,38 +154,19 @@ variable "attach_to_tgw_name" {
   type        = string
   default     = ""
 }
+variable "enable_tgw_attachment" {
+  description = "Attach inspection VPC to Transit Gateway"
+  type        = bool
+  default     = true
+}
 variable "vpc_cidr_east" {
     description = "CIDR for the whole east VPC"
 }
 variable "vpc_cidr_spoke" {
     description = "Super-Net CIDR for the spoke VPC's"
 }
-variable "vpc_cidr_east_public_az1" {
-    description = "CIDR for the AZ1 public subnet in East VPC"
-}
-variable "vpc_cidr_east_public_az2" {
-    description = "CIDR for the AZ2 public subnet in East VPC"
-}
-variable "vpc_cidr_east_tgw_az1" {
-    description = "CIDR for the AZ1 TGW attachment subnet in East VPC"
-}
-variable "vpc_cidr_east_tgw_az2" {
-    description = "CIDR for the AZ2 TGW attachment subnet in East VPC"
-}
 variable "vpc_cidr_west" {
     description = "CIDR for the whole west VPC"
-}
-variable "vpc_cidr_west_public_az1" {
-    description = "CIDR for the AZ1 public subnet in west VPC"
-}
-variable "vpc_cidr_west_public_az2" {
-    description = "CIDR for the AZ2 public subnet in west VPC"
-}
-variable "vpc_cidr_west_tgw_az1" {
-    description = "CIDR for the AZ1 TGW attachment subnet in West VPC"
-}
-variable "vpc_cidr_west_tgw_az2" {
-    description = "CIDR for the AZ2 TGW attachment subnet in West VPC"
 }
 variable "acl" {
   description = "The acl for linux instances"
@@ -176,14 +177,15 @@ variable "acl" {
 variable "enable_build_inspection_vpc" {
   description = "Enable building the inspection VPC"
   type        = bool
+  default     = true
 }
-variable "inspection_access_internet_mode" {
-  description = "Variable that defines how the fortigates in the autoscale group will access the internet. 'nat_gw' or 'eip'"
-  type        = string
-  default     = "nat_gw"
+variable "create_nat_gateway_subnets" {
+  description = "Create NAT Gateway subnets for centralized internet egress"
+  type        = bool
+  default     = false
 }
-variable "inspection_enable_dedicated_management_eni" {
-  description = "Boolean to allow creation of dedicated management subnets and ENI in the inspection VPC"
+variable "create_management_subnet_in_inspection_vpc" {
+  description = "Create dedicated management subnets and ENI in the inspection VPC"
   type        = bool
   default     = false
 }

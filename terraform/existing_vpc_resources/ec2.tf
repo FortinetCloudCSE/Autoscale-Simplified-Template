@@ -13,17 +13,17 @@ locals {
 }
 
 locals {
-  linux_east_az1_ip_address = cidrhost(var.vpc_cidr_east_public_az1, var.linux_host_ip)
+  linux_east_az1_ip_address = cidrhost(local.east_public_subnet_cidr_az1, var.linux_host_ip)
 }
 locals {
-  linux_east_az2_ip_address = cidrhost(var.vpc_cidr_east_public_az2, var.linux_host_ip)
+  linux_east_az2_ip_address = cidrhost(local.east_public_subnet_cidr_az2, var.linux_host_ip)
 }
 
 locals {
-  linux_west_az1_ip_address = cidrhost(var.vpc_cidr_west_public_az1, var.linux_host_ip)
+  linux_west_az1_ip_address = cidrhost(local.west_public_subnet_cidr_az1, var.linux_host_ip)
 }
 locals {
-  linux_west_az2_ip_address = cidrhost(var.vpc_cidr_west_public_az2, var.linux_host_ip)
+  linux_west_az2_ip_address = cidrhost(local.west_public_subnet_cidr_az2, var.linux_host_ip)
 }
 
 locals {
