@@ -5,8 +5,6 @@ weight: 15
 chapter: true
 ---
 
-# Is Autoscale Right for You?
-
 Before investing time in this deployment, it is worth asking whether autoscale
 is the right architecture for your use case. Our general recommendation is to
 consider **intentional scaling** — using Terraform to preemptively manage
