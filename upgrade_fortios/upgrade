@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# upgrade — FortiGate autoscale upgrade entry point
+#
+# Usage:
+#   ./upgrade --in-place  --fortios-version 7.6.6  [--state state/terraform.tfstate]
+#   ./upgrade --blue-green --fortios-version 7.6.6  [--state state/terraform.tfstate]
+#
+# Expects state files in ./state/ by default.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATE_DIR="${SCRIPT_DIR}/state"
+SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
+
+STATE_FILE="${STATE_DIR}/autoscale_template.tfstate"
+INVENTORY_FILE="${STATE_DIR}/blue_inventory.json"
+
+MODE=""
+FORTIOS_VERSION=""
+
+# ── Argument parsing ──────────────────────────
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") <mode> --fortios-version <version> [options]
+
+Modes:
+  --in-place     Upgrade FortiOS on running instances (rolling replacement)
+  --blue-green   Deploy parallel environment and cut over (not yet implemented)
+
+Options:
+  --fortios-version <version>   Target FortiOS version (e.g. 7.6.6)  [required]
+  --state <path>                Path to terraform.tfstate
+                                (default: state/terraform.tfstate)
+  --inventory <path>            Path to existing blue_inventory.json
+                                (skips discovery if provided)
+  --help                        Show this help
+
+Examples:
+  ./upgrade --in-place --fortios-version 7.6.6
+  ./upgrade --in-place --fortios-version 7.6.6 --state /path/to/terraform.tfstate
+EOF
+    exit 1
+}
+
+INVENTORY_OVERRIDE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --in-place)    MODE="in-place";    shift ;;
+        --blue-green)  MODE="blue-green";  shift ;;
+        --fortios-version)
+            FORTIOS_VERSION="${2:-}"
+            [[ -z "$FORTIOS_VERSION" ]] && { echo "Error: --fortios-version requires a value"; usage; }
+            shift 2
+            ;;
+        --state)
+            STATE_FILE="${2:-}"
+            [[ -z "$STATE_FILE" ]] && { echo "Error: --state requires a value"; usage; }
+            shift 2
+            ;;
+        --inventory)
+            INVENTORY_OVERRIDE="${2:-}"
+            shift 2
+            ;;
+        --help|-h) usage ;;
+        *) echo "Unknown argument: $1"; usage ;;
+    esac
+done
+
+[[ -z "$MODE" ]] && { echo "Error: specify --in-place or --blue-green"; usage; }
+[[ -z "$FORTIOS_VERSION" ]] && { echo "Error: --fortios-version is required"; usage; }
+
+# ── Pre-flight checks ─────────────────────────
+
+if ! command -v python3 &>/dev/null; then
+    echo "Error: python3 not found"
+    exit 1
+fi
+
+if ! python3 -c "import boto3" 2>/dev/null; then
+    echo "Error: boto3 not installed. Run: pip3 install boto3"
+    exit 1
+fi
+
+# ── Strategy header ────────────────────────────
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+if [[ "$MODE" == "in-place" ]]; then
+    echo "  FortiGate In-Place Upgrade"
+else
+    echo "  FortiGate Blue-Green Upgrade"
+fi
+echo "  Target FortiOS: ${FORTIOS_VERSION}"
+echo "════════════════════════════════════════════════════════════"
+
+# ── In-Place ──────────────────────────────────
+
+if [[ "$MODE" == "in-place" ]]; then
+
+    # Phase 0: Refresh state directory
+    if [[ -n "$INVENTORY_OVERRIDE" ]]; then
+        INVENTORY_FILE="$INVENTORY_OVERRIDE"
+        echo ""
+        echo "Using existing inventory: ${INVENTORY_FILE}"
+    else
+        REPO_ROOT="${SCRIPT_DIR}/.."
+
+        echo ""
+        echo "Phase 0: Refresh State"
+        echo "──────────────────────────────────────────────────────────"
+
+        # Remove all stale files from state directory
+        echo "  Clearing state directory..."
+        rm -f "${STATE_DIR}"/*.tfstate "${STATE_DIR}"/*.tfvars \
+              "${STATE_DIR}"/*.json "${STATE_DIR}"/*.conf
+
+        # Pull fresh state from terraform directories
+        for f in tfstate tfvars; do
+            src="${REPO_ROOT}/terraform/autoscale_template/terraform.${f}"
+            if [[ -f "$src" ]]; then
+                echo "  Copying autoscale_template.${f}"
+                cp "$src" "${STATE_DIR}/autoscale_template.${f}"
+            else
+                echo "  WARNING: ${src} not found"
+            fi
+        done
+        for f in tfstate tfvars; do
+            src="${REPO_ROOT}/terraform/existing_vpc_resources/terraform.${f}"
+            if [[ -f "$src" ]]; then
+                echo "  Copying existing_vpc_resources.${f}"
+                cp "$src" "${STATE_DIR}/existing_vpc_resources.${f}"
+            fi
+        done
+
+        if [[ ! -f "$STATE_FILE" ]]; then
+            echo ""
+            echo "Error: autoscale_template state not found after refresh: ${STATE_FILE}"
+            exit 1
+        fi
+
+        echo ""
+        echo "Phase 0: Discovery"
+        echo "──────────────────────────────────────────────────────────"
+        python3 "${SCRIPTS_DIR}/discover.py" \
+            --state "${STATE_FILE}" \
+            --target-version "${FORTIOS_VERSION}" \
+            --output "${INVENTORY_FILE}"
+    fi
+
+    echo ""
+    python3 "${SCRIPTS_DIR}/inplace_upgrade.py" \
+        --inventory "${INVENTORY_FILE}" \
+        --state-dir "${STATE_DIR}"
+
+# ── Blue-Green ────────────────────────────────
+
+elif [[ "$MODE" == "blue-green" ]]; then
+    echo ""
+    echo "Blue-green upgrade is not yet implemented as an automated script."
+    echo ""
+    echo "Follow the manual runbook: upgrade_fortios/RUNBOOK.md"
+    echo ""
+    echo "The discovery step is available:"
+    echo "  python3 scripts/discover.py --state ${STATE_FILE} \\"
+    echo "    --target-version ${FORTIOS_VERSION} \\"
+    echo "    --output state/blue_inventory.json"
+    exit 1
+fi

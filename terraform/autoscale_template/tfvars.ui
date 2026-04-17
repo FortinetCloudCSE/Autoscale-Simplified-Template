@@ -253,6 +253,46 @@ endpoint_name_az2 = "asg-gwlbe_az2"
 # @ui-help: WARNING: When true, replaces existing default routes in private subnets. Required for traffic inspection to work.
 modify_existing_route_tables = true
 
+# @ui-type: number
+# @ui-label: GWLB Health Check Port
+# @ui-description: Port used by GWLB to health check FortiGate instances
+# @ui-required: true
+# @ui-width: half
+# @ui-validation: min:1,max:65535
+# @ui-default: 8008
+# @ui-help: Uses FortiGate probe-response (port 8008). Secondary instances won't pass until config sync from primary is complete.
+gwlb_health_check_port = 8008
+
+# @ui-type: number
+# @ui-label: GWLB Health Check Interval (seconds)
+# @ui-description: Seconds between health checks sent to each FortiGate instance
+# @ui-required: true
+# @ui-width: half
+# @ui-validation: min:5,max:300
+# @ui-default: 60
+# @ui-help: interval x healthy_threshold = minimum sync gate time (e.g. 60s x 5 = 5 min)
+gwlb_health_check_interval = 60
+
+# @ui-type: number
+# @ui-label: GWLB Healthy Threshold
+# @ui-description: Consecutive health check successes required before a target receives traffic
+# @ui-required: true
+# @ui-width: half
+# @ui-validation: min:2,max:10
+# @ui-default: 5
+# @ui-help: Higher values enforce a longer minimum wait for config sync before traffic is sent to a new instance.
+gwlb_healthy_threshold = 5
+
+# @ui-type: number
+# @ui-label: ASG Health Check Grace Period (seconds)
+# @ui-description: Seconds after instance launch before ASG health checking begins
+# @ui-required: true
+# @ui-width: half
+# @ui-validation: min:0,max:3600
+# @ui-default: 700
+# @ui-help: Must exceed instance boot time + config sync time. Prevents premature termination of launching instances.
+asg_health_check_grace_period = 700
+
 #====================================================================================================
 # NETWORK CIDR CONFIGURATION
 #====================================================================================================
