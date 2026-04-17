@@ -135,6 +135,20 @@ endpoint_name_az2 = "asg-gwlbe_az2"
 #
 modify_existing_route_tables = true
 
+# GWLB Health Check - uses FortiGate probe-response on port 8008
+# Health checks gate on config sync: secondary instances won't respond until primary syncs
+# the probe-response config, ensuring traffic is only sent to fully-synced instances.
+# healthy_threshold x interval = minimum time before a secondary can pass (5 x 60s = 5 min)
+#
+gwlb_health_check_port     = 8008  # FortiGate probe-response port
+gwlb_health_check_interval = 60    # Seconds between health checks
+gwlb_healthy_threshold     = 5     # Consecutive successes required before target is healthy
+
+# ASG Health Check Grace Period
+# Must exceed instance boot + config sync time before health checking begins
+#
+asg_health_check_grace_period = 700
+
 #====================================================================================================
 # NETWORK CIDR CONFIGURATION
 #====================================================================================================

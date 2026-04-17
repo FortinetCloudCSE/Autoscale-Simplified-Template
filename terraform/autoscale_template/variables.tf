@@ -214,3 +214,23 @@ variable "modify_existing_route_tables" {
   type        = bool
   default     = true
 }
+
+variable "gwlb_health_check_port" {
+  description = "Port for GWLB health check. Uses FortiGate probe-response port so health checks gate on config sync completion."
+  type        = number
+}
+
+variable "gwlb_health_check_interval" {
+  description = "Interval in seconds between GWLB health checks."
+  type        = number
+}
+
+variable "gwlb_healthy_threshold" {
+  description = "Number of consecutive health check successes required before considering a target healthy."
+  type        = number
+}
+
+variable "asg_health_check_grace_period" {
+  description = "Time in seconds after instance comes into service before health checking begins."
+  type        = number
+}
