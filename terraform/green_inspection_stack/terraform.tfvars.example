@@ -83,8 +83,8 @@ attach_to_tgw_name    = "acme-test-tgw"
 #   "<asg_module_prefix>-<region><az>-endpoint"
 # Run 'terraform apply' once then check the AWS console if unsure.
 
-endpoint_name_az1 = "green-us-west-2a-endpoint"
-endpoint_name_az2 = "green-us-west-2c-endpoint"
+endpoint_name_az1 = "green-gwlbe_az1"
+endpoint_name_az2 = "green-gwlbe_az2"
 
 # ── Autoscale Group Capacity ───────────────────────────────────────────────────
 # Match Blue desired/min/max so Green starts at the same capacity.
@@ -117,7 +117,7 @@ allow_cross_zone_load_balancing = true
 # NOTE: Both Blue and Green ASGs run simultaneously during the monitoring window.
 # Ensure enough licenses are available for 2x capacity before applying.
 
-asg_license_directory   = ""   # e.g. "s3://my-bucket/licenses/"
+asg_license_directory   = "asg_license"   # Must point to a directory (can be empty for FortiFlex/PAYG)
 fortiflex_username      = ""
 fortiflex_password      = ""
 fortiflex_sn_list       = [""]

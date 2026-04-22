@@ -33,3 +33,4 @@ debug.log
 ncc-service-account.json
 fortihugorunner
 fortihugorunner-*
+upgrade_fortios/state/*.conf
