@@ -63,9 +63,17 @@ fi
 AWS_REGION=$(get_tfvar "aws_region" "$TFVARS_FILE")
 AZ1=$(get_tfvar "availability_zone_1" "$TFVARS_FILE")
 AZ2=$(get_tfvar "availability_zone_2" "$TFVARS_FILE")
+AZ3=$(get_tfvar "availability_zone_3" "$TFVARS_FILE")
 CP=$(get_tfvar "cp" "$TFVARS_FILE")
 ENV=$(get_tfvar "env" "$TFVARS_FILE")
 PREFIX="${CP}-${ENV}"
+
+# Build AZ label for title — include AZ3 note if configured
+if [[ -n "$AZ3" ]]; then
+    AZ_LABEL="${AZ1}, ${AZ2} + AZ3 (${AZ3}) ACTIVE"
+else
+    AZ_LABEL="${AZ1}, ${AZ2}"
+fi
 
 # VPC CIDRs
 VPC_CIDR_MANAGEMENT=$(get_tfvar "vpc_cidr_management" "$TFVARS_FILE")
@@ -618,7 +626,7 @@ cat > "$SVG_FILE" << SVGEOF
   <rect width="2200" height="1400" fill="#1a1a2e"/>
 
   <!-- Title -->
-  <text x="1100" y="55" text-anchor="middle" fill="white" font-size="32" font-weight="bold">${PREFIX} Infrastructure - ${AWS_REGION} (AZ: ${AZ1}, ${AZ2})</text>
+  <text x="1100" y="55" text-anchor="middle" fill="white" font-size="32" font-weight="bold">${PREFIX} Infrastructure - ${AWS_REGION} (AZ: ${AZ_LABEL})</text>
   <text x="1100" y="90" text-anchor="middle" fill="#888" font-size="18">Generated: ${TIMESTAMP} | Template: existing_vpc_resources</text>
 
   <!-- Internet Gateway Icons -->
@@ -669,6 +677,8 @@ cat > "$SVG_FILE" << SVGEOF
   <rect x="720" y="190" width="1420" height="600" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
   <text x="750" y="230" fill="white" font-size="24" font-weight="bold">Inspection VPC</text>
   <text x="750" y="260" fill="#888" font-size="17">${INSPECTION_VPC_ID} | ${VPC_CIDR_INSPECTION}</text>
+$(if [[ -n "$AZ3" ]]; then echo "  <rect x=\"1020\" y=\"210\" width=\"260\" height=\"28\" rx=\"5\" fill=\"#2E7D32\"/>
+  <text x=\"1150\" y=\"229\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\" font-weight=\"bold\">⚡ 3-AZ ACTIVE: ${AWS_REGION}${AZ3}</text>"; fi)
 
   <!-- FortiGate ASG Box - LEFT SIDE -->
   <rect x="760" y="290" width="250" height="330" rx="5" fill="none" stroke="#EE3124" stroke-width="2" stroke-dasharray="5,5"/>
