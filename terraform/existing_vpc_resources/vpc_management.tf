@@ -38,6 +38,7 @@ module "vpc-management" {
   subnet_bits                    = var.subnet_bits
   availability_zone_1            = local.availability_zone_1
   availability_zone_2            = local.availability_zone_2
+  availability_zone_3            = local.availability_zone_3
   named_tgw                      = var.attach_to_tgw_name
   enable_tgw_attachment          = local.enable_management_tgw_attachment
   acl                            = var.acl
@@ -82,6 +83,12 @@ resource "aws_ec2_tag" "management_subnet_public_az2_role" {
   resource_id = module.vpc-management[0].subnet_management_public_az2_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-management-public-az2"
+}
+resource "aws_ec2_tag" "management_subnet_public_az3_role" {
+  count       = (var.enable_build_management_vpc && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-management[0].subnet_management_public_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-management-public-az3"
 }
 
 resource "aws_route" "management-public-default-route-igw" {
@@ -152,6 +159,20 @@ resource "aws_security_group" "jump_box_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
+    cidr_blocks = var.management_cidr_sg
+  }
+  ingress {
+    description = "HTTPS from allowed CIDRs"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = var.management_cidr_sg
+  }
+  ingress {
+    description = "ICMP from allowed CIDRs"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
     cidr_blocks = var.management_cidr_sg
   }
   ingress {
@@ -226,6 +247,13 @@ resource "aws_route" "private-az2-default-to-jump-box" {
   count                  = (var.enable_build_management_vpc && var.enable_jump_box) ? 1 : 0
   depends_on             = [aws_instance.jump_box]
   route_table_id         = module.vpc-management[0].route_table_management_private_az2
+  destination_cidr_block = "0.0.0.0/0"
+  network_interface_id   = aws_instance.jump_box[0].primary_network_interface_id
+}
+resource "aws_route" "private-az3-default-to-jump-box" {
+  count                  = (var.enable_build_management_vpc && var.enable_jump_box && var.availability_zone_3 != "") ? 1 : 0
+  depends_on             = [aws_instance.jump_box]
+  route_table_id         = module.vpc-management[0].route_table_management_private_az3
   destination_cidr_block = "0.0.0.0/0"
   network_interface_id   = aws_instance.jump_box[0].primary_network_interface_id
 }

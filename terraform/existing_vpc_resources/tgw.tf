@@ -16,11 +16,12 @@ module "vpc-transit-gateway-attachment-east" {
   count                          = var.enable_build_existing_subnets ? 1 : 0
   depends_on                     = [module.vpc-transit-gateway,
                                     module.subnet-east-tgw-az1,
-                                    module.subnet-east-tgw-az2]
+                                    module.subnet-east-tgw-az2,
+                                    module.subnet-east-tgw-az3]
   tgw_attachment_name            = "${var.cp}-${var.env}-east-tgw-attachment"
 
   transit_gateway_id             = module.vpc-transit-gateway[0].tgw_id
-  subnet_ids                     = [ module.subnet-east-tgw-az1[0].id, module.subnet-east-tgw-az2[0].id ]
+  subnet_ids                     = var.availability_zone_3 != "" ? [ module.subnet-east-tgw-az1[0].id, module.subnet-east-tgw-az2[0].id, module.subnet-east-tgw-az3[0].id ] : [ module.subnet-east-tgw-az1[0].id, module.subnet-east-tgw-az2[0].id ]
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
   vpc_id                                          = module.vpc-east[0].vpc_id
@@ -53,11 +54,12 @@ module "vpc-transit-gateway-attachment-west" {
   count                = var.enable_build_existing_subnets ? 1 : 0
   depends_on           = [module.vpc-transit-gateway,
                           module.subnet-west-tgw-az1,
-                          module.subnet-west-tgw-az2]
+                          module.subnet-west-tgw-az2,
+                          module.subnet-west-tgw-az3]
   tgw_attachment_name  = "${var.cp}-${var.env}-west-tgw-attachment"
 
   transit_gateway_id   = module.vpc-transit-gateway[0].tgw_id
-  subnet_ids           = [ module.subnet-west-tgw-az1[0].id, module.subnet-west-tgw-az2[0].id ]
+  subnet_ids           = var.availability_zone_3 != "" ? [ module.subnet-west-tgw-az1[0].id, module.subnet-west-tgw-az2[0].id, module.subnet-west-tgw-az3[0].id ] : [ module.subnet-west-tgw-az1[0].id, module.subnet-west-tgw-az2[0].id ]
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
   vpc_id                                          = module.vpc-west[0].vpc_id

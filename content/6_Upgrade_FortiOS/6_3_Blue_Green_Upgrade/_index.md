@@ -174,6 +174,7 @@ Complete this checklist before Phase 2. All items must be confirmed before deplo
 - [ ] Green `terraform.tfvars` prepared — `fortios_version` set, all required fields populated
 - [ ] `vpc_cidr_inspection` in Green tfvars **matches Blue exactly** (required for config restore)
 - [ ] `asg_module_prefix` set to `"green"` (avoids resource name collisions with Blue)
+- [ ] `asg_license_directory` points to a valid directory (create empty `asg_license/` for FortiFlex/PAYG)
 
 **FortiManager (if enabled)**
 - [ ] FortiManager version 7.6.3+ has `fgfm-allow-vm enable` configured
@@ -220,7 +221,21 @@ access_internet_mode = "nat_gw"        # MUST match Blue
 
 # ── Green-specific ─────────────────────────────────────
 asg_module_prefix    = "green"         # REQUIRED: different from Blue
+
+# ── Licensing ──────────────────────────────────────────
+# asg_license_directory MUST point to a directory, even if empty.
+# Setting it to "" causes the module to scan the current directory and
+# attempt to upload every file it finds as a license — which will fail.
+# For FortiFlex or PAYG: create an empty directory and point to it.
+asg_license_directory = "asg_license"  # directory exists but is empty for FortiFlex/PAYG
 ```
+
+{{% notice warning %}}
+`asg_license_directory` must always point to a valid directory path, even when using
+FortiFlex or PAYG licensing. Setting it to `""` causes the module to scan the working
+directory and fail. Create an empty `asg_license/` directory in
+`terraform/green_inspection_stack/` if you are not using BYOL license files.
+{{% /notice %}}
 
 ### Apply Green
 

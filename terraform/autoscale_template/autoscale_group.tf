@@ -17,6 +17,9 @@ locals {
 locals {
   management_public_az2 = "${var.cp}-${var.env}-management-public-az2"
 }
+locals {
+  management_public_az3 = "${var.cp}-${var.env}-management-public-az3"
+}
 
 # Management VPC lookups (for dedicated management VPC mode)
 # Uses Fortinet-Role tags for consistency with inspection VPC resource discovery
@@ -52,6 +55,23 @@ data "aws_subnet" "public_subnet_az2" {
     name   = "state"
     values = ["available"]
   }
+}
+data "aws_subnet" "public_subnet_az3" {
+  count = (var.enable_dedicated_management_vpc && var.availability_zone_3 != "") ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = [local.management_public_az3]
+  }
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
+
+locals {
+  mgmt_az3_subnet_id = var.availability_zone_3 != "" ? (
+    var.enable_dedicated_management_vpc ? one(data.aws_subnet.public_subnet_az3[*].id) : one(data.aws_subnet.inspection_management_az3[*].id)
+  ) : null
 }
 
 # Security group for management interfaces
@@ -97,32 +117,48 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   }
   existing_tgw = {
   }
-  existing_subnets = {
-    fgt_login_az1 = {
-      id                = data.aws_subnet.inspection_public_az1.id
-      availability_zone = local.availability_zone_1
+  existing_subnets = merge(
+    {
+      fgt_login_az1 = {
+        id                = data.aws_subnet.inspection_public_az1.id
+        availability_zone = local.availability_zone_1
+      },
+      fgt_login_az2 = {
+        id                = data.aws_subnet.inspection_public_az2.id
+        availability_zone = local.availability_zone_2
+      },
+      gwlbe_az1 = {
+        id                = data.aws_subnet.inspection_gwlbe_az1.id
+        availability_zone = local.availability_zone_1
+      },
+      gwlbe_az2 = {
+        id                = data.aws_subnet.inspection_gwlbe_az2.id
+        availability_zone = local.availability_zone_2
+      },
+      fgt_internal_az1 = {
+        id                = data.aws_subnet.inspection_private_az1.id
+        availability_zone = local.availability_zone_1
+      },
+      fgt_internal_az2 = {
+        id                = data.aws_subnet.inspection_private_az2.id
+        availability_zone = local.availability_zone_2
+      }
     },
-    fgt_login_az2 = {
-      id                = data.aws_subnet.inspection_public_az2.id
-      availability_zone = local.availability_zone_2
-    },
-    gwlbe_az1 = {
-      id                = data.aws_subnet.inspection_gwlbe_az1.id
-      availability_zone = local.availability_zone_1
-    },
-    gwlbe_az2 = {
-      id                = data.aws_subnet.inspection_gwlbe_az2.id
-      availability_zone = local.availability_zone_2
-    },
-    fgt_internal_az1 = {
-      id                = data.aws_subnet.inspection_private_az1.id
-      availability_zone = local.availability_zone_1
-    },
-    fgt_internal_az2 = {
-      id                = data.aws_subnet.inspection_private_az2.id
-      availability_zone = local.availability_zone_2
-    }
-  }
+    var.availability_zone_3 != "" ? {
+      fgt_login_az3 = {
+        id                = data.aws_subnet.inspection_public_az3[0].id
+        availability_zone = local.availability_zone_3
+      },
+      gwlbe_az3 = {
+        id                = data.aws_subnet.inspection_gwlbe_az3[0].id
+        availability_zone = local.availability_zone_3
+      },
+      fgt_internal_az3 = {
+        id                = data.aws_subnet.inspection_private_az3[0].id
+        availability_zone = local.availability_zone_3
+      }
+    } : {}
+  )
 
   ## VPC
   security_groups = {
@@ -168,7 +204,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
 
   vpc_cidr_block     = var.vpc_cidr_inspection
   spoke_cidr_list    = []
-  availability_zones = [local.availability_zone_1, local.availability_zone_2]
+  availability_zones = var.availability_zone_3 != "" ? [local.availability_zone_1, local.availability_zone_2, local.availability_zone_3] : [local.availability_zone_1, local.availability_zone_2]
 
   ## Transit Gateway
   tgw_name        = "${var.cp}-${var.env}-tgw"
@@ -191,16 +227,24 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         "dedicated_port" = {
           device_index     = local.management_device_index
           enable_public_ip = true
-          subnet = [
-            {
-              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
-              zone_name = local.availability_zone_1
-            },
-            {
-              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
-              zone_name = local.availability_zone_2
-            }
-          ]
+          subnet = concat(
+            [
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
+                zone_name = local.availability_zone_1
+              },
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
+                zone_name = local.availability_zone_2
+              }
+            ],
+            var.availability_zone_3 != "" ? [
+              {
+                id        = local.mgmt_az3_subnet_id
+                zone_name = local.availability_zone_3
+              }
+            ] : []
+          )
           security_groups = [
             {
               id = aws_security_group.management-vpc-sg[0].id
@@ -247,16 +291,24 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         "dedicated_port" = {
           device_index     = local.management_device_index
           enable_public_ip = true
-          subnet = [
-            {
-              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
-              zone_name = local.availability_zone_1
-            },
-            {
-              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
-              zone_name = local.availability_zone_2
-            }
-          ]
+          subnet = concat(
+            [
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
+                zone_name = local.availability_zone_1
+              },
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
+                zone_name = local.availability_zone_2
+              }
+            ],
+            var.availability_zone_3 != "" ? [
+              {
+                id        = local.mgmt_az3_subnet_id
+                zone_name = local.availability_zone_3
+              }
+            ] : []
+          )
           security_groups = [
             {
               id = aws_security_group.management-vpc-sg[0].id

@@ -18,6 +18,7 @@ module "vpc-inspection" {
   subnet_bits                     = var.subnet_bits
   availability_zone_1             = local.availability_zone_1
   availability_zone_2             = local.availability_zone_2
+  availability_zone_3             = local.availability_zone_3
   enable_nat_gateway              = local.inspection_enable_nat_gateway
   named_tgw                       = var.attach_to_tgw_name
   enable_tgw_attachment           = var.enable_tgw_attachment
@@ -50,6 +51,12 @@ resource "aws_ec2_tag" "inspection_subnet_public_az2_role" {
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-public-az2"
 }
+resource "aws_ec2_tag" "inspection_subnet_public_az3_role" {
+  count       = (var.enable_build_inspection_vpc && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].subnet_public_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-public-az3"
+}
 
 # Subnet Tags - GWLBE
 resource "aws_ec2_tag" "inspection_subnet_gwlbe_az1_role" {
@@ -63,6 +70,12 @@ resource "aws_ec2_tag" "inspection_subnet_gwlbe_az2_role" {
   resource_id = module.vpc-inspection[0].subnet_gwlbe_az2_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-gwlbe-az2"
+}
+resource "aws_ec2_tag" "inspection_subnet_gwlbe_az3_role" {
+  count       = (var.enable_build_inspection_vpc && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].subnet_gwlbe_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-gwlbe-az3"
 }
 
 # Subnet Tags - Private
@@ -78,6 +91,12 @@ resource "aws_ec2_tag" "inspection_subnet_private_az2_role" {
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-private-az2"
 }
+resource "aws_ec2_tag" "inspection_subnet_private_az3_role" {
+  count       = (var.enable_build_inspection_vpc && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].subnet_private_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-private-az3"
+}
 
 # Subnet Tags - NAT GW (conditional)
 resource "aws_ec2_tag" "inspection_subnet_natgw_az1_role" {
@@ -91,6 +110,12 @@ resource "aws_ec2_tag" "inspection_subnet_natgw_az2_role" {
   resource_id = module.vpc-inspection[0].subnet_natgw_az2_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-natgw-az2"
+}
+resource "aws_ec2_tag" "inspection_subnet_natgw_az3_role" {
+  count       = (var.enable_build_inspection_vpc && local.inspection_enable_nat_gateway && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].subnet_natgw_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-natgw-az3"
 }
 
 # Subnet Tags - Management (conditional)
@@ -106,6 +131,12 @@ resource "aws_ec2_tag" "inspection_subnet_management_az2_role" {
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-management-az2"
 }
+resource "aws_ec2_tag" "inspection_subnet_management_az3_role" {
+  count       = (var.enable_build_inspection_vpc && var.create_management_subnet_in_inspection_vpc && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].subnet_management_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-management-az3"
+}
 
 # Route Table Tags - Public
 resource "aws_ec2_tag" "inspection_rt_public_az1_role" {
@@ -119,6 +150,12 @@ resource "aws_ec2_tag" "inspection_rt_public_az2_role" {
   resource_id = module.vpc-inspection[0].route_table_public_az2_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-public-rt-az2"
+}
+resource "aws_ec2_tag" "inspection_rt_public_az3_role" {
+  count       = (var.enable_build_inspection_vpc && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].route_table_public_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-public-rt-az3"
 }
 
 # Route Table Tags - GWLBE
@@ -134,6 +171,12 @@ resource "aws_ec2_tag" "inspection_rt_gwlbe_az2_role" {
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-gwlbe-rt-az2"
 }
+resource "aws_ec2_tag" "inspection_rt_gwlbe_az3_role" {
+  count       = (var.enable_build_inspection_vpc && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].route_table_gwlbe_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-gwlbe-rt-az3"
+}
 
 # Route Table Tags - Private
 resource "aws_ec2_tag" "inspection_rt_private_az1_role" {
@@ -147,6 +190,12 @@ resource "aws_ec2_tag" "inspection_rt_private_az2_role" {
   resource_id = module.vpc-inspection[0].route_table_private_az2_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-private-rt-az2"
+}
+resource "aws_ec2_tag" "inspection_rt_private_az3_role" {
+  count       = (var.enable_build_inspection_vpc && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].route_table_private_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-private-rt-az3"
 }
 
 # Route Table Tags - NAT GW (conditional)
@@ -162,6 +211,12 @@ resource "aws_ec2_tag" "inspection_rt_natgw_az2_role" {
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-natgw-rt-az2"
 }
+resource "aws_ec2_tag" "inspection_rt_natgw_az3_role" {
+  count       = (var.enable_build_inspection_vpc && local.inspection_enable_nat_gateway && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].route_table_natgw_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-natgw-rt-az3"
+}
 
 # Route Table Tags - Management (conditional)
 resource "aws_ec2_tag" "inspection_rt_management_az1_role" {
@@ -175,6 +230,12 @@ resource "aws_ec2_tag" "inspection_rt_management_az2_role" {
   resource_id = module.vpc-inspection[0].route_table_management_az2_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-management-rt-az2"
+}
+resource "aws_ec2_tag" "inspection_rt_management_az3_role" {
+  count       = (var.enable_build_inspection_vpc && var.create_management_subnet_in_inspection_vpc && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].route_table_management_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-management-rt-az3"
 }
 
 # IGW Tag
@@ -197,6 +258,12 @@ resource "aws_ec2_tag" "inspection_natgw_az2_role" {
   resource_id = module.vpc-inspection[0].aws_nat_gateway_vpc_az2_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-natgw-az2"
+}
+resource "aws_ec2_tag" "inspection_natgw_az3_role" {
+  count       = (var.enable_build_inspection_vpc && local.inspection_enable_nat_gateway && var.availability_zone_3 != "") ? 1 : 0
+  resource_id = module.vpc-inspection[0].aws_nat_gateway_vpc_az3_id
+  key         = "Fortinet-Role"
+  value       = "${var.cp}-${var.env}-inspection-natgw-az3"
 }
 
 # TGW Attachment Tag (conditional)
@@ -236,6 +303,13 @@ resource "aws_route" "inspection-public-default-route-ngw-az2" {
   destination_cidr_block = "0.0.0.0/0"
   nat_gateway_id         = module.vpc-inspection[0].aws_nat_gateway_vpc_az2_id
 }
+resource "aws_route" "inspection-public-default-route-ngw-az3" {
+  depends_on             = [module.vpc-inspection]
+  count                  = (var.enable_build_inspection_vpc && local.inspection_enable_nat_gateway && var.availability_zone_3 != "") ? 1 : 0
+  route_table_id         = module.vpc-inspection[0].route_table_public_az3_id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = module.vpc-inspection[0].aws_nat_gateway_vpc_az3_id
+}
 resource "aws_route" "inspection-public-default-route-igw-az1" {
   depends_on             = [module.vpc-inspection]
   count                  = (var.enable_build_inspection_vpc && !local.inspection_enable_nat_gateway) ? 1 : 0
@@ -247,6 +321,13 @@ resource "aws_route" "inspection-public-default-route-igw-az2" {
   depends_on             = [module.vpc-inspection]
   count                  = (var.enable_build_inspection_vpc && !local.inspection_enable_nat_gateway) ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_public_az2_id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = module.vpc-inspection[0].igw_id
+}
+resource "aws_route" "inspection-public-default-route-igw-az3" {
+  depends_on             = [module.vpc-inspection]
+  count                  = (var.enable_build_inspection_vpc && !local.inspection_enable_nat_gateway && var.availability_zone_3 != "") ? 1 : 0
+  route_table_id         = module.vpc-inspection[0].route_table_public_az3_id
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = module.vpc-inspection[0].igw_id
 }
@@ -275,6 +356,13 @@ resource "aws_route" "inspection-gwlbe-default-route-igw-az2" {
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = module.vpc-inspection[0].igw_id
 }
+resource "aws_route" "inspection-gwlbe-default-route-igw-az3" {
+  depends_on             = [module.vpc-inspection]
+  count                  = (var.enable_build_inspection_vpc && var.availability_zone_3 != "") ? 1 : 0
+  route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az3_id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = module.vpc-inspection[0].igw_id
+}
 
 #
 # Routes for GWLBE route tables to TGW for RFC1918 traffic
@@ -294,6 +382,13 @@ resource "aws_route" "inspection-gwlbe-192-route-tgw-az2" {
   destination_cidr_block = local.rfc1918_192
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
+resource "aws_route" "inspection-gwlbe-192-route-tgw-az3" {
+  depends_on             = [module.vpc-inspection]
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+  route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az3_id
+  destination_cidr_block = local.rfc1918_192
+  transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
+}
 resource "aws_route" "inspection-gwlbe-10-route-tgw-az1" {
   depends_on             = [module.vpc-inspection]
   count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? 1 : 0
@@ -308,6 +403,13 @@ resource "aws_route" "inspection-gwlbe-10-route-tgw-az2" {
   destination_cidr_block = local.rfc1918_10
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
+resource "aws_route" "inspection-gwlbe-10-route-tgw-az3" {
+  depends_on             = [module.vpc-inspection]
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+  route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az3_id
+  destination_cidr_block = local.rfc1918_10
+  transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
+}
 resource "aws_route" "inspection-gwlbe-172-route-tgw-az1" {
   depends_on             = [module.vpc-inspection]
   count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? 1 : 0
@@ -319,6 +421,13 @@ resource "aws_route" "inspection-gwlbe-172-route-tgw-az2" {
   depends_on             = [module.vpc-inspection]
   count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az2_id
+  destination_cidr_block = local.rfc1918_172
+  transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
+}
+resource "aws_route" "inspection-gwlbe-172-route-tgw-az3" {
+  depends_on             = [module.vpc-inspection]
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+  route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az3_id
   destination_cidr_block = local.rfc1918_172
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
