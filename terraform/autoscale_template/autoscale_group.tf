@@ -80,11 +80,11 @@ resource "aws_security_group" "management-vpc-sg" {
   description = "Security Group for ENI in the management VPC"
   vpc_id      = var.enable_dedicated_management_vpc ? data.aws_vpc.management_vpc[0].id : data.aws_vpc.inspection.id
   ingress {
-    description = "Allow ingress ALL"
+    description = "Allow management access from allowed CIDRs"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.vpc_cidr_sg
   }
   egress {
     description = "Allow egress ALL"
@@ -184,11 +184,11 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
     management_secgrp1 = {
       description = "Security group by Terraform for dedicated management port"
       ingress = {
-        all_traffic = {
+        allowed_cidrs = {
           from_port   = "0"
           to_port     = "0"
           protocol    = "-1"
-          cidr_blocks = ["0.0.0.0/0"]
+          cidr_blocks = var.vpc_cidr_sg
         }
       }
       egress = {
