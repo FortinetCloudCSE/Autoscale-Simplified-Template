@@ -283,6 +283,16 @@ MGMT_PRIVATE_AZ1_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
 MGMT_PRIVATE_AZ2_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-management-private-az2-subnet" \
     --query 'Subnets[0].CidrBlock' --output text 2>/dev/null)
+if [[ -n "$AZ3" ]]; then
+    MGMT_PUBLIC_AZ3_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
+        --filters "Name=tag:Name,Values=${PREFIX}-management-public-az3-subnet" \
+        --query 'Subnets[0].CidrBlock' --output text 2>/dev/null)
+    MGMT_PRIVATE_AZ3_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
+        --filters "Name=tag:Name,Values=${PREFIX}-management-private-az3-subnet" \
+        --query 'Subnets[0].CidrBlock' --output text 2>/dev/null)
+    [ "$MGMT_PUBLIC_AZ3_CIDR" == "None" ] && MGMT_PUBLIC_AZ3_CIDR=""
+    [ "$MGMT_PRIVATE_AZ3_CIDR" == "None" ] && MGMT_PRIVATE_AZ3_CIDR=""
+fi
 
 # Inspection VPC
 INSP_PUBLIC_AZ1_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
@@ -315,6 +325,25 @@ INSP_TGW_AZ1_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
 INSP_TGW_AZ2_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-inspection-tgw-az2-subnet" \
     --query 'Subnets[0].CidrBlock' --output text 2>/dev/null)
+
+# Inspection VPC Management subnets (dedicated management ENI, conditional)
+CREATE_MGMT_INSP=$(get_tfvar "create_management_subnet_in_inspection_vpc" "$TFVARS_FILE")
+if is_tfvar_true "create_management_subnet_in_inspection_vpc" "$TFVARS_FILE"; then
+    INSP_MGMT_AZ1_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
+        --filters "Name=tag:Name,Values=${PREFIX}-inspection-management-az1-subnet" \
+        --query 'Subnets[0].CidrBlock' --output text 2>/dev/null)
+    INSP_MGMT_AZ2_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
+        --filters "Name=tag:Name,Values=${PREFIX}-inspection-management-az2-subnet" \
+        --query 'Subnets[0].CidrBlock' --output text 2>/dev/null)
+    [ "$INSP_MGMT_AZ1_CIDR" == "None" ] && INSP_MGMT_AZ1_CIDR=""
+    [ "$INSP_MGMT_AZ2_CIDR" == "None" ] && INSP_MGMT_AZ2_CIDR=""
+    if [[ -n "$AZ3" ]]; then
+        INSP_MGMT_AZ3_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
+            --filters "Name=tag:Name,Values=${PREFIX}-inspection-management-az3-subnet" \
+            --query 'Subnets[0].CidrBlock' --output text 2>/dev/null)
+        [ "$INSP_MGMT_AZ3_CIDR" == "None" ] && INSP_MGMT_AZ3_CIDR=""
+    fi
+fi
 
 # GWLB Endpoints (created by autoscale_template)
 # Note: These use truncated prefix like "dis-p-asg" instead of full "dis-poc"
@@ -358,7 +387,7 @@ WEST_TGW_AZ2_CIDR=$(aws ec2 describe-subnets --region "$AWS_REGION" \
     --query 'Subnets[0].CidrBlock' --output text 2>/dev/null)
 
 # Get instance IPs using direct AWS queries (avoiding bash associative arrays for macOS compatibility)
-JUMP_BOX_NAME="${PREFIX}-management-jump-box-instance"
+JUMP_BOX_NAME="${PREFIX}-jump-box"
 JUMP_BOX_PRIVATE=$(get_instance_private_ip "$JUMP_BOX_NAME")
 JUMP_BOX_PUBLIC=$(get_instance_public_ip "$JUMP_BOX_NAME")
 JUMP_BOX_ID=$(get_instance_id "$JUMP_BOX_NAME")
@@ -594,6 +623,25 @@ fi
 
 print_info "Generating SVG diagram..."
 
+# Layout variables — adjust VPC heights and TGW positions based on optional subnets
+if [[ -n "$AZ3" ]]; then
+    MGMT_VPC_HEIGHT=540
+    MGMT_TGW_Y=630
+else
+    MGMT_VPC_HEIGHT=450
+    MGMT_TGW_Y=570
+fi
+MGMT_TGW_CONNECT_Y=$((MGMT_TGW_Y + 42))
+
+if [[ "$CREATE_MGMT_INSP" == "true" ]]; then
+    INSP_VPC_HEIGHT=620
+    INSP_TGW_Y=735
+else
+    INSP_VPC_HEIGHT=600
+    INSP_TGW_Y=650
+fi
+INSP_TGW_CONNECT_Y=$((INSP_TGW_Y + 42))
+
 # Generate SVG
 cat > "$SVG_FILE" << SVGEOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -641,7 +689,7 @@ cat > "$SVG_FILE" << SVGEOF
   <line x1="1740" y1="163" x2="1740" y2="190" stroke="#FF9900" stroke-width="2" stroke-dasharray="4,2"/>
 
   <!-- ==================== MANAGEMENT VPC ==================== -->
-  <rect x="60" y="190" width="600" height="450" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
+  <rect x="60" y="190" width="600" height="${MGMT_VPC_HEIGHT}" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
   <text x="85" y="230" fill="white" font-size="24" font-weight="bold">Management VPC</text>
   <text x="85" y="260" fill="#888" font-size="17">${MGMT_VPC_ID} | ${VPC_CIDR_MANAGEMENT}</text>
 
@@ -668,13 +716,22 @@ cat > "$SVG_FILE" << SVGEOF
   <text x="495" y="500" text-anchor="middle" fill="white" font-size="18" font-weight="bold">Private AZ2</text>
   <text x="495" y="528" text-anchor="middle" fill="white" font-size="16">${MGMT_PRIVATE_AZ2_CIDR}</text>
 
+$(if [[ -n "$AZ3" ]]; then echo "  <!-- Management AZ3 Subnets -->
+  <rect x=\"90\" y=\"555\" width=\"250\" height=\"65\" rx=\"5\" fill=\"url(#greenGradient)\" opacity=\"0.8\"/>
+  <text x=\"215\" y=\"580\" text-anchor=\"middle\" fill=\"white\" font-size=\"15\" font-weight=\"bold\">Public AZ3</text>
+  <text x=\"215\" y=\"610\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\">${MGMT_PUBLIC_AZ3_CIDR}</text>
+
+  <rect x=\"370\" y=\"555\" width=\"250\" height=\"65\" rx=\"5\" fill=\"url(#blueGradient)\" opacity=\"0.8\"/>
+  <text x=\"495\" y=\"580\" text-anchor=\"middle\" fill=\"white\" font-size=\"15\" font-weight=\"bold\">Private AZ3</text>
+  <text x=\"495\" y=\"610\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\">${MGMT_PRIVATE_AZ3_CIDR}</text>"; fi)
+
   <!-- Management TGW Connection indicator -->
-  <rect x="240" y="570" width="140" height="42" rx="3" fill="url(#purpleGradient)" opacity="0.8"/>
-  <text x="310" y="598" text-anchor="middle" fill="white" font-size="16">TGW Attach</text>
+  <rect x="240" y="${MGMT_TGW_Y}" width="140" height="42" rx="3" fill="url(#purpleGradient)" opacity="0.8"/>
+  <text x="310" y="$((MGMT_TGW_Y + 28))" text-anchor="middle" fill="white" font-size="16">TGW Attach</text>
 
   <!-- ==================== INSPECTION VPC ==================== -->
   <!-- Layout: FortiGate ASG (left) | Public, GWLBE, Private (middle) | NAT GW (right) | TGW Attach (bottom) -->
-  <rect x="720" y="190" width="1420" height="600" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
+  <rect x="720" y="190" width="1420" height="${INSP_VPC_HEIGHT}" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
   <text x="750" y="230" fill="white" font-size="24" font-weight="bold">Inspection VPC</text>
   <text x="750" y="260" fill="#888" font-size="17">${INSPECTION_VPC_ID} | ${VPC_CIDR_INSPECTION}</text>
 $(if [[ -n "$AZ3" ]]; then echo "  <rect x=\"1020\" y=\"210\" width=\"260\" height=\"28\" rx=\"5\" fill=\"#2E7D32\"/>
@@ -737,9 +794,26 @@ $(if [[ -n "$AZ3" ]]; then echo "  <rect x=\"1020\" y=\"210\" width=\"260\" heig
   <text x="1875" y="352" text-anchor="middle" fill="white" font-size="15">${INSP_NATGW_AZ2_CIDR}</text>
   <text x="1875" y="378" text-anchor="middle" fill="#FF9900" font-size="14">0.0.0.0/0 -> IGW</text>
 
+$(if [[ "$CREATE_MGMT_INSP" == "true" ]]; then echo "  <!-- Inspection Management Subnets - Row 4 (dedicated management ENI) -->
+  <rect x=\"1050\" y=\"638\" width=\"160\" height=\"80\" rx=\"5\" fill=\"url(#purpleGradient)\" opacity=\"0.8\"/>
+  <text x=\"1130\" y=\"665\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\" font-weight=\"bold\">Mgmt ENI AZ1</text>
+  <text x=\"1130\" y=\"690\" text-anchor=\"middle\" fill=\"white\" font-size=\"13\">${INSP_MGMT_AZ1_CIDR}</text>
+  <text x=\"1130\" y=\"710\" text-anchor=\"middle\" fill=\"#FFE4B5\" font-size=\"12\">port3 → IGW</text>
+
+  <rect x=\"1225\" y=\"638\" width=\"160\" height=\"80\" rx=\"5\" fill=\"url(#purpleGradient)\" opacity=\"0.8\"/>
+  <text x=\"1305\" y=\"665\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\" font-weight=\"bold\">Mgmt ENI AZ2</text>
+  <text x=\"1305\" y=\"690\" text-anchor=\"middle\" fill=\"white\" font-size=\"13\">${INSP_MGMT_AZ2_CIDR}</text>
+  <text x=\"1305\" y=\"710\" text-anchor=\"middle\" fill=\"#FFE4B5\" font-size=\"12\">port3 → IGW</text>"; fi)
+$(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
+  <rect x=\"1400\" y=\"638\" width=\"160\" height=\"80\" rx=\"5\" fill=\"url(#purpleGradient)\" opacity=\"0.8\"/>
+  <text x=\"1480\" y=\"655\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\" font-weight=\"bold\">Mgmt ENI AZ3</text>
+  <text x=\"1480\" y=\"675\" text-anchor=\"middle\" fill=\"white\" font-size=\"13\">${INSP_MGMT_AZ3_CIDR}</text>
+  <text x=\"1480\" y=\"695\" text-anchor=\"middle\" fill=\"#FFE4B5\" font-size=\"12\">port3 → IGW</text>
+  <text x=\"1480\" y=\"712\" text-anchor=\"middle\" fill=\"#00FF44\" font-size=\"11\">⚡ AZ3</text>"; fi)
+
   <!-- Inspection VPC TGW Attach indicator -->
-  <rect x="1200" y="650" width="140" height="42" rx="3" fill="url(#purpleGradient)" opacity="0.8"/>
-  <text x="1270" y="678" text-anchor="middle" fill="white" font-size="16">TGW Attach</text>
+  <rect x="1200" y="${INSP_TGW_Y}" width="140" height="42" rx="3" fill="url(#purpleGradient)" opacity="0.8"/>
+  <text x="1270" y="$((INSP_TGW_Y + 28))" text-anchor="middle" fill="white" font-size="16">TGW Attach</text>
 
   <!-- ENI Connection Lines from FortiGate ASG (dotted) -->
   <!-- port1 to Public subnets (green) -->
@@ -755,8 +829,8 @@ $(if [[ -n "$AZ3" ]]; then echo "  <rect x=\"1020\" y=\"210\" width=\"260\" heig
   <text x="1100" y="918" text-anchor="middle" fill="white" font-size="18">${TGW_ID}</text>
 
   <!-- TGW Connection Lines -->
-  <line x1="310" y1="612" x2="310" y2="840" stroke="#8C4FFF" stroke-width="2"/>
-  <line x1="1270" y1="692" x2="1270" y2="840" stroke="#8C4FFF" stroke-width="2"/>
+  <line x1="310" y1="${MGMT_TGW_CONNECT_Y}" x2="310" y2="840" stroke="#8C4FFF" stroke-width="2"/>
+  <line x1="1270" y1="${INSP_TGW_CONNECT_Y}" x2="1270" y2="840" stroke="#8C4FFF" stroke-width="2"/>
 
   <!-- ==================== EAST SPOKE VPC ==================== -->
   <rect x="620" y="990" width="500" height="370" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
