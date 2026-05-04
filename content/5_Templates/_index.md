@@ -20,6 +20,9 @@ Create supporting infrastructure for lab and test environments including managem
 ### [autoscale_template](5_3_autoscale_template/) (Required)
 Deploy the core FortiGate autoscale infrastructure including inspection VPC, Gateway Load Balancer, and FortiGate autoscale groups.
 
+### [Three Availability Zone Deployment](5_4_three_az_deployment/)
+Extend either template to a third Availability Zone by setting a single variable. Covers CIDR planning, Fortinet-Role tags, and upgrading existing 2-AZ deployments.
+
 ---
 
 ## Quick Start Paths
@@ -43,6 +46,7 @@ Deploy the core FortiGate autoscale infrastructure including inspection VPC, Gat
 When using both templates together, ensure these variables **match exactly**:
 - `aws_region`
 - `availability_zone_1` and `availability_zone_2`
+- `availability_zone_3` (if using 3-AZ deployment)
 - `cp` (customer prefix)
 - `env` (environment)
 - `vpc_cidr_management`
@@ -57,4 +61,5 @@ See [Templates Overview](5_1_overview/) for detailed coordination requirements.
 - **New to autoscale?** Start with [Templates Overview](5_1_overview/)
 - **Need lab environment?** Go to [existing_vpc_resources](5_2_existing_vpc_resources/)
 - **Ready to deploy?** Go to [autoscale_template](5_3_autoscale_template/)
+- **Need a third AZ?** See [Three Availability Zone Deployment](5_4_three_az_deployment/)
 - **Need configuration details?** See [Solution Components](../4_solution_components/)

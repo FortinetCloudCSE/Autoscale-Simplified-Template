@@ -7,6 +7,10 @@ variable "availability_zone_1" {
 variable "availability_zone_2" {
   description = "Availability Zone 2 for VPC"
 }
+variable "availability_zone_3" {
+  description = "Availability Zone 3 for VPC (optional, leave empty for 2-AZ deployments)"
+  default     = ""
+}
 variable subnet_bits {
   description = "Number of bits in the network portion of the subnet CIDR"
 }
@@ -115,6 +119,11 @@ variable "endpoint_name_az1" {
 }
 variable "endpoint_name_az2" {
   description = "Name of the gwlb endpoint to route to in AZ2"
+  type        = string
+  default     = ""
+}
+variable "endpoint_name_az3" {
+  description = "Name of the gwlb endpoint to route to in AZ3"
   type        = string
   default     = ""
 }

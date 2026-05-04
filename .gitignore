@@ -34,3 +34,25 @@ ncc-service-account.json
 fortihugorunner
 fortihugorunner-*
 upgrade_fortios/state/*.conf
+
+# Deploy script outputs
+terraform/deploy_log_*.txt
+terraform/deploy_report_*.txt
+terraform/.deploy_state.env
+
+# Terraform plan files
+**/tfplan_evr
+**/tfplan_asg
+
+# Terraform tfvars backups and scratch copies
+**/terraform.tfvars.bak
+**/terraform.tfvars.mdw
+
+# Terraform state backups
+**/terraform.tfstate.*.backup
+
+# Network diagrams and verify output
+logs/
+
+# Superseded scripts
+terraform/deploy_and_teardown.sh

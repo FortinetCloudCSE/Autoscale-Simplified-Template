@@ -4,6 +4,8 @@ locals {
   west_tgw_subnet_cidr_az1    = cidrsubnet(var.vpc_cidr_west, var.spoke_subnet_bits, 1)
   west_public_subnet_cidr_az2 = cidrsubnet(var.vpc_cidr_west, var.spoke_subnet_bits, 2)
   west_tgw_subnet_cidr_az2    = cidrsubnet(var.vpc_cidr_west, var.spoke_subnet_bits, 3)
+  west_public_subnet_cidr_az3 = cidrsubnet(var.vpc_cidr_west, var.spoke_subnet_bits, 4)
+  west_tgw_subnet_cidr_az3    = cidrsubnet(var.vpc_cidr_west, var.spoke_subnet_bits, 5)
 }
 #
 # west VPC
@@ -54,6 +56,23 @@ module "subnet-west-tgw-az2" {
   availability_zone = local.availability_zone_2
   subnet_cidr       = local.west_tgw_subnet_cidr_az2
 }
+module "subnet-west-public-az3" {
+  source            = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  count             = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+  subnet_name       = "${var.cp}-${var.env}-west-public-az3-subnet"
+  vpc_id            = module.vpc-west[0].vpc_id
+  availability_zone = local.availability_zone_3
+  subnet_cidr       = local.west_public_subnet_cidr_az3
+}
+module "subnet-west-tgw-az3" {
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  count  = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+
+  subnet_name       = "${var.cp}-${var.env}-west-tgw-az3-subnet"
+  vpc_id            = module.vpc-west[0].vpc_id
+  availability_zone = local.availability_zone_3
+  subnet_cidr       = local.west_tgw_subnet_cidr_az3
+}
 
 #
 # TGW subnet route table - routes traffic to TGW for internet egress
@@ -73,6 +92,11 @@ resource "aws_route_table_association" "west-tgw-az1" {
 resource "aws_route_table_association" "west-tgw-az2" {
   count          = var.enable_build_existing_subnets ? 1 : 0
   subnet_id      = module.subnet-west-tgw-az2[0].id
+  route_table_id = aws_route_table.west-tgw-rt[0].id
+}
+resource "aws_route_table_association" "west-tgw-az3" {
+  count          = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+  subnet_id      = module.subnet-west-tgw-az3[0].id
   route_table_id = aws_route_table.west-tgw-rt[0].id
 }
 resource "aws_route" "default-route-west-tgw-subnet" {

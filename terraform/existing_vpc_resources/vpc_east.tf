@@ -14,10 +14,16 @@ locals {
 }
 
 locals {
+  availability_zone_3 = var.availability_zone_3 != "" ? "${var.aws_region}${var.availability_zone_3}" : ""
+}
+
+locals {
   east_public_subnet_cidr_az1 = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 0)
   east_tgw_subnet_cidr_az1    = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 1)
   east_public_subnet_cidr_az2 = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 2)
   east_tgw_subnet_cidr_az2    = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 3)
+  east_public_subnet_cidr_az3 = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 4)
+  east_tgw_subnet_cidr_az3    = cidrsubnet(var.vpc_cidr_east, var.spoke_subnet_bits, 5)
 }
 #
 # east VPC
@@ -72,6 +78,24 @@ module "subnet-east-tgw-az2" {
   availability_zone = local.availability_zone_2
   subnet_cidr       = local.east_tgw_subnet_cidr_az2
 }
+module "subnet-east-public-az3" {
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  count  = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+
+  subnet_name       = "${var.cp}-${var.env}-east-public-az3-subnet"
+  vpc_id            = module.vpc-east[0].vpc_id
+  availability_zone = local.availability_zone_3
+  subnet_cidr       = local.east_public_subnet_cidr_az3
+}
+module "subnet-east-tgw-az3" {
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  count  = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+
+  subnet_name       = "${var.cp}-${var.env}-east-tgw-az3-subnet"
+  vpc_id            = module.vpc-east[0].vpc_id
+  availability_zone = local.availability_zone_3
+  subnet_cidr       = local.east_tgw_subnet_cidr_az3
+}
 
 #
 # TGW subnet route table - routes traffic to TGW for internet egress
@@ -91,6 +115,11 @@ resource "aws_route_table_association" "east-tgw-az1" {
 resource "aws_route_table_association" "east-tgw-az2" {
   count          = var.enable_build_existing_subnets ? 1 : 0
   subnet_id      = module.subnet-east-tgw-az2[0].id
+  route_table_id = aws_route_table.east-tgw-rt[0].id
+}
+resource "aws_route_table_association" "east-tgw-az3" {
+  count          = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+  subnet_id      = module.subnet-east-tgw-az3[0].id
   route_table_id = aws_route_table.east-tgw-rt[0].id
 }
 resource "aws_route" "default-route-east-tgw-subnet" {

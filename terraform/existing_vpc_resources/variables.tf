@@ -7,6 +7,10 @@ variable "availability_zone_1" {
 variable "availability_zone_2" {
   description = "Availability Zone 2 for VPC"
 }
+variable "availability_zone_3" {
+  description = "Availability Zone 3 for VPC (optional, leave empty for 2-AZ deployments)"
+  default     = ""
+}
 variable "cp" {
   description = "Customer Prefix to apply to all resources"
 }

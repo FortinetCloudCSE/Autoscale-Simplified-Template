@@ -46,6 +46,9 @@ locals {
 locals {
   availability_zone_2 = "${var.aws_region}${var.availability_zone_2}"
 }
+locals {
+  availability_zone_3 = var.availability_zone_3 != "" ? "${var.aws_region}${var.availability_zone_3}" : ""
+}
 
 resource "random_string" "random" {
   length  = 5
@@ -91,6 +94,13 @@ data "aws_subnet" "inspection_public_az2" {
     values = ["${var.cp}-${var.env}-inspection-public-az2"]
   }
 }
+data "aws_subnet" "inspection_public_az3" {
+  count = var.availability_zone_3 != "" ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-public-az3"]
+  }
+}
 
 # Subnets - GWLBE
 data "aws_subnet" "inspection_gwlbe_az1" {
@@ -105,6 +115,13 @@ data "aws_subnet" "inspection_gwlbe_az2" {
     values = ["${var.cp}-${var.env}-inspection-gwlbe-az2"]
   }
 }
+data "aws_subnet" "inspection_gwlbe_az3" {
+  count = var.availability_zone_3 != "" ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-gwlbe-az3"]
+  }
+}
 
 # Subnets - Private (TGW attachment)
 data "aws_subnet" "inspection_private_az1" {
@@ -117,6 +134,13 @@ data "aws_subnet" "inspection_private_az2" {
   filter {
     name   = "tag:Fortinet-Role"
     values = ["${var.cp}-${var.env}-inspection-private-az2"]
+  }
+}
+data "aws_subnet" "inspection_private_az3" {
+  count = var.availability_zone_3 != "" ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-private-az3"]
   }
 }
 
@@ -135,6 +159,13 @@ data "aws_subnet" "inspection_management_az2" {
     values = ["${var.cp}-${var.env}-inspection-management-az2"]
   }
 }
+data "aws_subnet" "inspection_management_az3" {
+  count = (var.enable_dedicated_management_eni && var.availability_zone_3 != "") ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-management-az3"]
+  }
+}
 
 # Route Tables - Public
 data "aws_route_table" "inspection_public_az1" {
@@ -147,6 +178,13 @@ data "aws_route_table" "inspection_public_az2" {
   filter {
     name   = "tag:Fortinet-Role"
     values = ["${var.cp}-${var.env}-inspection-public-rt-az2"]
+  }
+}
+data "aws_route_table" "inspection_public_az3" {
+  count = var.availability_zone_3 != "" ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-public-rt-az3"]
   }
 }
 
@@ -163,6 +201,13 @@ data "aws_route_table" "inspection_gwlbe_az2" {
     values = ["${var.cp}-${var.env}-inspection-gwlbe-rt-az2"]
   }
 }
+data "aws_route_table" "inspection_gwlbe_az3" {
+  count = var.availability_zone_3 != "" ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-gwlbe-rt-az3"]
+  }
+}
 
 # Route Tables - Private
 data "aws_route_table" "inspection_private_az1" {
@@ -175,6 +220,13 @@ data "aws_route_table" "inspection_private_az2" {
   filter {
     name   = "tag:Fortinet-Role"
     values = ["${var.cp}-${var.env}-inspection-private-rt-az2"]
+  }
+}
+data "aws_route_table" "inspection_private_az3" {
+  count = var.availability_zone_3 != "" ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-private-rt-az3"]
   }
 }
 
@@ -191,6 +243,13 @@ data "aws_route_table" "inspection_management_az2" {
   filter {
     name   = "tag:Fortinet-Role"
     values = ["${var.cp}-${var.env}-inspection-management-rt-az2"]
+  }
+}
+data "aws_route_table" "inspection_management_az3" {
+  count = (var.enable_dedicated_management_eni && var.availability_zone_3 != "") ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-management-rt-az3"]
   }
 }
 
@@ -211,6 +270,17 @@ data "aws_nat_gateway" "inspection_az2" {
   filter {
     name   = "tag:Fortinet-Role"
     values = ["${var.cp}-${var.env}-inspection-natgw-az2"]
+  }
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
+data "aws_nat_gateway" "inspection_az3" {
+  count = (local.enable_nat_gateway && var.availability_zone_3 != "") ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-inspection-natgw-az3"]
   }
   filter {
     name   = "state"
@@ -292,7 +362,9 @@ data "aws_ec2_transit_gateway_route_table" "west-tgw-rtb" {
 }
 
 # GWLB Endpoints (created by the ASG module)
+# count guards against plan-time failure on fresh deployments before the module creates them
 data "aws_vpc_endpoint" "asg_endpoint_az1" {
+  count      = var.modify_existing_route_tables ? 1 : 0
   depends_on = [module.spk_tgw_gwlb_asg_fgt_igw]
   filter {
     name   = "tag:Name"
@@ -300,10 +372,19 @@ data "aws_vpc_endpoint" "asg_endpoint_az1" {
   }
 }
 data "aws_vpc_endpoint" "asg_endpoint_az2" {
+  count      = var.modify_existing_route_tables ? 1 : 0
   depends_on = [module.spk_tgw_gwlb_asg_fgt_igw]
   filter {
     name   = "tag:Name"
     values = [var.endpoint_name_az2]
+  }
+}
+data "aws_vpc_endpoint" "asg_endpoint_az3" {
+  count      = (var.modify_existing_route_tables && var.availability_zone_3 != "") ? 1 : 0
+  depends_on = [module.spk_tgw_gwlb_asg_fgt_igw]
+  filter {
+    name   = "tag:Name"
+    values = [var.endpoint_name_az3]
   }
 }
 
@@ -336,13 +417,19 @@ resource "aws_route" "inspection-private-default-route-gwlbe-az1" {
   count                  = var.modify_existing_route_tables ? 1 : 0
   route_table_id         = data.aws_route_table.inspection_private_az1.id
   destination_cidr_block = "0.0.0.0/0"
-  vpc_endpoint_id        = data.aws_vpc_endpoint.asg_endpoint_az1.id
+  vpc_endpoint_id        = data.aws_vpc_endpoint.asg_endpoint_az1[0].id
 }
 resource "aws_route" "inspection-private-default-route-gwlbe-az2" {
   count                  = var.modify_existing_route_tables ? 1 : 0
   route_table_id         = data.aws_route_table.inspection_private_az2.id
   destination_cidr_block = "0.0.0.0/0"
-  vpc_endpoint_id        = data.aws_vpc_endpoint.asg_endpoint_az2.id
+  vpc_endpoint_id        = data.aws_vpc_endpoint.asg_endpoint_az2[0].id
+}
+resource "aws_route" "inspection-private-default-route-gwlbe-az3" {
+  count                  = (var.modify_existing_route_tables && var.availability_zone_3 != "") ? 1 : 0
+  route_table_id         = data.aws_route_table.inspection_private_az3[0].id
+  destination_cidr_block = "0.0.0.0/0"
+  vpc_endpoint_id        = data.aws_vpc_endpoint.asg_endpoint_az3[0].id
 }
 
 #
