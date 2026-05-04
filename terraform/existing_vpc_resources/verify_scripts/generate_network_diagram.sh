@@ -671,7 +671,7 @@ cat > "$SVG_FILE" << SVGEOF
   </defs>
 
   <!-- Background -->
-  <rect width="2200" height="1400" fill="#111111"/>
+  <rect width="2200" height="1400" fill="white"/>
 
   <!-- Title -->
   <text x="1100" y="55" text-anchor="middle" fill="#111111" font-size="32" font-weight="bold">${PREFIX} Infrastructure - ${AWS_REGION} (AZ: ${AZ_LABEL})</text>
