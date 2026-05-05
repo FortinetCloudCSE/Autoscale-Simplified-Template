@@ -649,24 +649,24 @@ cat > "$SVG_FILE" << SVGEOF
   <defs>
     <!-- Gradients -->
     <linearGradient id="greenGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2E8B2E;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1B660F;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#C8E6C9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#A5D6A7;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="blueGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#1E90FF;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#147EBA;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#BBDEFB;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#90CAF9;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="purpleGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#9966CC;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#8C4FFF;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#E1BEE7;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#CE93D8;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#FF8C00;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#ED7100;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#FFE0B2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FFCC80;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="redGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#FF4444;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#EE3124;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#FFCDD2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#EF9A9A;stop-opacity:1" />
     </linearGradient>
   </defs>
 
@@ -700,8 +700,8 @@ cat > "$SVG_FILE" << SVGEOF
   <!-- Jump Box -->
   <rect x="115" y="368" width="200" height="62" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
   <text x="215" y="392" text-anchor="middle" fill="#FF9900" font-size="16">Jump Box</text>
-  <text x="215" y="412" text-anchor="middle" fill="#111111" font-size="15">${JUMP_BOX_PRIVATE}</text>
-  <text x="215" y="428" text-anchor="middle" fill="#007700" font-size="14">${JUMP_BOX_PUBLIC}</text>
+  <text x="215" y="412" text-anchor="middle" fill="white" font-size="15">${JUMP_BOX_PRIVATE}</text>
+  <text x="215" y="428" text-anchor="middle" fill="#90EE90" font-size="14">${JUMP_BOX_PUBLIC}</text>
 
   <rect x="370" y="290" width="250" height="145" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
   <text x="495" y="325" text-anchor="middle" fill="#111111" font-size="18" font-weight="bold">Public AZ2</text>
@@ -765,12 +765,12 @@ $(if [[ -n "$AZ3" ]]; then echo "  <rect x=\"1020\" y=\"210\" width=\"260\" heig
   <rect x="1050" y="408" width="210" height="100" rx="5" fill="url(#orangeGradient)" opacity="0.8"/>
   <text x="1155" y="438" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">GWLBE AZ1</text>
   <text x="1155" y="465" text-anchor="middle" fill="#111111" font-size="15">${INSP_GWLBE_AZ1_CIDR}</text>
-  <text x="1155" y="492" text-anchor="middle" fill="#664400" font-size="13">${GWLBE_AZ1_ID:-not deployed}</text>
+  <text x="1155" y="492" text-anchor="middle" fill="#555555" font-size="13">${GWLBE_AZ1_ID:-not deployed}</text>
 
   <rect x="1280" y="408" width="210" height="100" rx="5" fill="url(#orangeGradient)" opacity="0.8"/>
   <text x="1385" y="438" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">GWLBE AZ2</text>
   <text x="1385" y="465" text-anchor="middle" fill="#111111" font-size="15">${INSP_GWLBE_AZ2_CIDR}</text>
-  <text x="1385" y="492" text-anchor="middle" fill="#664400" font-size="13">${GWLBE_AZ2_ID:-not deployed}</text>
+  <text x="1385" y="492" text-anchor="middle" fill="#555555" font-size="13">${GWLBE_AZ2_ID:-not deployed}</text>
 
   <!-- Private Subnets - Middle Column Row 3 -->
   <rect x="1050" y="526" width="210" height="100" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
@@ -842,13 +842,13 @@ $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
   <text x="760" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ1</text>
   <text x="760" y="1145" text-anchor="middle" fill="#111111" font-size="15">${EAST_PUBLIC_AZ1_CIDR}</text>
   <rect x="675" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="760" y="1185" text-anchor="middle" fill="#111111" font-size="15">${EAST_AZ1_PRIVATE}</text>
+  <text x="760" y="1185" text-anchor="middle" fill="white" font-size="15">${EAST_AZ1_PRIVATE}</text>
 
   <rect x="890" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
   <text x="1000" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ2</text>
   <text x="1000" y="1145" text-anchor="middle" fill="#111111" font-size="15">${EAST_PUBLIC_AZ2_CIDR}</text>
   <rect x="915" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="1000" y="1185" text-anchor="middle" fill="#111111" font-size="15">${EAST_AZ2_PRIVATE}</text>
+  <text x="1000" y="1185" text-anchor="middle" fill="white" font-size="15">${EAST_AZ2_PRIVATE}</text>
 
   <!-- East TGW Subnets -->
   <rect x="650" y="1220" width="220" height="80" rx="5" fill="url(#purpleGradient)" opacity="0.8"/>
@@ -876,13 +876,13 @@ $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
   <text x="1300" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ1</text>
   <text x="1300" y="1145" text-anchor="middle" fill="#111111" font-size="15">${WEST_PUBLIC_AZ1_CIDR}</text>
   <rect x="1215" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="1300" y="1185" text-anchor="middle" fill="#111111" font-size="15">${WEST_AZ1_PRIVATE}</text>
+  <text x="1300" y="1185" text-anchor="middle" fill="white" font-size="15">${WEST_AZ1_PRIVATE}</text>
 
   <rect x="1430" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
   <text x="1540" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ2</text>
   <text x="1540" y="1145" text-anchor="middle" fill="#111111" font-size="15">${WEST_PUBLIC_AZ2_CIDR}</text>
   <rect x="1455" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="1540" y="1185" text-anchor="middle" fill="#111111" font-size="15">${WEST_AZ2_PRIVATE}</text>
+  <text x="1540" y="1185" text-anchor="middle" fill="white" font-size="15">${WEST_AZ2_PRIVATE}</text>
 
   <!-- West TGW Subnets -->
   <rect x="1190" y="1220" width="220" height="80" rx="5" fill="url(#purpleGradient)" opacity="0.8"/>
