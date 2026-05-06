@@ -85,6 +85,7 @@ VPC_CIDR_WEST=$(get_tfvar "vpc_cidr_west" "$TFVARS_FILE")
 ENABLE_AUTOSCALE=$(get_tfvar "enable_autoscale_deployment" "$TFVARS_FILE")
 ENABLE_HA_PAIR=$(get_tfvar "enable_ha_pair_deployment" "$TFVARS_FILE")
 ENABLE_BUILD_MGMT=$(get_tfvar "enable_build_management_vpc" "$TFVARS_FILE")
+ENABLE_BUILD_SPOKES=$(get_tfvar "enable_build_existing_subnets" "$TFVARS_FILE")
 
 # Distributed VPCs
 ENABLE_DISTRIBUTED=$(get_tfvar "enable_distributed_egress_vpcs" "$TFVARS_FILE")
@@ -880,18 +881,36 @@ $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
   <line x1="1010" y1="438" x2="1050" y2="340" stroke="#2E8B2E" stroke-width="2" stroke-dasharray="4,3"/>
   <!-- port2 to GWLBE subnets (orange) -->
   <line x1="1010" y1="465" x2="1050" y2="458" stroke="#ED7100" stroke-width="2" stroke-dasharray="4,3"/>
+SVGEOF3
+
+if [[ "$ENABLE_BUILD_MGMT" == "true" ]]; then
+cat >> "$SVG_FILE" << MGMTENIEOF
   <!-- port3 to Management VPC (blue) - goes left -->
   <path d="M 760 492 L 700 492 L 700 400 L 660 400" stroke="#147EBA" stroke-width="2" stroke-dasharray="4,3" fill="none"/>
+MGMTENIEOF
+fi
 
+cat >> "$SVG_FILE" << SVGEOF4
   <!-- ==================== TRANSIT GATEWAY ==================== -->
   <rect x="60" y="840" width="2080" height="100" rx="10" fill="url(#purpleGradient)" opacity="0.9"/>
   <text x="1100" y="885" text-anchor="middle" fill="#111111" font-size="26" font-weight="bold">Transit Gateway: ${PREFIX}-tgw</text>
   <text x="1100" y="918" text-anchor="middle" fill="#111111" font-size="18">${TGW_ID}</text>
 
   <!-- TGW Connection Lines -->
-  <line x1="310" y1="${MGMT_TGW_CONNECT_Y}" x2="310" y2="840" stroke="#8C4FFF" stroke-width="2"/>
-  <line x1="1270" y1="${INSP_TGW_CONNECT_Y}" x2="1270" y2="840" stroke="#8C4FFF" stroke-width="2"/>
+SVGEOF4
 
+if [[ "$ENABLE_BUILD_MGMT" == "true" ]]; then
+cat >> "$SVG_FILE" << MGMTTGWLINEEOF
+  <line x1="310" y1="${MGMT_TGW_CONNECT_Y}" x2="310" y2="840" stroke="#8C4FFF" stroke-width="2"/>
+MGMTTGWLINEEOF
+fi
+
+cat >> "$SVG_FILE" << SVGEOF5
+  <line x1="1270" y1="${INSP_TGW_CONNECT_Y}" x2="1270" y2="840" stroke="#8C4FFF" stroke-width="2"/>
+SVGEOF5
+
+if [[ "$ENABLE_BUILD_SPOKES" == "true" ]]; then
+cat >> "$SVG_FILE" << SPOKESEOF
   <!-- ==================== EAST SPOKE VPC ==================== -->
   <rect x="620" y="990" width="500" height="370" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
   <text x="645" y="1030" fill="#111111" font-size="22" font-weight="bold">East Spoke VPC</text>
@@ -959,8 +978,8 @@ $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
   <!-- West Route Status -->
   <rect x="1190" y="1310" width="460" height="40" rx="3" fill="#007700" opacity="0.3"/>
   <text x="1420" y="1337" text-anchor="middle" fill="#CC0000" font-size="15">Route: 0.0.0.0/0 -> TGW | TGW RT: ${WEST_TGW_DEFAULT_ROUTE}</text>
-
-SVGEOF3
+SPOKESEOF
+fi
 
 # Add Distributed VPC section if enabled
 if [ "$ENABLE_DISTRIBUTED" = "true" ] && [ -n "$DISTRIBUTED_COUNT" ] && [ "$DISTRIBUTED_COUNT" -ge 1 ]; then
@@ -1139,9 +1158,14 @@ fi
 
 cat >> "$MD_FILE" << MDEOF_VPCS
 | Inspection VPC | ${VPC_CIDR_INSPECTION} | ${INSPECTION_VPC_ID} | Deployed |
+MDEOF_VPCS
+
+if [ "$ENABLE_BUILD_SPOKES" = "true" ]; then
+cat >> "$MD_FILE" << SPOKEVPCMDEOF
 | East Spoke VPC | ${VPC_CIDR_EAST} | ${EAST_VPC_ID} | Deployed |
 | West Spoke VPC | ${VPC_CIDR_WEST} | ${WEST_VPC_ID} | Deployed |
-MDEOF_VPCS
+SPOKEVPCMDEOF
+fi
 
 if [ "$ENABLE_DISTRIBUTED" = "true" ]; then
 cat >> "$MD_FILE" << DISTMDEOF
@@ -1171,15 +1195,23 @@ fi
 
 cat >> "$MD_FILE" << MDEOF2B
 | ${INSP_TGW_ATTACH_ID} | Inspection VPC | ${INSPECTION_VPC_ID} |
+MDEOF2B
+
+if [ "$ENABLE_BUILD_SPOKES" = "true" ]; then
+cat >> "$MD_FILE" << SPOKEATTACHEOF
 | ${EAST_TGW_ATTACH_ID} | East Spoke VPC | ${EAST_VPC_ID} |
 | ${WEST_TGW_ATTACH_ID} | West Spoke VPC | ${WEST_VPC_ID} |
+SPOKEATTACHEOF
+fi
+
+cat >> "$MD_FILE" << MDEOF2C
 
 ### Instances with Public IPs
 
 | Instance Name | Instance ID | Private IP | Public IP |
 |--------------|-------------|------------|-----------|
 | ${JUMP_BOX_NAME} | ${JUMP_BOX_ID} | ${JUMP_BOX_PRIVATE} | ${JUMP_BOX_PUBLIC} |
-MDEOF2B
+MDEOF2C
 
 if [ "$ENABLE_DISTRIBUTED" = "true" ] && [ -n "$DIST1_AZ1_PUBLIC" ]; then
 cat >> "$MD_FILE" << DISTINSTEOF
@@ -1271,7 +1303,8 @@ cat >> "$MD_FILE" << FTESTERNOTEEOF
 FTESTERNOTEEOF
 fi
 
-cat >> "$MD_FILE" << MDEOF3
+if [ "$ENABLE_BUILD_SPOKES" = "true" ]; then
+cat >> "$MD_FILE" << SPOKEINSTMDEOF
 
 ### Spoke VPC Instances (No Public IPs)
 
@@ -1281,6 +1314,10 @@ cat >> "$MD_FILE" << MDEOF3
 | ${EAST_AZ2_NAME} | ${EAST_AZ2_PRIVATE} |
 | ${WEST_AZ1_NAME} | ${WEST_AZ1_PRIVATE} |
 | ${WEST_AZ2_NAME} | ${WEST_AZ2_PRIVATE} |
+SPOKEINSTMDEOF
+fi
+
+cat >> "$MD_FILE" << MDEOF3
 
 ---
 
@@ -1290,21 +1327,39 @@ cat >> "$MD_FILE" << MDEOF3
 
 | Route Table | Target | Status |
 |-------------|--------|--------|
+MDEOF3
+
+if [ "$ENABLE_BUILD_MGMT" = "true" ]; then
+cat >> "$MD_FILE" << MGMTROUTEEOF
 | Management VPC Public | IGW | OK |
+MGMTROUTEEOF
+fi
+
+cat >> "$MD_FILE" << MDEOF3B
 | Inspection VPC NAT GW AZ1 | IGW | OK |
 | Inspection VPC NAT GW AZ2 | IGW | OK |
+MDEOF3B
+
+if [ "$ENABLE_BUILD_SPOKES" = "true" ]; then
+cat >> "$MD_FILE" << SPOKEROUTEEOF
 | East VPC Public | TGW | OK |
 | West VPC Public | TGW | OK |
 | East TGW Attachment RT | **${EAST_TGW_DEFAULT_ROUTE}** | ${ROUTE_STATUS_TEXT} |
 | West TGW Attachment RT | **${WEST_TGW_DEFAULT_ROUTE}** | ${ROUTE_STATUS_TEXT} |
+SPOKEROUTEEOF
+fi
+
+if [ "$ENABLE_BUILD_MGMT" = "true" ]; then
+cat >> "$MD_FILE" << MGMTATTROUTEEOF
 | Management TGW Attachment RT | No default route | Expected |
+MGMTATTROUTEEOF
+fi
+
+cat >> "$MD_FILE" << MDEOF3C
 
 ### Notes
 
-- East and West spoke VPCs route 0.0.0.0/0 to TGW at the VPC level
-- TGW route tables for East/West do **not** have default routes yet
-- Default routes will be added to TGW route tables after \`autoscale_template\` deployment
-- This routes spoke traffic through the FortiGate inspection VPC
+- Inspection VPC routes spoke traffic through GWLB to FortiGate ASG
 
 ---
 
@@ -1319,7 +1374,7 @@ cat >> "$MD_FILE" << MDEOF3
 ---
 
 *Source: Generated by verify_all.sh*
-MDEOF3
+MDEOF3C
 
 print_pass "Markdown documentation created: $MD_FILE"
 
