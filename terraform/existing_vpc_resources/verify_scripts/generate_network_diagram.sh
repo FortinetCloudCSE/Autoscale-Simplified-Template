@@ -100,10 +100,12 @@ if [ -f "$AUTOSCALE_TFVARS_FILE" ]; then
     ENABLE_FMG_INTEGRATION=$(get_tfvar "enable_fortimanager_integration" "$AUTOSCALE_TFVARS_FILE")
     FORTIMANAGER_IP=$(get_tfvar "fortimanager_ip" "$AUTOSCALE_TFVARS_FILE")
     FORTIMANAGER_SN=$(get_tfvar "fortimanager_sn" "$AUTOSCALE_TFVARS_FILE")
+    FGT_PASSWORD=$(get_tfvar "fortigate_asg_password" "$AUTOSCALE_TFVARS_FILE")
 else
     ENABLE_FMG_INTEGRATION="false"
     FORTIMANAGER_IP=""
     FORTIMANAGER_SN=""
+    FGT_PASSWORD=""
 fi
 
 print_info "Region: $AWS_REGION"
@@ -216,23 +218,60 @@ fi
 MGMT_VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-management-vpc" \
     --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
+[ "$MGMT_VPC_ID" == "None" ] && MGMT_VPC_ID=""
 
 INSPECTION_VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-inspection-vpc" \
     --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
+[ "$INSPECTION_VPC_ID" == "None" ] && INSPECTION_VPC_ID=""
 
 EAST_VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-east-vpc" \
     --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
+[ "$EAST_VPC_ID" == "None" ] && EAST_VPC_ID=""
 
 WEST_VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-west-vpc" \
     --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
+[ "$WEST_VPC_ID" == "None" ] && WEST_VPC_ID=""
 
 # Get TGW ID
 TGW_ID=$(aws ec2 describe-transit-gateways --region "$AWS_REGION" \
-    --filters "Name=tag:Name,Values=${PREFIX}-tgw" \
+    --filters "Name=tag:Name,Values=${PREFIX}-tgw" "Name=state,Values=available" \
     --query 'TransitGateways[0].TransitGatewayId' --output text 2>/dev/null)
+[ "$TGW_ID" == "None" ] && TGW_ID=""
+
+# Get TGW attachment IDs (requires VPC IDs and TGW ID to be set first)
+MGMT_TGW_ATTACH_ID=""
+INSP_TGW_ATTACH_ID=""
+EAST_TGW_ATTACH_ID=""
+WEST_TGW_ATTACH_ID=""
+if [[ -n "$TGW_ID" ]]; then
+    if [[ -n "$MGMT_VPC_ID" ]]; then
+        MGMT_TGW_ATTACH_ID=$(aws ec2 describe-transit-gateway-attachments --region "$AWS_REGION" \
+            --filters "Name=transit-gateway-id,Values=${TGW_ID}" "Name=resource-id,Values=${MGMT_VPC_ID}" \
+            --query 'TransitGatewayAttachments[0].TransitGatewayAttachmentId' --output text 2>/dev/null)
+        [ "$MGMT_TGW_ATTACH_ID" == "None" ] && MGMT_TGW_ATTACH_ID=""
+    fi
+    if [[ -n "$INSPECTION_VPC_ID" ]]; then
+        INSP_TGW_ATTACH_ID=$(aws ec2 describe-transit-gateway-attachments --region "$AWS_REGION" \
+            --filters "Name=transit-gateway-id,Values=${TGW_ID}" "Name=resource-id,Values=${INSPECTION_VPC_ID}" \
+            --query 'TransitGatewayAttachments[0].TransitGatewayAttachmentId' --output text 2>/dev/null)
+        [ "$INSP_TGW_ATTACH_ID" == "None" ] && INSP_TGW_ATTACH_ID=""
+    fi
+    if [[ -n "$EAST_VPC_ID" ]]; then
+        EAST_TGW_ATTACH_ID=$(aws ec2 describe-transit-gateway-attachments --region "$AWS_REGION" \
+            --filters "Name=transit-gateway-id,Values=${TGW_ID}" "Name=resource-id,Values=${EAST_VPC_ID}" \
+            --query 'TransitGatewayAttachments[0].TransitGatewayAttachmentId' --output text 2>/dev/null)
+        [ "$EAST_TGW_ATTACH_ID" == "None" ] && EAST_TGW_ATTACH_ID=""
+    fi
+    if [[ -n "$WEST_VPC_ID" ]]; then
+        WEST_TGW_ATTACH_ID=$(aws ec2 describe-transit-gateway-attachments --region "$AWS_REGION" \
+            --filters "Name=transit-gateway-id,Values=${TGW_ID}" "Name=resource-id,Values=${WEST_VPC_ID}" \
+            --query 'TransitGatewayAttachments[0].TransitGatewayAttachmentId' --output text 2>/dev/null)
+        [ "$WEST_TGW_ATTACH_ID" == "None" ] && WEST_TGW_ATTACH_ID=""
+    fi
+fi
 
 # Function to get subnet info
 get_subnet_info() {
@@ -841,14 +880,14 @@ $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
   <rect x="650" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
   <text x="760" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ1</text>
   <text x="760" y="1145" text-anchor="middle" fill="#111111" font-size="15">${EAST_PUBLIC_AZ1_CIDR}</text>
-  <rect x="675" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="760" y="1185" text-anchor="middle" fill="white" font-size="15">${EAST_AZ1_PRIVATE}</text>
+  <rect x="675" y="1160" width="170" height="38" rx="3" fill="white" stroke="#FF9900" stroke-width="1"/>
+  <text x="760" y="1185" text-anchor="middle" fill="#111111" font-size="15">${EAST_AZ1_PRIVATE}</text>
 
   <rect x="890" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
   <text x="1000" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ2</text>
   <text x="1000" y="1145" text-anchor="middle" fill="#111111" font-size="15">${EAST_PUBLIC_AZ2_CIDR}</text>
-  <rect x="915" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="1000" y="1185" text-anchor="middle" fill="white" font-size="15">${EAST_AZ2_PRIVATE}</text>
+  <rect x="915" y="1160" width="170" height="38" rx="3" fill="white" stroke="#FF9900" stroke-width="1"/>
+  <text x="1000" y="1185" text-anchor="middle" fill="#111111" font-size="15">${EAST_AZ2_PRIVATE}</text>
 
   <!-- East TGW Subnets -->
   <rect x="650" y="1220" width="220" height="80" rx="5" fill="url(#purpleGradient)" opacity="0.8"/>
@@ -875,14 +914,14 @@ $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
   <rect x="1190" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
   <text x="1300" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ1</text>
   <text x="1300" y="1145" text-anchor="middle" fill="#111111" font-size="15">${WEST_PUBLIC_AZ1_CIDR}</text>
-  <rect x="1215" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="1300" y="1185" text-anchor="middle" fill="white" font-size="15">${WEST_AZ1_PRIVATE}</text>
+  <rect x="1215" y="1160" width="170" height="38" rx="3" fill="white" stroke="#FF9900" stroke-width="1"/>
+  <text x="1300" y="1185" text-anchor="middle" fill="#111111" font-size="15">${WEST_AZ1_PRIVATE}</text>
 
   <rect x="1430" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
   <text x="1540" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ2</text>
   <text x="1540" y="1145" text-anchor="middle" fill="#111111" font-size="15">${WEST_PUBLIC_AZ2_CIDR}</text>
-  <rect x="1455" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="1540" y="1185" text-anchor="middle" fill="white" font-size="15">${WEST_AZ2_PRIVATE}</text>
+  <rect x="1455" y="1160" width="170" height="38" rx="3" fill="white" stroke="#FF9900" stroke-width="1"/>
+  <text x="1540" y="1185" text-anchor="middle" fill="#111111" font-size="15">${WEST_AZ2_PRIVATE}</text>
 
   <!-- West TGW Subnets -->
   <rect x="1190" y="1220" width="220" height="80" rx="5" fill="url(#purpleGradient)" opacity="0.8"/>
@@ -978,7 +1017,7 @@ fi
 cat >> "$SVG_FILE" << LEGENDEOF
 
   <!-- ==================== LEGEND ==================== -->
-  <rect x="60" y="990" width="530" height="370" rx="5" fill="#232F3E" opacity="0.9"/>
+  <rect x="60" y="990" width="530" height="370" rx="5" fill="white" stroke="#cccccc" stroke-width="1"/>
   <text x="85" y="1030" fill="#111111" font-size="22" font-weight="bold">Legend</text>
 
   <!-- Subnet Types -->
@@ -1047,6 +1086,14 @@ cat > "$MD_FILE" << MDEOF
 
 ---
 
+## FortiGate Credentials
+
+| Username | Password |
+|----------|----------|
+| admin | ${FGT_PASSWORD} |
+
+---
+
 ## Infrastructure Overview
 
 This diagram shows the current state of the \`${PREFIX}\` infrastructure deployed using the \`existing_vpc_resources\` template. ${FGT_STATUS_TEXT}
@@ -1080,6 +1127,15 @@ cat >> "$MD_FILE" << MDEOF2
 | Resource | ID | Name |
 |----------|-----|------|
 | Transit Gateway | ${TGW_ID} | ${PREFIX}-tgw |
+
+### Transit Gateway Attachments
+
+| Attachment ID | VPC | VPC ID |
+|--------------|-----|--------|
+| ${MGMT_TGW_ATTACH_ID} | Management VPC | ${MGMT_VPC_ID} |
+| ${INSP_TGW_ATTACH_ID} | Inspection VPC | ${INSPECTION_VPC_ID} |
+| ${EAST_TGW_ATTACH_ID} | East Spoke VPC | ${EAST_VPC_ID} |
+| ${WEST_TGW_ATTACH_ID} | West Spoke VPC | ${WEST_VPC_ID} |
 
 ### Instances with Public IPs
 
