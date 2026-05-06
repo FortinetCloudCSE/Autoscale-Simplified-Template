@@ -269,7 +269,7 @@ resource "aws_ec2_tag" "inspection_natgw_az3_role" {
 # TGW Attachment Tag (conditional)
 resource "aws_ec2_tag" "inspection_tgw_attachment_role" {
   depends_on = [module.vpc-inspection]
-  count       = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
+  count       = (var.enable_build_inspection_vpc && var.enable_tgw_attachment) ? 1 : 0
   resource_id = module.vpc-inspection[0].inspection_tgw_attachment_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-tgw-attachment"
@@ -278,7 +278,7 @@ resource "aws_ec2_tag" "inspection_tgw_attachment_role" {
 # TGW Route Table Tag (conditional)
 resource "aws_ec2_tag" "inspection_tgw_rtb_role" {
   depends_on = [module.vpc-inspection]
-  count       = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
+  count       = (var.enable_build_inspection_vpc && var.enable_tgw_attachment) ? 1 : 0
   resource_id = module.vpc-inspection[0].inspection_tgw_route_table_id
   key         = "Fortinet-Role"
   value       = "${var.cp}-${var.env}-inspection-tgw-rtb"

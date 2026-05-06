@@ -288,9 +288,9 @@ data "aws_nat_gateway" "inspection_az3" {
   }
 }
 
-# TGW Attachment (conditional)
+# TGW Attachment (only needed when creating TGW routes for existing spoke VPCs)
 data "aws_ec2_transit_gateway_vpc_attachment" "inspection" {
-  count = var.enable_tgw_attachment ? 1 : 0
+  count = (var.enable_tgw_attachment && var.create_tgw_routes_for_existing) ? 1 : 0
   filter {
     name   = "tag:Fortinet-Role"
     values = ["${var.cp}-${var.env}-inspection-tgw-attachment"]
@@ -298,15 +298,6 @@ data "aws_ec2_transit_gateway_vpc_attachment" "inspection" {
   filter {
     name   = "state"
     values = ["available"]
-  }
-}
-
-# TGW Route Table (conditional)
-data "aws_ec2_transit_gateway_route_table" "inspection" {
-  count = var.enable_tgw_attachment ? 1 : 0
-  filter {
-    name   = "tag:Fortinet-Role"
-    values = ["${var.cp}-${var.env}-inspection-tgw-rtb"]
   }
 }
 

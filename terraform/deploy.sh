@@ -57,11 +57,23 @@ if [[ -n "$STALE_RESOURCES" ]]; then
     while IFS= read -r res; do
         iid=$(terraform state show "$res" 2>/dev/null | grep '^\s*id\s*=' | head -1 | awk -F'"' '{print $2}')
         if [[ "$iid" == i-* ]]; then
+            # EC2 instance — remove only if terminated or missing
             state=$(aws ec2 describe-instances --instance-ids "$iid" \
                 --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo "missing")
             if [[ "$state" == "terminated" || "$state" == "missing" ]]; then
                 log "Removing stale state: $res ($iid is $state)"
                 terraform state rm "$res" 2>/dev/null || true
+            fi
+        elif [[ "$iid" == eipalloc-* || "$res" == *eip_association* ]]; then
+            # EIP or EIP association — check if the associated instance is gone
+            assoc_iid=$(terraform state show "$res" 2>/dev/null | grep '^\s*instance_id\s*=' | head -1 | awk -F'"' '{print $2}')
+            if [[ -n "$assoc_iid" && "$assoc_iid" != "null" ]]; then
+                state=$(aws ec2 describe-instances --instance-ids "$assoc_iid" \
+                    --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo "missing")
+                if [[ "$state" == "terminated" || "$state" == "missing" ]]; then
+                    log "Removing stale EIP state: $res (associated instance $assoc_iid is $state)"
+                    terraform state rm "$res" 2>/dev/null || true
+                fi
             fi
         fi
     done <<< "$STALE_RESOURCES"

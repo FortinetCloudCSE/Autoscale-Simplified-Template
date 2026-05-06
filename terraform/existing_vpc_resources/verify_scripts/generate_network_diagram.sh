@@ -100,10 +100,12 @@ if [ -f "$AUTOSCALE_TFVARS_FILE" ]; then
     ENABLE_FMG_INTEGRATION=$(get_tfvar "enable_fortimanager_integration" "$AUTOSCALE_TFVARS_FILE")
     FORTIMANAGER_IP=$(get_tfvar "fortimanager_ip" "$AUTOSCALE_TFVARS_FILE")
     FORTIMANAGER_SN=$(get_tfvar "fortimanager_sn" "$AUTOSCALE_TFVARS_FILE")
+    FGT_PASSWORD=$(get_tfvar "fortigate_asg_password" "$AUTOSCALE_TFVARS_FILE")
 else
     ENABLE_FMG_INTEGRATION="false"
     FORTIMANAGER_IP=""
     FORTIMANAGER_SN=""
+    FGT_PASSWORD=""
 fi
 
 print_info "Region: $AWS_REGION"
@@ -216,23 +218,60 @@ fi
 MGMT_VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-management-vpc" \
     --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
+[ "$MGMT_VPC_ID" == "None" ] && MGMT_VPC_ID=""
 
 INSPECTION_VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-inspection-vpc" \
     --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
+[ "$INSPECTION_VPC_ID" == "None" ] && INSPECTION_VPC_ID=""
 
 EAST_VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-east-vpc" \
     --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
+[ "$EAST_VPC_ID" == "None" ] && EAST_VPC_ID=""
 
 WEST_VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
     --filters "Name=tag:Name,Values=${PREFIX}-west-vpc" \
     --query 'Vpcs[0].VpcId' --output text 2>/dev/null)
+[ "$WEST_VPC_ID" == "None" ] && WEST_VPC_ID=""
 
 # Get TGW ID
 TGW_ID=$(aws ec2 describe-transit-gateways --region "$AWS_REGION" \
-    --filters "Name=tag:Name,Values=${PREFIX}-tgw" \
+    --filters "Name=tag:Name,Values=${PREFIX}-tgw" "Name=state,Values=available" \
     --query 'TransitGateways[0].TransitGatewayId' --output text 2>/dev/null)
+[ "$TGW_ID" == "None" ] && TGW_ID=""
+
+# Get TGW attachment IDs (requires VPC IDs and TGW ID to be set first)
+MGMT_TGW_ATTACH_ID=""
+INSP_TGW_ATTACH_ID=""
+EAST_TGW_ATTACH_ID=""
+WEST_TGW_ATTACH_ID=""
+if [[ -n "$TGW_ID" ]]; then
+    if [[ -n "$MGMT_VPC_ID" ]]; then
+        MGMT_TGW_ATTACH_ID=$(aws ec2 describe-transit-gateway-attachments --region "$AWS_REGION" \
+            --filters "Name=transit-gateway-id,Values=${TGW_ID}" "Name=resource-id,Values=${MGMT_VPC_ID}" \
+            --query 'TransitGatewayAttachments[0].TransitGatewayAttachmentId' --output text 2>/dev/null)
+        [ "$MGMT_TGW_ATTACH_ID" == "None" ] && MGMT_TGW_ATTACH_ID=""
+    fi
+    if [[ -n "$INSPECTION_VPC_ID" ]]; then
+        INSP_TGW_ATTACH_ID=$(aws ec2 describe-transit-gateway-attachments --region "$AWS_REGION" \
+            --filters "Name=transit-gateway-id,Values=${TGW_ID}" "Name=resource-id,Values=${INSPECTION_VPC_ID}" \
+            --query 'TransitGatewayAttachments[0].TransitGatewayAttachmentId' --output text 2>/dev/null)
+        [ "$INSP_TGW_ATTACH_ID" == "None" ] && INSP_TGW_ATTACH_ID=""
+    fi
+    if [[ -n "$EAST_VPC_ID" ]]; then
+        EAST_TGW_ATTACH_ID=$(aws ec2 describe-transit-gateway-attachments --region "$AWS_REGION" \
+            --filters "Name=transit-gateway-id,Values=${TGW_ID}" "Name=resource-id,Values=${EAST_VPC_ID}" \
+            --query 'TransitGatewayAttachments[0].TransitGatewayAttachmentId' --output text 2>/dev/null)
+        [ "$EAST_TGW_ATTACH_ID" == "None" ] && EAST_TGW_ATTACH_ID=""
+    fi
+    if [[ -n "$WEST_VPC_ID" ]]; then
+        WEST_TGW_ATTACH_ID=$(aws ec2 describe-transit-gateway-attachments --region "$AWS_REGION" \
+            --filters "Name=transit-gateway-id,Values=${TGW_ID}" "Name=resource-id,Values=${WEST_VPC_ID}" \
+            --query 'TransitGatewayAttachments[0].TransitGatewayAttachmentId' --output text 2>/dev/null)
+        [ "$WEST_TGW_ATTACH_ID" == "None" ] && WEST_TGW_ATTACH_ID=""
+    fi
+fi
 
 # Function to get subnet info
 get_subnet_info() {
@@ -567,10 +606,10 @@ fi
 if [ "$FORTIGATE_COUNT" -gt 0 ]; then
     print_pass "Found $FORTIGATE_COUNT FortiGate instance(s)"
     FGT_SVG_STATUS="(${FORTIGATE_COUNT} instance(s))"
-    FGT_SVG_STATUS_COLOR="#00FF00"
+    FGT_SVG_STATUS_COLOR="#007700"
     FGT_LEGEND_TEXT="FortiGate ASG (deployed)"
     FGT_DEPLOY_STATUS="ASG deployed: ${FORTIGATE_COUNT} instance(s)"
-    FGT_DEPLOY_STATUS_COLOR="#00FF00"
+    FGT_DEPLOY_STATUS_COLOR="#007700"
 else
     print_info "No FortiGate ASG instances found (autoscale template not yet deployed)"
     FGT_SVG_STATUS="(Not Deployed)"
@@ -649,33 +688,33 @@ cat > "$SVG_FILE" << SVGEOF
   <defs>
     <!-- Gradients -->
     <linearGradient id="greenGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#2E8B2E;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1B660F;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#C8E6C9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#A5D6A7;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="blueGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#1E90FF;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#147EBA;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#BBDEFB;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#90CAF9;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="purpleGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#9966CC;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#8C4FFF;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#E1BEE7;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#CE93D8;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#FF8C00;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#ED7100;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#FFE0B2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FFCC80;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="redGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#FF4444;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#EE3124;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#FFCDD2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#EF9A9A;stop-opacity:1" />
     </linearGradient>
   </defs>
 
   <!-- Background -->
-  <rect width="2200" height="1400" fill="#1a1a2e"/>
+  <rect width="2200" height="1400" fill="white"/>
 
   <!-- Title -->
-  <text x="1100" y="55" text-anchor="middle" fill="white" font-size="32" font-weight="bold">${PREFIX} Infrastructure - ${AWS_REGION} (AZ: ${AZ_LABEL})</text>
-  <text x="1100" y="90" text-anchor="middle" fill="#888" font-size="18">Generated: ${TIMESTAMP} | Template: existing_vpc_resources</text>
+  <text x="1100" y="55" text-anchor="middle" fill="#111111" font-size="32" font-weight="bold">${PREFIX} Infrastructure - ${AWS_REGION} (AZ: ${AZ_LABEL})</text>
+  <text x="1100" y="90" text-anchor="middle" fill="#444444" font-size="18">Generated: ${TIMESTAMP} | Template: existing_vpc_resources</text>
 
   <!-- Internet Gateway Icons -->
   <!-- Management VPC IGW -->
@@ -690,130 +729,130 @@ cat > "$SVG_FILE" << SVGEOF
 
   <!-- ==================== MANAGEMENT VPC ==================== -->
   <rect x="60" y="190" width="600" height="${MGMT_VPC_HEIGHT}" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
-  <text x="85" y="230" fill="white" font-size="24" font-weight="bold">Management VPC</text>
-  <text x="85" y="260" fill="#888" font-size="17">${MGMT_VPC_ID} | ${VPC_CIDR_MANAGEMENT}</text>
+  <text x="85" y="230" fill="#111111" font-size="24" font-weight="bold">Management VPC</text>
+  <text x="85" y="260" fill="#444444" font-size="17">${MGMT_VPC_ID} | ${VPC_CIDR_MANAGEMENT}</text>
 
   <!-- Management Public Subnets -->
   <rect x="90" y="290" width="250" height="145" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
-  <text x="215" y="325" text-anchor="middle" fill="white" font-size="18" font-weight="bold">Public AZ1</text>
-  <text x="215" y="352" text-anchor="middle" fill="white" font-size="16">${MGMT_PUBLIC_AZ1_CIDR}</text>
+  <text x="215" y="325" text-anchor="middle" fill="#111111" font-size="18" font-weight="bold">Public AZ1</text>
+  <text x="215" y="352" text-anchor="middle" fill="#111111" font-size="16">${MGMT_PUBLIC_AZ1_CIDR}</text>
   <!-- Jump Box -->
   <rect x="115" y="368" width="200" height="62" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
   <text x="215" y="392" text-anchor="middle" fill="#FF9900" font-size="16">Jump Box</text>
   <text x="215" y="412" text-anchor="middle" fill="white" font-size="15">${JUMP_BOX_PRIVATE}</text>
-  <text x="215" y="428" text-anchor="middle" fill="#00FF00" font-size="14">${JUMP_BOX_PUBLIC}</text>
+  <text x="215" y="428" text-anchor="middle" fill="#90EE90" font-size="14">${JUMP_BOX_PUBLIC}</text>
 
   <rect x="370" y="290" width="250" height="145" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
-  <text x="495" y="325" text-anchor="middle" fill="white" font-size="18" font-weight="bold">Public AZ2</text>
-  <text x="495" y="352" text-anchor="middle" fill="white" font-size="16">${MGMT_PUBLIC_AZ2_CIDR}</text>
+  <text x="495" y="325" text-anchor="middle" fill="#111111" font-size="18" font-weight="bold">Public AZ2</text>
+  <text x="495" y="352" text-anchor="middle" fill="#111111" font-size="16">${MGMT_PUBLIC_AZ2_CIDR}</text>
 
   <!-- Management Private Subnets -->
   <rect x="90" y="460" width="250" height="85" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
-  <text x="215" y="500" text-anchor="middle" fill="white" font-size="18" font-weight="bold">Private AZ1</text>
-  <text x="215" y="528" text-anchor="middle" fill="white" font-size="16">${MGMT_PRIVATE_AZ1_CIDR}</text>
+  <text x="215" y="500" text-anchor="middle" fill="#111111" font-size="18" font-weight="bold">Private AZ1</text>
+  <text x="215" y="528" text-anchor="middle" fill="#111111" font-size="16">${MGMT_PRIVATE_AZ1_CIDR}</text>
 
   <rect x="370" y="460" width="250" height="85" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
-  <text x="495" y="500" text-anchor="middle" fill="white" font-size="18" font-weight="bold">Private AZ2</text>
-  <text x="495" y="528" text-anchor="middle" fill="white" font-size="16">${MGMT_PRIVATE_AZ2_CIDR}</text>
+  <text x="495" y="500" text-anchor="middle" fill="#111111" font-size="18" font-weight="bold">Private AZ2</text>
+  <text x="495" y="528" text-anchor="middle" fill="#111111" font-size="16">${MGMT_PRIVATE_AZ2_CIDR}</text>
 
 $(if [[ -n "$AZ3" ]]; then echo "  <!-- Management AZ3 Subnets -->
   <rect x=\"90\" y=\"555\" width=\"250\" height=\"65\" rx=\"5\" fill=\"url(#greenGradient)\" opacity=\"0.8\"/>
-  <text x=\"215\" y=\"580\" text-anchor=\"middle\" fill=\"white\" font-size=\"15\" font-weight=\"bold\">Public AZ3</text>
-  <text x=\"215\" y=\"610\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\">${MGMT_PUBLIC_AZ3_CIDR}</text>
+  <text x=\"215\" y=\"580\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"15\" font-weight=\"bold\">Public AZ3</text>
+  <text x=\"215\" y=\"610\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"14\">${MGMT_PUBLIC_AZ3_CIDR}</text>
 
   <rect x=\"370\" y=\"555\" width=\"250\" height=\"65\" rx=\"5\" fill=\"url(#blueGradient)\" opacity=\"0.8\"/>
-  <text x=\"495\" y=\"580\" text-anchor=\"middle\" fill=\"white\" font-size=\"15\" font-weight=\"bold\">Private AZ3</text>
-  <text x=\"495\" y=\"610\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\">${MGMT_PRIVATE_AZ3_CIDR}</text>"; fi)
+  <text x=\"495\" y=\"580\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"15\" font-weight=\"bold\">Private AZ3</text>
+  <text x=\"495\" y=\"610\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"14\">${MGMT_PRIVATE_AZ3_CIDR}</text>"; fi)
 
   <!-- Management TGW Connection indicator -->
   <rect x="240" y="${MGMT_TGW_Y}" width="140" height="42" rx="3" fill="url(#purpleGradient)" opacity="0.8"/>
-  <text x="310" y="$((MGMT_TGW_Y + 28))" text-anchor="middle" fill="white" font-size="16">TGW Attach</text>
+  <text x="310" y="$((MGMT_TGW_Y + 28))" text-anchor="middle" fill="#111111" font-size="16">TGW Attach</text>
 
   <!-- ==================== INSPECTION VPC ==================== -->
   <!-- Layout: FortiGate ASG (left) | Public, GWLBE, Private (middle) | NAT GW (right) | TGW Attach (bottom) -->
   <rect x="720" y="190" width="1420" height="${INSP_VPC_HEIGHT}" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
-  <text x="750" y="230" fill="white" font-size="24" font-weight="bold">Inspection VPC</text>
-  <text x="750" y="260" fill="#888" font-size="17">${INSPECTION_VPC_ID} | ${VPC_CIDR_INSPECTION}</text>
+  <text x="750" y="230" fill="#111111" font-size="24" font-weight="bold">Inspection VPC</text>
+  <text x="750" y="260" fill="#444444" font-size="17">${INSPECTION_VPC_ID} | ${VPC_CIDR_INSPECTION}</text>
 $(if [[ -n "$AZ3" ]]; then echo "  <rect x=\"1020\" y=\"210\" width=\"260\" height=\"28\" rx=\"5\" fill=\"#2E7D32\"/>
-  <text x=\"1150\" y=\"229\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\" font-weight=\"bold\">⚡ 3-AZ ACTIVE: ${AWS_REGION}${AZ3}</text>"; fi)
+  <text x=\"1150\" y=\"229\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"14\" font-weight=\"bold\">⚡ 3-AZ ACTIVE: ${AWS_REGION}${AZ3}</text>"; fi)
 
   <!-- FortiGate ASG Box - LEFT SIDE -->
   <rect x="760" y="290" width="250" height="330" rx="5" fill="none" stroke="#EE3124" stroke-width="2" stroke-dasharray="5,5"/>
   <text x="885" y="330" text-anchor="middle" fill="#EE3124" font-size="22" font-weight="bold">FortiGate ASG</text>
   <text x="885" y="362" text-anchor="middle" fill="${FGT_SVG_STATUS_COLOR}" font-size="17">${FGT_SVG_STATUS}</text>
-  <text x="885" y="394" text-anchor="middle" fill="#888" font-size="16">Mode: ${DEPLOY_MODE}</text>
+  <text x="885" y="394" text-anchor="middle" fill="#444444" font-size="16">Mode: ${DEPLOY_MODE}</text>
   <!-- Port labels -->
   <text x="885" y="438" text-anchor="middle" fill="#2E8B2E" font-size="16">port1: Public</text>
   <text x="885" y="465" text-anchor="middle" fill="#ED7100" font-size="16">port2: GWLBE</text>
   <text x="885" y="492" text-anchor="middle" fill="#147EBA" font-size="16">port3: Mgmt VPC</text>
   <!-- GWLB indicator -->
   <rect x="800" y="520" width="170" height="42" rx="3" fill="#ED7100" opacity="0.8"/>
-  <text x="885" y="548" text-anchor="middle" fill="white" font-size="16">GWLB</text>
+  <text x="885" y="548" text-anchor="middle" fill="#111111" font-size="16">GWLB</text>
 
   <!-- Public Subnets - Middle Column Row 1 -->
   <rect x="1050" y="290" width="210" height="100" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
-  <text x="1155" y="325" text-anchor="middle" fill="white" font-size="17" font-weight="bold">Public AZ1</text>
-  <text x="1155" y="352" text-anchor="middle" fill="white" font-size="15">${INSP_PUBLIC_AZ1_CIDR}</text>
+  <text x="1155" y="325" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ1</text>
+  <text x="1155" y="352" text-anchor="middle" fill="#111111" font-size="15">${INSP_PUBLIC_AZ1_CIDR}</text>
   <text x="1155" y="378" text-anchor="middle" fill="#FF9900" font-size="14">0.0.0.0/0 -> NAT GW</text>
 
   <rect x="1280" y="290" width="210" height="100" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
-  <text x="1385" y="325" text-anchor="middle" fill="white" font-size="17" font-weight="bold">Public AZ2</text>
-  <text x="1385" y="352" text-anchor="middle" fill="white" font-size="15">${INSP_PUBLIC_AZ2_CIDR}</text>
+  <text x="1385" y="325" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ2</text>
+  <text x="1385" y="352" text-anchor="middle" fill="#111111" font-size="15">${INSP_PUBLIC_AZ2_CIDR}</text>
   <text x="1385" y="378" text-anchor="middle" fill="#FF9900" font-size="14">0.0.0.0/0 -> NAT GW</text>
 
   <!-- GWLBE Subnets - Middle Column Row 2 -->
   <rect x="1050" y="408" width="210" height="100" rx="5" fill="url(#orangeGradient)" opacity="0.8"/>
-  <text x="1155" y="438" text-anchor="middle" fill="white" font-size="17" font-weight="bold">GWLBE AZ1</text>
-  <text x="1155" y="465" text-anchor="middle" fill="white" font-size="15">${INSP_GWLBE_AZ1_CIDR}</text>
-  <text x="1155" y="492" text-anchor="middle" fill="#FFE4B5" font-size="13">${GWLBE_AZ1_ID:-not deployed}</text>
+  <text x="1155" y="438" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">GWLBE AZ1</text>
+  <text x="1155" y="465" text-anchor="middle" fill="#111111" font-size="15">${INSP_GWLBE_AZ1_CIDR}</text>
+  <text x="1155" y="492" text-anchor="middle" fill="#555555" font-size="13">${GWLBE_AZ1_ID:-not deployed}</text>
 
   <rect x="1280" y="408" width="210" height="100" rx="5" fill="url(#orangeGradient)" opacity="0.8"/>
-  <text x="1385" y="438" text-anchor="middle" fill="white" font-size="17" font-weight="bold">GWLBE AZ2</text>
-  <text x="1385" y="465" text-anchor="middle" fill="white" font-size="15">${INSP_GWLBE_AZ2_CIDR}</text>
-  <text x="1385" y="492" text-anchor="middle" fill="#FFE4B5" font-size="13">${GWLBE_AZ2_ID:-not deployed}</text>
+  <text x="1385" y="438" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">GWLBE AZ2</text>
+  <text x="1385" y="465" text-anchor="middle" fill="#111111" font-size="15">${INSP_GWLBE_AZ2_CIDR}</text>
+  <text x="1385" y="492" text-anchor="middle" fill="#555555" font-size="13">${GWLBE_AZ2_ID:-not deployed}</text>
 
   <!-- Private Subnets - Middle Column Row 3 -->
   <rect x="1050" y="526" width="210" height="100" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
-  <text x="1155" y="558" text-anchor="middle" fill="white" font-size="17" font-weight="bold">Private AZ1</text>
-  <text x="1155" y="585" text-anchor="middle" fill="white" font-size="15">${INSP_PRIVATE_AZ1_CIDR}</text>
+  <text x="1155" y="558" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Private AZ1</text>
+  <text x="1155" y="585" text-anchor="middle" fill="#111111" font-size="15">${INSP_PRIVATE_AZ1_CIDR}</text>
   <text x="1155" y="612" text-anchor="middle" fill="#FF9900" font-size="14">0.0.0.0/0 -> GWLBE</text>
 
   <rect x="1280" y="526" width="210" height="100" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
-  <text x="1385" y="558" text-anchor="middle" fill="white" font-size="17" font-weight="bold">Private AZ2</text>
-  <text x="1385" y="585" text-anchor="middle" fill="white" font-size="15">${INSP_PRIVATE_AZ2_CIDR}</text>
+  <text x="1385" y="558" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Private AZ2</text>
+  <text x="1385" y="585" text-anchor="middle" fill="#111111" font-size="15">${INSP_PRIVATE_AZ2_CIDR}</text>
   <text x="1385" y="612" text-anchor="middle" fill="#FF9900" font-size="14">0.0.0.0/0 -> GWLBE</text>
 
   <!-- NAT GW Subnets - RIGHT SIDE -->
   <rect x="1540" y="290" width="210" height="100" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
-  <text x="1645" y="325" text-anchor="middle" fill="white" font-size="17" font-weight="bold">NAT GW AZ1</text>
-  <text x="1645" y="352" text-anchor="middle" fill="white" font-size="15">${INSP_NATGW_AZ1_CIDR}</text>
+  <text x="1645" y="325" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">NAT GW AZ1</text>
+  <text x="1645" y="352" text-anchor="middle" fill="#111111" font-size="15">${INSP_NATGW_AZ1_CIDR}</text>
   <text x="1645" y="378" text-anchor="middle" fill="#FF9900" font-size="14">0.0.0.0/0 -> IGW</text>
 
   <rect x="1770" y="290" width="210" height="100" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
-  <text x="1875" y="325" text-anchor="middle" fill="white" font-size="17" font-weight="bold">NAT GW AZ2</text>
-  <text x="1875" y="352" text-anchor="middle" fill="white" font-size="15">${INSP_NATGW_AZ2_CIDR}</text>
+  <text x="1875" y="325" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">NAT GW AZ2</text>
+  <text x="1875" y="352" text-anchor="middle" fill="#111111" font-size="15">${INSP_NATGW_AZ2_CIDR}</text>
   <text x="1875" y="378" text-anchor="middle" fill="#FF9900" font-size="14">0.0.0.0/0 -> IGW</text>
 
 $(if [[ "$CREATE_MGMT_INSP" == "true" ]]; then echo "  <!-- Inspection Management Subnets - Row 4 (dedicated management ENI) -->
   <rect x=\"1050\" y=\"638\" width=\"160\" height=\"80\" rx=\"5\" fill=\"url(#purpleGradient)\" opacity=\"0.8\"/>
-  <text x=\"1130\" y=\"665\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\" font-weight=\"bold\">Mgmt ENI AZ1</text>
-  <text x=\"1130\" y=\"690\" text-anchor=\"middle\" fill=\"white\" font-size=\"13\">${INSP_MGMT_AZ1_CIDR}</text>
-  <text x=\"1130\" y=\"710\" text-anchor=\"middle\" fill=\"#FFE4B5\" font-size=\"12\">port3 → IGW</text>
+  <text x=\"1130\" y=\"665\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"14\" font-weight=\"bold\">Mgmt ENI AZ1</text>
+  <text x=\"1130\" y=\"690\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"13\">${INSP_MGMT_AZ1_CIDR}</text>
+  <text x=\"1130\" y=\"710\" text-anchor=\"middle\" fill=\"#664400\" font-size=\"12\">port3 → IGW</text>
 
   <rect x=\"1225\" y=\"638\" width=\"160\" height=\"80\" rx=\"5\" fill=\"url(#purpleGradient)\" opacity=\"0.8\"/>
-  <text x=\"1305\" y=\"665\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\" font-weight=\"bold\">Mgmt ENI AZ2</text>
-  <text x=\"1305\" y=\"690\" text-anchor=\"middle\" fill=\"white\" font-size=\"13\">${INSP_MGMT_AZ2_CIDR}</text>
-  <text x=\"1305\" y=\"710\" text-anchor=\"middle\" fill=\"#FFE4B5\" font-size=\"12\">port3 → IGW</text>"; fi)
+  <text x=\"1305\" y=\"665\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"14\" font-weight=\"bold\">Mgmt ENI AZ2</text>
+  <text x=\"1305\" y=\"690\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"13\">${INSP_MGMT_AZ2_CIDR}</text>
+  <text x=\"1305\" y=\"710\" text-anchor=\"middle\" fill=\"#664400\" font-size=\"12\">port3 → IGW</text>"; fi)
 $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
   <rect x=\"1400\" y=\"638\" width=\"160\" height=\"80\" rx=\"5\" fill=\"url(#purpleGradient)\" opacity=\"0.8\"/>
-  <text x=\"1480\" y=\"655\" text-anchor=\"middle\" fill=\"white\" font-size=\"14\" font-weight=\"bold\">Mgmt ENI AZ3</text>
-  <text x=\"1480\" y=\"675\" text-anchor=\"middle\" fill=\"white\" font-size=\"13\">${INSP_MGMT_AZ3_CIDR}</text>
-  <text x=\"1480\" y=\"695\" text-anchor=\"middle\" fill=\"#FFE4B5\" font-size=\"12\">port3 → IGW</text>
-  <text x=\"1480\" y=\"712\" text-anchor=\"middle\" fill=\"#00FF44\" font-size=\"11\">⚡ AZ3</text>"; fi)
+  <text x=\"1480\" y=\"655\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"14\" font-weight=\"bold\">Mgmt ENI AZ3</text>
+  <text x=\"1480\" y=\"675\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"13\">${INSP_MGMT_AZ3_CIDR}</text>
+  <text x=\"1480\" y=\"695\" text-anchor=\"middle\" fill=\"#664400\" font-size=\"12\">port3 → IGW</text>
+  <text x=\"1480\" y=\"712\" text-anchor=\"middle\" fill=\"#007700\" font-size=\"11\">⚡ AZ3</text>"; fi)
 
   <!-- Inspection VPC TGW Attach indicator -->
   <rect x="1200" y="${INSP_TGW_Y}" width="140" height="42" rx="3" fill="url(#purpleGradient)" opacity="0.8"/>
-  <text x="1270" y="$((INSP_TGW_Y + 28))" text-anchor="middle" fill="white" font-size="16">TGW Attach</text>
+  <text x="1270" y="$((INSP_TGW_Y + 28))" text-anchor="middle" fill="#111111" font-size="16">TGW Attach</text>
 
   <!-- ENI Connection Lines from FortiGate ASG (dotted) -->
   <!-- port1 to Public subnets (green) -->
@@ -825,8 +864,8 @@ $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
 
   <!-- ==================== TRANSIT GATEWAY ==================== -->
   <rect x="60" y="840" width="2080" height="100" rx="10" fill="url(#purpleGradient)" opacity="0.9"/>
-  <text x="1100" y="885" text-anchor="middle" fill="white" font-size="26" font-weight="bold">Transit Gateway: ${PREFIX}-tgw</text>
-  <text x="1100" y="918" text-anchor="middle" fill="white" font-size="18">${TGW_ID}</text>
+  <text x="1100" y="885" text-anchor="middle" fill="#111111" font-size="26" font-weight="bold">Transit Gateway: ${PREFIX}-tgw</text>
+  <text x="1100" y="918" text-anchor="middle" fill="#111111" font-size="18">${TGW_ID}</text>
 
   <!-- TGW Connection Lines -->
   <line x1="310" y1="${MGMT_TGW_CONNECT_Y}" x2="310" y2="840" stroke="#8C4FFF" stroke-width="2"/>
@@ -834,71 +873,71 @@ $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
 
   <!-- ==================== EAST SPOKE VPC ==================== -->
   <rect x="620" y="990" width="500" height="370" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
-  <text x="645" y="1030" fill="white" font-size="22" font-weight="bold">East Spoke VPC</text>
-  <text x="645" y="1060" fill="#888" font-size="16">${EAST_VPC_ID} | ${VPC_CIDR_EAST}</text>
+  <text x="645" y="1030" fill="#111111" font-size="22" font-weight="bold">East Spoke VPC</text>
+  <text x="645" y="1060" fill="#444444" font-size="16">${EAST_VPC_ID} | ${VPC_CIDR_EAST}</text>
 
   <!-- East Public Subnets -->
   <rect x="650" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
-  <text x="760" y="1118" text-anchor="middle" fill="white" font-size="17" font-weight="bold">Public AZ1</text>
-  <text x="760" y="1145" text-anchor="middle" fill="white" font-size="15">${EAST_PUBLIC_AZ1_CIDR}</text>
-  <rect x="675" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="760" y="1185" text-anchor="middle" fill="white" font-size="15">${EAST_AZ1_PRIVATE}</text>
+  <text x="760" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ1</text>
+  <text x="760" y="1145" text-anchor="middle" fill="#111111" font-size="15">${EAST_PUBLIC_AZ1_CIDR}</text>
+  <rect x="675" y="1160" width="170" height="38" rx="3" fill="white" stroke="#FF9900" stroke-width="1"/>
+  <text x="760" y="1185" text-anchor="middle" fill="#111111" font-size="15">${EAST_AZ1_PRIVATE}</text>
 
   <rect x="890" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
-  <text x="1000" y="1118" text-anchor="middle" fill="white" font-size="17" font-weight="bold">Public AZ2</text>
-  <text x="1000" y="1145" text-anchor="middle" fill="white" font-size="15">${EAST_PUBLIC_AZ2_CIDR}</text>
-  <rect x="915" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="1000" y="1185" text-anchor="middle" fill="white" font-size="15">${EAST_AZ2_PRIVATE}</text>
+  <text x="1000" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ2</text>
+  <text x="1000" y="1145" text-anchor="middle" fill="#111111" font-size="15">${EAST_PUBLIC_AZ2_CIDR}</text>
+  <rect x="915" y="1160" width="170" height="38" rx="3" fill="white" stroke="#FF9900" stroke-width="1"/>
+  <text x="1000" y="1185" text-anchor="middle" fill="#111111" font-size="15">${EAST_AZ2_PRIVATE}</text>
 
   <!-- East TGW Subnets -->
   <rect x="650" y="1220" width="220" height="80" rx="5" fill="url(#purpleGradient)" opacity="0.8"/>
-  <text x="760" y="1255" text-anchor="middle" fill="white" font-size="17" font-weight="bold">TGW AZ1</text>
-  <text x="760" y="1282" text-anchor="middle" fill="white" font-size="15">${EAST_TGW_AZ1_CIDR}</text>
+  <text x="760" y="1255" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">TGW AZ1</text>
+  <text x="760" y="1282" text-anchor="middle" fill="#111111" font-size="15">${EAST_TGW_AZ1_CIDR}</text>
 
   <rect x="890" y="1220" width="220" height="80" rx="5" fill="url(#purpleGradient)" opacity="0.8"/>
-  <text x="1000" y="1255" text-anchor="middle" fill="white" font-size="17" font-weight="bold">TGW AZ2</text>
-  <text x="1000" y="1282" text-anchor="middle" fill="white" font-size="15">${EAST_TGW_AZ2_CIDR}</text>
+  <text x="1000" y="1255" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">TGW AZ2</text>
+  <text x="1000" y="1282" text-anchor="middle" fill="#111111" font-size="15">${EAST_TGW_AZ2_CIDR}</text>
 
   <!-- East TGW Connection -->
   <line x1="870" y1="940" x2="870" y2="990" stroke="#8C4FFF" stroke-width="2"/>
 
   <!-- East Route Status -->
-  <rect x="650" y="1310" width="460" height="40" rx="3" fill="#00FF00" opacity="0.3"/>
-  <text x="880" y="1337" text-anchor="middle" fill="#FF6666" font-size="15">Route: 0.0.0.0/0 -> TGW | TGW RT: ${EAST_TGW_DEFAULT_ROUTE}</text>
+  <rect x="650" y="1310" width="460" height="40" rx="3" fill="#007700" opacity="0.3"/>
+  <text x="880" y="1337" text-anchor="middle" fill="#CC0000" font-size="15">Route: 0.0.0.0/0 -> TGW | TGW RT: ${EAST_TGW_DEFAULT_ROUTE}</text>
 
   <!-- ==================== WEST SPOKE VPC ==================== -->
   <rect x="1160" y="990" width="500" height="370" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
-  <text x="1185" y="1030" fill="white" font-size="22" font-weight="bold">West Spoke VPC</text>
-  <text x="1185" y="1060" fill="#888" font-size="16">${WEST_VPC_ID} | ${VPC_CIDR_WEST}</text>
+  <text x="1185" y="1030" fill="#111111" font-size="22" font-weight="bold">West Spoke VPC</text>
+  <text x="1185" y="1060" fill="#444444" font-size="16">${WEST_VPC_ID} | ${VPC_CIDR_WEST}</text>
 
   <!-- West Public Subnets -->
   <rect x="1190" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
-  <text x="1300" y="1118" text-anchor="middle" fill="white" font-size="17" font-weight="bold">Public AZ1</text>
-  <text x="1300" y="1145" text-anchor="middle" fill="white" font-size="15">${WEST_PUBLIC_AZ1_CIDR}</text>
-  <rect x="1215" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="1300" y="1185" text-anchor="middle" fill="white" font-size="15">${WEST_AZ1_PRIVATE}</text>
+  <text x="1300" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ1</text>
+  <text x="1300" y="1145" text-anchor="middle" fill="#111111" font-size="15">${WEST_PUBLIC_AZ1_CIDR}</text>
+  <rect x="1215" y="1160" width="170" height="38" rx="3" fill="white" stroke="#FF9900" stroke-width="1"/>
+  <text x="1300" y="1185" text-anchor="middle" fill="#111111" font-size="15">${WEST_AZ1_PRIVATE}</text>
 
   <rect x="1430" y="1085" width="220" height="120" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
-  <text x="1540" y="1118" text-anchor="middle" fill="white" font-size="17" font-weight="bold">Public AZ2</text>
-  <text x="1540" y="1145" text-anchor="middle" fill="white" font-size="15">${WEST_PUBLIC_AZ2_CIDR}</text>
-  <rect x="1455" y="1160" width="170" height="38" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="1540" y="1185" text-anchor="middle" fill="white" font-size="15">${WEST_AZ2_PRIVATE}</text>
+  <text x="1540" y="1118" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">Public AZ2</text>
+  <text x="1540" y="1145" text-anchor="middle" fill="#111111" font-size="15">${WEST_PUBLIC_AZ2_CIDR}</text>
+  <rect x="1455" y="1160" width="170" height="38" rx="3" fill="white" stroke="#FF9900" stroke-width="1"/>
+  <text x="1540" y="1185" text-anchor="middle" fill="#111111" font-size="15">${WEST_AZ2_PRIVATE}</text>
 
   <!-- West TGW Subnets -->
   <rect x="1190" y="1220" width="220" height="80" rx="5" fill="url(#purpleGradient)" opacity="0.8"/>
-  <text x="1300" y="1255" text-anchor="middle" fill="white" font-size="17" font-weight="bold">TGW AZ1</text>
-  <text x="1300" y="1282" text-anchor="middle" fill="white" font-size="15">${WEST_TGW_AZ1_CIDR}</text>
+  <text x="1300" y="1255" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">TGW AZ1</text>
+  <text x="1300" y="1282" text-anchor="middle" fill="#111111" font-size="15">${WEST_TGW_AZ1_CIDR}</text>
 
   <rect x="1430" y="1220" width="220" height="80" rx="5" fill="url(#purpleGradient)" opacity="0.8"/>
-  <text x="1540" y="1255" text-anchor="middle" fill="white" font-size="17" font-weight="bold">TGW AZ2</text>
-  <text x="1540" y="1282" text-anchor="middle" fill="white" font-size="15">${WEST_TGW_AZ2_CIDR}</text>
+  <text x="1540" y="1255" text-anchor="middle" fill="#111111" font-size="17" font-weight="bold">TGW AZ2</text>
+  <text x="1540" y="1282" text-anchor="middle" fill="#111111" font-size="15">${WEST_TGW_AZ2_CIDR}</text>
 
   <!-- West TGW Connection -->
   <line x1="1410" y1="940" x2="1410" y2="990" stroke="#8C4FFF" stroke-width="2"/>
 
   <!-- West Route Status -->
-  <rect x="1190" y="1310" width="460" height="40" rx="3" fill="#00FF00" opacity="0.3"/>
-  <text x="1420" y="1337" text-anchor="middle" fill="#FF6666" font-size="15">Route: 0.0.0.0/0 -> TGW | TGW RT: ${WEST_TGW_DEFAULT_ROUTE}</text>
+  <rect x="1190" y="1310" width="460" height="40" rx="3" fill="#007700" opacity="0.3"/>
+  <text x="1420" y="1337" text-anchor="middle" fill="#CC0000" font-size="15">Route: 0.0.0.0/0 -> TGW | TGW RT: ${WEST_TGW_DEFAULT_ROUTE}</text>
 
 SVGEOF
 
@@ -908,8 +947,8 @@ cat >> "$SVG_FILE" << DISTEOF
 
   <!-- ==================== DISTRIBUTED VPC 1 ==================== -->
   <rect x="450" y="890" width="500" height="190" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
-  <text x="460" y="915" fill="white" font-size="14" font-weight="bold">Distributed VPC 1</text>
-  <text x="460" y="932" fill="#888" font-size="11">${DISTRIBUTED_VPC_1_CIDR} | NOT attached to TGW</text>
+  <text x="460" y="915" fill="#111111" font-size="14" font-weight="bold">Distributed VPC 1</text>
+  <text x="460" y="932" fill="#444444" font-size="11">${DISTRIBUTED_VPC_1_CIDR} | NOT attached to TGW</text>
 
   <!-- Distributed IGW -->
   <rect x="880" y="870" width="60" height="25" rx="5" fill="#232F3E" stroke="#FF9900" stroke-width="2"/>
@@ -918,25 +957,25 @@ cat >> "$SVG_FILE" << DISTEOF
 
   <!-- Distributed Public Subnets -->
   <rect x="470" y="945" width="220" height="55" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
-  <text x="580" y="965" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Public Subnets (AZ1, AZ2)</text>
-  <text x="580" y="980" text-anchor="middle" fill="white" font-size="9">GWLBE ingress point</text>
+  <text x="580" y="965" text-anchor="middle" fill="#111111" font-size="10" font-weight="bold">Public Subnets (AZ1, AZ2)</text>
+  <text x="580" y="980" text-anchor="middle" fill="#111111" font-size="9">GWLBE ingress point</text>
 
   <!-- Distributed GWLBE Subnets -->
   <rect x="710" y="945" width="220" height="55" rx="5" fill="url(#orangeGradient)" opacity="0.8"/>
-  <text x="820" y="965" text-anchor="middle" fill="white" font-size="10" font-weight="bold">GWLBE Subnets (AZ1, AZ2)</text>
-  <text x="820" y="980" text-anchor="middle" fill="white" font-size="9">Traffic hairpin to FortiGates</text>
+  <text x="820" y="965" text-anchor="middle" fill="#111111" font-size="10" font-weight="bold">GWLBE Subnets (AZ1, AZ2)</text>
+  <text x="820" y="980" text-anchor="middle" fill="#111111" font-size="9">Traffic hairpin to FortiGates</text>
 
   <!-- Distributed Private Subnets with instances -->
   <rect x="470" y="1010" width="460" height="55" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
-  <text x="700" y="1028" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Private Subnets (AZ1, AZ2)</text>
+  <text x="700" y="1028" text-anchor="middle" fill="#111111" font-size="10" font-weight="bold">Private Subnets (AZ1, AZ2)</text>
   <!-- Instance AZ1 -->
   <rect x="500" y="1035" width="140" height="22" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="570" y="1050" text-anchor="middle" fill="white" font-size="7">${DIST1_AZ1_PRIVATE}</text>
-  <text x="570" y="1033" text-anchor="middle" fill="#00FF00" font-size="7">${DIST1_AZ1_PUBLIC}</text>
+  <text x="570" y="1050" text-anchor="middle" fill="#111111" font-size="7">${DIST1_AZ1_PRIVATE}</text>
+  <text x="570" y="1033" text-anchor="middle" fill="#007700" font-size="7">${DIST1_AZ1_PUBLIC}</text>
   <!-- Instance AZ2 -->
   <rect x="760" y="1035" width="140" height="22" rx="3" fill="#232F3E" stroke="#FF9900" stroke-width="1"/>
-  <text x="830" y="1050" text-anchor="middle" fill="white" font-size="7">${DIST1_AZ2_PRIVATE}</text>
-  <text x="830" y="1033" text-anchor="middle" fill="#00FF00" font-size="7">${DIST1_AZ2_PUBLIC}</text>
+  <text x="830" y="1050" text-anchor="middle" fill="#111111" font-size="7">${DIST1_AZ2_PRIVATE}</text>
+  <text x="830" y="1033" text-anchor="middle" fill="#007700" font-size="7">${DIST1_AZ2_PUBLIC}</text>
 
 DISTEOF
 fi
@@ -949,10 +988,10 @@ cat >> "$SVG_FILE" << FTESTER1EOF
   <!-- FortiTester 1 spans: Mgmt VPC AZ1 (port1), East AZ1 (port2), West AZ1 (port3) -->
   <rect x="60" y="660" width="600" height="120" rx="5" fill="#232F3E" stroke="#00BFFF" stroke-width="2"/>
   <text x="85" y="690" fill="#00BFFF" font-size="18" font-weight="bold">FortiTester 1 (AZ1)</text>
-  <text x="85" y="715" fill="white" font-size="14">Port1 (Mgmt): ${FORTITESTER_1_PRIVATE}</text>
-  <text x="85" y="735" fill="#00FF00" font-size="14">Public: ${FORTITESTER_1_PUBLIC:-N/A}</text>
-  <text x="280" y="715" fill="white" font-size="14">Port2 (East): ${FORTITESTER_1_PORT2_IP:-N/A}</text>
-  <text x="450" y="715" fill="white" font-size="14">Port3 (West): ${FORTITESTER_1_PORT3_IP:-N/A}</text>
+  <text x="85" y="715" fill="#111111" font-size="14">Port1 (Mgmt): ${FORTITESTER_1_PRIVATE}</text>
+  <text x="85" y="735" fill="#007700" font-size="14">Public: ${FORTITESTER_1_PUBLIC:-N/A}</text>
+  <text x="280" y="715" fill="#111111" font-size="14">Port2 (East): ${FORTITESTER_1_PORT2_IP:-N/A}</text>
+  <text x="450" y="715" fill="#111111" font-size="14">Port3 (West): ${FORTITESTER_1_PORT3_IP:-N/A}</text>
   <!-- Connection lines to subnets -->
   <line x1="160" y1="660" x2="160" y2="435" stroke="#00BFFF" stroke-width="1" stroke-dasharray="3,2"/>
   <line x1="330" y1="760" x2="760" y2="1160" stroke="#00BFFF" stroke-width="1" stroke-dasharray="3,2"/>
@@ -967,10 +1006,10 @@ cat >> "$SVG_FILE" << FTESTER2EOF
   <!-- FortiTester 2 spans: Mgmt VPC AZ2 (port1), West AZ2 (port2), East AZ2 (port3) -->
   <rect x="60" y="795" width="600" height="120" rx="5" fill="#232F3E" stroke="#00BFFF" stroke-width="2"/>
   <text x="85" y="825" fill="#00BFFF" font-size="18" font-weight="bold">FortiTester 2 (AZ2)</text>
-  <text x="85" y="850" fill="white" font-size="14">Port1 (Mgmt): ${FORTITESTER_2_PRIVATE}</text>
-  <text x="85" y="870" fill="#00FF00" font-size="14">Public: ${FORTITESTER_2_PUBLIC:-N/A}</text>
-  <text x="280" y="850" fill="white" font-size="14">Port2 (West): ${FORTITESTER_2_PORT2_IP:-N/A}</text>
-  <text x="450" y="850" fill="white" font-size="14">Port3 (East): ${FORTITESTER_2_PORT3_IP:-N/A}</text>
+  <text x="85" y="850" fill="#111111" font-size="14">Port1 (Mgmt): ${FORTITESTER_2_PRIVATE}</text>
+  <text x="85" y="870" fill="#007700" font-size="14">Public: ${FORTITESTER_2_PUBLIC:-N/A}</text>
+  <text x="280" y="850" fill="#111111" font-size="14">Port2 (West): ${FORTITESTER_2_PORT2_IP:-N/A}</text>
+  <text x="450" y="850" fill="#111111" font-size="14">Port3 (East): ${FORTITESTER_2_PORT3_IP:-N/A}</text>
 FTESTER2EOF
 fi
 
@@ -978,30 +1017,30 @@ fi
 cat >> "$SVG_FILE" << LEGENDEOF
 
   <!-- ==================== LEGEND ==================== -->
-  <rect x="60" y="990" width="530" height="370" rx="5" fill="#232F3E" opacity="0.9"/>
-  <text x="85" y="1030" fill="white" font-size="22" font-weight="bold">Legend</text>
+  <rect x="60" y="990" width="530" height="370" rx="5" fill="white" stroke="#cccccc" stroke-width="1"/>
+  <text x="85" y="1030" fill="#111111" font-size="22" font-weight="bold">Legend</text>
 
   <!-- Subnet Types -->
   <rect x="85" y="1065" width="32" height="24" fill="url(#greenGradient)"/>
-  <text x="130" y="1085" fill="white" font-size="17">Public Subnet</text>
+  <text x="130" y="1085" fill="#111111" font-size="17">Public Subnet</text>
 
   <rect x="85" y="1105" width="32" height="24" fill="url(#blueGradient)"/>
-  <text x="130" y="1125" fill="white" font-size="17">Private/NAT GW Subnet</text>
+  <text x="130" y="1125" fill="#111111" font-size="17">Private/NAT GW Subnet</text>
 
   <rect x="85" y="1145" width="32" height="24" fill="url(#purpleGradient)"/>
-  <text x="130" y="1165" fill="white" font-size="17">TGW Subnet</text>
+  <text x="130" y="1165" fill="#111111" font-size="17">TGW Subnet</text>
 
   <rect x="85" y="1185" width="32" height="24" fill="url(#orangeGradient)"/>
-  <text x="130" y="1205" fill="white" font-size="17">GWLB/GWLBE Subnet</text>
+  <text x="130" y="1205" fill="#111111" font-size="17">GWLB/GWLBE Subnet</text>
 
   <rect x="85" y="1225" width="32" height="24" fill="none" stroke="#EE3124" stroke-width="1" stroke-dasharray="3,2"/>
-  <text x="130" y="1245" fill="white" font-size="17">${FGT_LEGEND_TEXT}</text>
+  <text x="130" y="1245" fill="#111111" font-size="17">${FGT_LEGEND_TEXT}</text>
 
   <rect x="85" y="1265" width="32" height="24" fill="#232F3E" stroke="#00BFFF" stroke-width="1"/>
-  <text x="130" y="1285" fill="white" font-size="17">FortiTester</text>
+  <text x="130" y="1285" fill="#111111" font-size="17">FortiTester</text>
 
   <!-- ENI Connection Legend -->
-  <text x="340" y="1085" fill="white" font-size="17" font-weight="bold">ENI Connections:</text>
+  <text x="340" y="1085" fill="#111111" font-size="17" font-weight="bold">ENI Connections:</text>
   <line x1="340" y1="1112" x2="395" y2="1112" stroke="#2E8B2E" stroke-width="2" stroke-dasharray="4,3"/>
   <text x="408" y="1118" fill="#2E8B2E" font-size="16">port1 (Public)</text>
   <line x1="340" y1="1145" x2="395" y2="1145" stroke="#ED7100" stroke-width="2" stroke-dasharray="4,3"/>
@@ -1010,18 +1049,18 @@ cat >> "$SVG_FILE" << LEGENDEOF
   <text x="408" y="1184" fill="#147EBA" font-size="16">port3 (Mgmt VPC)</text>
 
   <!-- IP Legend -->
-  <text x="85" y="1285" fill="white" font-size="17" font-weight="bold">IP Addresses:</text>
-  <text x="85" y="1312" fill="white" font-size="17">Private IP (white)</text>
-  <text x="85" y="1339" fill="#00FF00" font-size="17">Public IP (green)</text>
+  <text x="85" y="1285" fill="#111111" font-size="17" font-weight="bold">IP Addresses:</text>
+  <text x="85" y="1312" fill="#111111" font-size="17">Private IP (white)</text>
+  <text x="85" y="1339" fill="#007700" font-size="17">Public IP (green)</text>
 
   <!-- Status -->
-  <text x="340" y="1220" fill="white" font-size="17" font-weight="bold">Deployment:</text>
-  <text x="340" y="1247" fill="#00FF00" font-size="16">East/West TGW: Attached</text>
+  <text x="340" y="1220" fill="#111111" font-size="17" font-weight="bold">Deployment:</text>
+  <text x="340" y="1247" fill="#007700" font-size="16">East/West TGW: Attached</text>
   <text x="340" y="1274" fill="${FGT_DEPLOY_STATUS_COLOR}" font-size="16">${FGT_DEPLOY_STATUS}</text>
 
   <!-- Instance Summary -->
-  <text x="340" y="1312" fill="white" font-size="17" font-weight="bold">Public IPs:</text>
-  <text x="340" y="1339" fill="#00FF00" font-size="16">Jump Box: ${JUMP_BOX_PUBLIC}</text>
+  <text x="340" y="1312" fill="#111111" font-size="17" font-weight="bold">Public IPs:</text>
+  <text x="340" y="1339" fill="#007700" font-size="16">Jump Box: ${JUMP_BOX_PUBLIC}</text>
 
 </svg>
 LEGENDEOF
@@ -1044,6 +1083,14 @@ cat > "$MD_FILE" << MDEOF
 **Generated:** ${TIMESTAMP}
 **Template:** \`existing_vpc_resources\`
 **Region:** ${AWS_REGION} (AZs: ${AZ1}, ${AZ2})
+
+---
+
+## FortiGate Credentials
+
+| Username | Password |
+|----------|----------|
+| admin | ${FGT_PASSWORD} |
 
 ---
 
@@ -1080,6 +1127,15 @@ cat >> "$MD_FILE" << MDEOF2
 | Resource | ID | Name |
 |----------|-----|------|
 | Transit Gateway | ${TGW_ID} | ${PREFIX}-tgw |
+
+### Transit Gateway Attachments
+
+| Attachment ID | VPC | VPC ID |
+|--------------|-----|--------|
+| ${MGMT_TGW_ATTACH_ID} | Management VPC | ${MGMT_VPC_ID} |
+| ${INSP_TGW_ATTACH_ID} | Inspection VPC | ${INSPECTION_VPC_ID} |
+| ${EAST_TGW_ATTACH_ID} | East Spoke VPC | ${EAST_VPC_ID} |
+| ${WEST_TGW_ATTACH_ID} | West Spoke VPC | ${WEST_VPC_ID} |
 
 ### Instances with Public IPs
 
