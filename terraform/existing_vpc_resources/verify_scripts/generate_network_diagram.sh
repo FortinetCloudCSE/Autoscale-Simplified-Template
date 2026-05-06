@@ -84,6 +84,7 @@ VPC_CIDR_WEST=$(get_tfvar "vpc_cidr_west" "$TFVARS_FILE")
 # Deployment mode
 ENABLE_AUTOSCALE=$(get_tfvar "enable_autoscale_deployment" "$TFVARS_FILE")
 ENABLE_HA_PAIR=$(get_tfvar "enable_ha_pair_deployment" "$TFVARS_FILE")
+ENABLE_BUILD_MGMT=$(get_tfvar "enable_build_management_vpc" "$TFVARS_FILE")
 
 # Distributed VPCs
 ENABLE_DISTRIBUTED=$(get_tfvar "enable_distributed_egress_vpcs" "$TFVARS_FILE")
@@ -717,16 +718,27 @@ cat > "$SVG_FILE" << SVGEOF
   <text x="1100" y="90" text-anchor="middle" fill="#444444" font-size="18">Generated: ${TIMESTAMP} | Template: existing_vpc_resources</text>
 
   <!-- Internet Gateway Icons -->
+SVGEOF
+
+if [[ "$ENABLE_BUILD_MGMT" == "true" ]]; then
+cat >> "$SVG_FILE" << MGMTIGWEOF
   <!-- Management VPC IGW -->
   <rect x="280" y="115" width="120" height="48" rx="5" fill="#232F3E" stroke="#FF9900" stroke-width="2"/>
   <text x="340" y="146" text-anchor="middle" fill="#FF9900" font-size="18" font-weight="bold">IGW</text>
   <line x1="340" y1="163" x2="340" y2="190" stroke="#FF9900" stroke-width="2" stroke-dasharray="4,2"/>
+MGMTIGWEOF
+fi
 
+cat >> "$SVG_FILE" << SVGEOF2
   <!-- Inspection VPC IGW -->
   <rect x="1680" y="115" width="120" height="48" rx="5" fill="#232F3E" stroke="#FF9900" stroke-width="2"/>
   <text x="1740" y="146" text-anchor="middle" fill="#FF9900" font-size="18" font-weight="bold">IGW</text>
   <line x1="1740" y1="163" x2="1740" y2="190" stroke="#FF9900" stroke-width="2" stroke-dasharray="4,2"/>
 
+SVGEOF2
+
+if [[ "$ENABLE_BUILD_MGMT" == "true" ]]; then
+cat >> "$SVG_FILE" << MGMTVPCEOF
   <!-- ==================== MANAGEMENT VPC ==================== -->
   <rect x="60" y="190" width="600" height="${MGMT_VPC_HEIGHT}" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
   <text x="85" y="230" fill="#111111" font-size="24" font-weight="bold">Management VPC</text>
@@ -754,20 +766,29 @@ cat > "$SVG_FILE" << SVGEOF
   <rect x="370" y="460" width="250" height="85" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
   <text x="495" y="500" text-anchor="middle" fill="#111111" font-size="18" font-weight="bold">Private AZ2</text>
   <text x="495" y="528" text-anchor="middle" fill="#111111" font-size="16">${MGMT_PRIVATE_AZ2_CIDR}</text>
+MGMTVPCEOF
 
-$(if [[ -n "$AZ3" ]]; then echo "  <!-- Management AZ3 Subnets -->
-  <rect x=\"90\" y=\"555\" width=\"250\" height=\"65\" rx=\"5\" fill=\"url(#greenGradient)\" opacity=\"0.8\"/>
-  <text x=\"215\" y=\"580\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"15\" font-weight=\"bold\">Public AZ3</text>
-  <text x=\"215\" y=\"610\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"14\">${MGMT_PUBLIC_AZ3_CIDR}</text>
+if [[ -n "$AZ3" ]]; then
+cat >> "$SVG_FILE" << MGMTAZ3EOF
+  <!-- Management AZ3 Subnets -->
+  <rect x="90" y="555" width="250" height="65" rx="5" fill="url(#greenGradient)" opacity="0.8"/>
+  <text x="215" y="580" text-anchor="middle" fill="#111111" font-size="15" font-weight="bold">Public AZ3</text>
+  <text x="215" y="610" text-anchor="middle" fill="#111111" font-size="14">${MGMT_PUBLIC_AZ3_CIDR}</text>
 
-  <rect x=\"370\" y=\"555\" width=\"250\" height=\"65\" rx=\"5\" fill=\"url(#blueGradient)\" opacity=\"0.8\"/>
-  <text x=\"495\" y=\"580\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"15\" font-weight=\"bold\">Private AZ3</text>
-  <text x=\"495\" y=\"610\" text-anchor=\"middle\" fill=\"#111111\" font-size=\"14\">${MGMT_PRIVATE_AZ3_CIDR}</text>"; fi)
+  <rect x="370" y="555" width="250" height="65" rx="5" fill="url(#blueGradient)" opacity="0.8"/>
+  <text x="495" y="580" text-anchor="middle" fill="#111111" font-size="15" font-weight="bold">Private AZ3</text>
+  <text x="495" y="610" text-anchor="middle" fill="#111111" font-size="14">${MGMT_PRIVATE_AZ3_CIDR}</text>
+MGMTAZ3EOF
+fi
 
+cat >> "$SVG_FILE" << MGMTTGWEOF
   <!-- Management TGW Connection indicator -->
   <rect x="240" y="${MGMT_TGW_Y}" width="140" height="42" rx="3" fill="url(#purpleGradient)" opacity="0.8"/>
   <text x="310" y="$((MGMT_TGW_Y + 28))" text-anchor="middle" fill="#111111" font-size="16">TGW Attach</text>
+MGMTTGWEOF
+fi
 
+cat >> "$SVG_FILE" << SVGEOF3
   <!-- ==================== INSPECTION VPC ==================== -->
   <!-- Layout: FortiGate ASG (left) | Public, GWLBE, Private (middle) | NAT GW (right) | TGW Attach (bottom) -->
   <rect x="720" y="190" width="1420" height="${INSP_VPC_HEIGHT}" rx="10" fill="none" stroke="#3B48CC" stroke-width="3"/>
@@ -939,7 +960,7 @@ $(if [[ "$CREATE_MGMT_INSP" == "true" && -n "$AZ3" ]]; then echo "
   <rect x="1190" y="1310" width="460" height="40" rx="3" fill="#007700" opacity="0.3"/>
   <text x="1420" y="1337" text-anchor="middle" fill="#CC0000" font-size="15">Route: 0.0.0.0/0 -> TGW | TGW RT: ${WEST_TGW_DEFAULT_ROUTE}</text>
 
-SVGEOF
+SVGEOF3
 
 # Add Distributed VPC section if enabled
 if [ "$ENABLE_DISTRIBUTED" = "true" ] && [ -n "$DISTRIBUTED_COUNT" ] && [ "$DISTRIBUTED_COUNT" -ge 1 ]; then
@@ -1108,11 +1129,19 @@ This diagram shows the current state of the \`${PREFIX}\` infrastructure deploye
 
 | VPC | CIDR | VPC ID | Status |
 |-----|------|--------|--------|
+MDEOF
+
+if [ "$ENABLE_BUILD_MGMT" = "true" ]; then
+cat >> "$MD_FILE" << MGMTVPCMDEOF
 | Management VPC | ${VPC_CIDR_MANAGEMENT} | ${MGMT_VPC_ID} | Deployed |
+MGMTVPCMDEOF
+fi
+
+cat >> "$MD_FILE" << MDEOF_VPCS
 | Inspection VPC | ${VPC_CIDR_INSPECTION} | ${INSPECTION_VPC_ID} | Deployed |
 | East Spoke VPC | ${VPC_CIDR_EAST} | ${EAST_VPC_ID} | Deployed |
 | West Spoke VPC | ${VPC_CIDR_WEST} | ${WEST_VPC_ID} | Deployed |
-MDEOF
+MDEOF_VPCS
 
 if [ "$ENABLE_DISTRIBUTED" = "true" ]; then
 cat >> "$MD_FILE" << DISTMDEOF
@@ -1132,7 +1161,15 @@ cat >> "$MD_FILE" << MDEOF2
 
 | Attachment ID | VPC | VPC ID |
 |--------------|-----|--------|
+MDEOF2
+
+if [ "$ENABLE_BUILD_MGMT" = "true" ]; then
+cat >> "$MD_FILE" << MGMTATTACHEOF
 | ${MGMT_TGW_ATTACH_ID} | Management VPC | ${MGMT_VPC_ID} |
+MGMTATTACHEOF
+fi
+
+cat >> "$MD_FILE" << MDEOF2B
 | ${INSP_TGW_ATTACH_ID} | Inspection VPC | ${INSPECTION_VPC_ID} |
 | ${EAST_TGW_ATTACH_ID} | East Spoke VPC | ${EAST_VPC_ID} |
 | ${WEST_TGW_ATTACH_ID} | West Spoke VPC | ${WEST_VPC_ID} |
@@ -1142,7 +1179,7 @@ cat >> "$MD_FILE" << MDEOF2
 | Instance Name | Instance ID | Private IP | Public IP |
 |--------------|-------------|------------|-----------|
 | ${JUMP_BOX_NAME} | ${JUMP_BOX_ID} | ${JUMP_BOX_PRIVATE} | ${JUMP_BOX_PUBLIC} |
-MDEOF2
+MDEOF2B
 
 if [ "$ENABLE_DISTRIBUTED" = "true" ] && [ -n "$DIST1_AZ1_PUBLIC" ]; then
 cat >> "$MD_FILE" << DISTINSTEOF
