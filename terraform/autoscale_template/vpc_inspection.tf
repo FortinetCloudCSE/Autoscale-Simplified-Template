@@ -437,7 +437,8 @@ resource "null_resource" "delete_existing_east_tgw_default_route" {
       OUTPUT=$(aws ec2 delete-transit-gateway-route \
         --transit-gateway-route-table-id ${data.aws_ec2_transit_gateway_route_table.east-tgw-rtb[0].id} \
         --destination-cidr-block 0.0.0.0/0 \
-        --region ${var.aws_region} 2>&1)
+        --region ${var.aws_region} \
+        --no-verify-ssl 2>&1)
       RC=$?
       if [ $RC -ne 0 ] && ! echo "$OUTPUT" | grep -q "InvalidRoute"; then
         echo "$OUTPUT" >&2
@@ -454,7 +455,8 @@ resource "null_resource" "delete_existing_west_tgw_default_route" {
       OUTPUT=$(aws ec2 delete-transit-gateway-route \
         --transit-gateway-route-table-id ${data.aws_ec2_transit_gateway_route_table.west-tgw-rtb[0].id} \
         --destination-cidr-block 0.0.0.0/0 \
-        --region ${var.aws_region} 2>&1)
+        --region ${var.aws_region} \
+        --no-verify-ssl 2>&1)
       RC=$?
       if [ $RC -ne 0 ] && ! echo "$OUTPUT" | grep -q "InvalidRoute"; then
         echo "$OUTPUT" >&2
