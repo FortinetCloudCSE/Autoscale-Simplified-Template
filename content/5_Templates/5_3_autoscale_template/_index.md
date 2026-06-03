@@ -28,11 +28,37 @@ The autoscale_template discovers the existing Inspection VPC via `Fortinet-Role`
 | Resource | Tag Pattern | Purpose |
 |----------|-------------|---------|
 | Inspection VPC | `{cp}-{env}-inspection-vpc` | VPC for FortiGate deployment |
-| Subnets | `{cp}-{env}-inspection-{type}-{az}` | Public, GWLBE, Private subnets |
-| Route Tables | `{cp}-{env}-inspection-{type}-rt-{az}` | For route modifications |
+| Subnets | `{cp}-{env}-inspection-{type}-az{N}` | Public, GWLBE, Private subnets |
+| Route Tables | `{cp}-{env}-inspection-{type}-rt-az{N}` | For route modifications |
 | IGW | `{cp}-{env}-inspection-igw` | Internet connectivity |
-| NAT Gateways | `{cp}-{env}-inspection-natgw-{az}` | If nat_gw mode |
+| NAT Gateways | `{cp}-{env}-inspection-natgw-az{N}` | If nat_gw mode |
 | TGW Attachment | `{cp}-{env}-inspection-tgw-attachment` | If TGW enabled |
+| **Mgmt Subnets** | **`{cp}-{env}-inspection-management-az{N}`** | **Dedicated management subnets within the Inspection VPC** |
+| **Mgmt Route Tables** | **`{cp}-{env}-inspection-management-rt-az{N}`** | **Route tables for dedicated management subnets** |
+
+#### Dedicated Management Subnet Tags
+
+The `inspection-management` tags are used when you want a **dedicated management ENI on a separate subnet within the Inspection VPC**, without creating a separate Management VPC.
+
+This applies when:
+- `enable_dedicated_management_eni = true` in `autoscale_template`
+- `create_management_subnet_in_inspection_vpc = true` in `existing_vpc_resources` (creates the subnets with these tags)
+- `enable_dedicated_management_vpc = false` (you are NOT using a separate Management VPC)
+
+When these conditions are met, `autoscale_template` attaches a second ENI to each FortiGate instance in the management subnet, isolating management traffic from the data plane. The route tables discovered via the `inspection-management-rt-az{N}` tags are updated to ensure management traffic is routed correctly.
+
+{{% notice info %}}
+**Management ENI vs. Management VPC**
+
+These two options are mutually exclusive:
+
+| Option | Tags Used | When to Use |
+|--------|-----------|-------------|
+| `enable_dedicated_management_eni = true` (no separate VPC) | `{cp}-{env}-inspection-management-az{N}` | Simpler deployments — management interface in the same VPC as data plane |
+| `enable_dedicated_management_vpc = true` | `{cp}-{env}-management-public-az{N}` (in a separate VPC) | Enterprise deployments — full network isolation for management traffic |
+
+Setting `enable_dedicated_management_vpc = true` automatically implies `enable_dedicated_management_eni = true`; you do not need to set both.
+{{% /notice %}}
 
 ### Components Created
 
