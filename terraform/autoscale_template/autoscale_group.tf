@@ -7,6 +7,9 @@ locals {
 locals {
   management_device_index = var.firewall_policy_mode == "2-arm" ? 2 : 1
 }
+locals {
+  enable_ondemand_asg = var.asg_ondemand_asg_max_size > 0
+}
 # Management VPC Fortinet-Role tags - auto-constructed from cp and env
 locals {
   management_vpc = "${var.cp}-${var.env}-management-vpc"
@@ -213,7 +216,8 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   ## Auto scale group
   fgt_intf_mode            = var.firewall_policy_mode
   fgt_access_internet_mode = var.access_internet_mode
-  asgs = {
+  asgs = merge(
+    {
     fgt_byol_asg = {
       fmg_integration = var.enable_fortimanager_integration ? {
         ip           = var.fortimanager_ip
@@ -277,7 +281,9 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       create_dynamodb_table         = true
       dynamodb_table_name           = "fgt_asg_track_table"
       asg_health_check_grace_period = var.asg_health_check_grace_period
+    }
     },
+    local.enable_ondemand_asg ? {
     fgt_on_demand_asg = {
       fmg_integration = var.enable_fortimanager_integration ? {
         ip           = var.fortimanager_ip
@@ -360,10 +366,12 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         }
       }
     }
-  }
+    } : {}
+  )
 
   ## Cloudwatch Alarm
-  cloudwatch_alarms = {
+  cloudwatch_alarms = merge(
+    {
     byol_cpu_above_80 = {
       comparison_operator = "GreaterThanOrEqualToThreshold"
       evaluation_periods  = 2
@@ -377,11 +385,11 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       }
       alarm_description   = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_byol."
       datapoints_to_alarm = 1
-      alarm_asg_policies = {
+      alarm_asg_policies  = local.enable_ondemand_asg ? {
         policy_name_map = {
           "fgt_on_demand_asg" = ["byol_cpu_above_80"]
         }
-      }
+      } : null
     },
     byol_cpu_below_30 = {
       comparison_operator = "LessThanThreshold"
@@ -396,12 +404,14 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       }
       alarm_description   = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_byol."
       datapoints_to_alarm = 1
-      alarm_asg_policies = {
+      alarm_asg_policies  = local.enable_ondemand_asg ? {
         policy_name_map = {
           "fgt_on_demand_asg" = ["byol_cpu_below_30"]
         }
-      }
+      } : null
+    }
     },
+    local.enable_ondemand_asg ? {
     ondemand_cpu_above_80 = {
       comparison_operator = "GreaterThanOrEqualToThreshold"
       evaluation_periods  = 2
@@ -438,7 +448,8 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         }
       }
     }
-  }
+    } : {}
+  )
 
   ## Gateway Load Balancer
   enable_cross_zone_load_balancing = var.allow_cross_zone_load_balancing
