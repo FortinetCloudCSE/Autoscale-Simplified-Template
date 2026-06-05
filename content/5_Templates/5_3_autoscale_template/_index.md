@@ -64,7 +64,7 @@ Setting `enable_dedicated_management_vpc = true` automatically implies `enable_d
 
 | Component | Purpose | Always Created |
 |-----------|---------|----------------|
-| **FortiGate Autoscale Groups** | BYOL and/or on-demand instance groups | ✅ Yes |
+| **FortiGate Autoscale Groups** | BYOL and/or on-demand instance groups | ✅ Yes (on-demand skipped if `asg_ondemand_asg_max_size = 0`) |
 | **Gateway Load Balancer** | Distributes traffic across FortiGate instances | ✅ Yes |
 | **GWLB Endpoints** | Connection points in each AZ | ✅ Yes |
 | **Lambda Functions** | Lifecycle management and licensing automation | ✅ Yes |
@@ -540,9 +540,15 @@ asg_ondemand_asg_max_size = 8
 ```
 
 **Prerequisites**:
-- Accept FortiGate-VM terms in AWS Marketplace
+- Accept FortiGate-VM PAYG terms in AWS Marketplace **before running `terraform apply`**
 - No license files or API credentials required
 - Licensing cost included in hourly EC2 charge
+
+{{% notice warning %}}
+**Marketplace Subscription Required for On-Demand ASG**
+
+The on-demand ASG uses the FortiGate PAYG AMI, which requires an active AWS Marketplace subscription. If you are running BYOL-only and set `asg_ondemand_asg_max_size = 0`, the on-demand ASG and its launch template are not created and **no PAYG Marketplace subscription is required**.
+{{% /notice %}}
 
 #### Hybrid Licensing (Recommended for Production)
 
@@ -569,7 +575,7 @@ asg_byol_asg_min_size     = 2
 asg_byol_asg_max_size     = 4
 asg_byol_asg_desired_size = 2
 
-# On-Demand ASG  
+# On-Demand ASG — set max_size = 0 to disable entirely (BYOL-only deployments)
 asg_ondemand_asg_min_size     = 0
 asg_ondemand_asg_max_size     = 4
 asg_ondemand_asg_desired_size = 0
@@ -577,6 +583,12 @@ asg_ondemand_asg_desired_size = 0
 # Primary scale-in protection
 primary_scalein_protection = true
 ```
+
+{{% notice info %}}
+**BYOL-Only Deployments**
+
+Setting `asg_ondemand_asg_max_size = 0` skips creation of the on-demand ASG, its launch template, and all associated CloudWatch alarms. This also removes the requirement to subscribe to the FortiGate PAYG AMI in AWS Marketplace. The BYOL ASG is unaffected.
+{{% /notice %}}
 
 **Capacity planning guidance**:
 
