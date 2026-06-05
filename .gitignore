@@ -51,6 +51,9 @@ terraform/.deploy_state.env
 # Terraform state backups
 **/terraform.tfstate.*.backup
 
+# Terraform S3 backend config (contains bucket name/region - filled in locally)
+**/backend.hcl
+
 # Network diagrams and verify output
 logs/
 
