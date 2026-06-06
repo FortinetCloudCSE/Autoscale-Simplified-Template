@@ -470,22 +470,23 @@ fortiflex_username      = ""
 # @ui-help: Leave empty if using BYOL files or PAYG only
 fortiflex_password      = ""
 
-# @ui-type: text
-# @ui-label: FortiFlex Serial Number List
-# @ui-description: Serial numbers to restrict FortiFlex licensing (optional)
+# @ui-type: multiselect
+# @ui-source: fortiflex-configs
+# @ui-label: FortiFlex Configuration IDs
+# @ui-description: Select one or more FortiFlex configuration IDs (populated from your FortiFlex account)
 # @ui-required: false
 # @ui-width: full
-# @ui-placeholder: FGVMELTMxxxxxxxx,FGVMELTMxxxxxxxx
-# @ui-help: Optional: Restrict to specific FortiFlex programs
-fortiflex_sn_list       = [""]
-
-# @ui-type: text
-# @ui-label: FortiFlex Configuration ID List
-# @ui-description: Configuration IDs from FortiFlex portal
-# @ui-required: false
-# @ui-width: full
-# @ui-placeholder: STD_ASG_FGT_4XvcpuFortiGate-VM
+# @ui-help: Requires FortiFlex username and password above. Populated automatically from your FortiFlex account.
 fortiflex_configid_list = [""]
+
+# @ui-type: multiselect
+# @ui-source: fortiflex-serials
+# @ui-label: FortiFlex Serial Numbers
+# @ui-description: Select serial numbers to restrict licensing (populated based on selected Configuration IDs)
+# @ui-required: false
+# @ui-width: full
+# @ui-help: Populated automatically from selected Configuration IDs. Leave empty to allow any serial number.
+fortiflex_sn_list       = [""]
 
 #====================================================================================================
 # FORTIMANAGER INTEGRATION (OPTIONAL)
