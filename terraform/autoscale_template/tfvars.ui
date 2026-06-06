@@ -160,16 +160,18 @@ access_internet_mode = "nat_gw"
 # @ui-description: Connect FortiGate management interfaces to separate management VPC (created by existing_vpc_resources)
 # @ui-width: full
 # @ui-default: false
-# @ui-help: Set to true if you deployed a management VPC with existing_vpc_resources. Management VPC is discovered automatically via Fortinet-Role tags using cp and env values.
+# @ui-exclusive-with: enable_dedicated_management_eni
+# @ui-help: Mutually exclusive with Enable Dedicated Management ENI. Default derived from your existing_vpc_resources selection.
 enable_dedicated_management_vpc = false
 
 # @ui-type: checkbox
 # @ui-label: Enable Dedicated Management ENI
-# @ui-description: Dedicate port2 as management-only interface (removes from data plane)
+# @ui-description: Dedicate port2 as management-only interface using subnets in the inspection VPC
 # @ui-width: full
-# @ui-default: true
-# @ui-help: Recommended for production. Requires dedicated management VPC or management subnets in inspection VPC to be useful.
-enable_dedicated_management_eni = true
+# @ui-default: false
+# @ui-exclusive-with: enable_dedicated_management_vpc
+# @ui-help: Mutually exclusive with Enable Dedicated Management VPC. Default derived from your existing_vpc_resources selection.
+enable_dedicated_management_eni = false
 
 # @ui-type: checkbox
 # @ui-label: Enable East-West Inspection
