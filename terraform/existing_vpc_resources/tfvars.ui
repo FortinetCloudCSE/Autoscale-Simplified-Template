@@ -88,8 +88,8 @@ keypair = ""
 # @ui-required: true
 # @ui-width: full
 # @ui-default: x.x.x.x/32
-# @ui-help: Controls security group access to FortiManager, FortiAnalyzer, and Jump Box instances in the management VPC (if enabled). Default includes your current public IP - required to access these resources from this environment. Format: x.x.x.x/32 for single IP or x.x.x.0/24 for subnet.
-# @ui-placeholder: 1.2.3.4/32, 5.6.7.8/32
+# @ui-help: Controls security group access to FortiManager, FortiAnalyzer, and Jump Box instances in the management VPC (if enabled). Enter as an HCL list of quoted CIDR strings. Single IP example: ["1.2.3.4/32"] — Multiple IPs: ["1.2.3.4/32", "5.6.7.8/32", "10.0.0.0/24"]
+# @ui-placeholder: ["1.2.3.4/32", "5.6.7.8/32"]
 management_cidr_sg = "x.x.x.x/32"
 
 #====================================================================================================
