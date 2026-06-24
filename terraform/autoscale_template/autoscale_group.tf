@@ -225,7 +225,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         primary_only = true
         fgt_lic_mgmt = "module"
         vrf_select   = 1
-      } : null
+      } : { ip = "", sn = "", fgt_lic_mgmt = "module" }
       primary_scalein_protection = var.primary_scalein_protection
       extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
@@ -291,7 +291,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         primary_only = true
         fgt_lic_mgmt = "module"
         vrf_select   = var.fortimanager_vrf_select
-      } : null
+      } : { ip = "", sn = "", fgt_lic_mgmt = "module" }
       primary_scalein_protection = var.primary_scalein_protection
       extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
