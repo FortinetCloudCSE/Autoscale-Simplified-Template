@@ -1,4 +1,3 @@
-diagnose sys forticonverter set-prompt-visibility hidden
 config system probe-response
     set mode http-probe
     set port 8008
@@ -6,48 +5,38 @@ config system probe-response
 end
 config system interface
     edit port1
-        set allowaccess ping http https probe-response
-        set defaultgw disable
-    next
-    edit port2
-        set allowaccess ping http https
+        set allowaccess ping https http probe-response
         set defaultgw enable
     next
 end
 config system zone
-    edit "private-zone"
-        set interface "geneve-az1" "geneve-az2"
+    edit private-zone
+        set interface ${join(" ", [for az in az_list : "\"geneve-${az}\""])}
     next
 end
 config router static
+%{ for az in az_list ~}
     edit 0
         set dst 192.168.0.0 255.255.0.0
         set distance 5
         set priority 100
-        set device "geneve-az1"
+        set device "geneve-${az}"
     next
-    edit 0
-        set dst 192.168.0.0 255.255.0.0
-        set distance 5
-        set priority 100
-        set device "geneve-az2"
-    next
+%{ endfor ~}
 end
 config router policy
+%{ for az in az_list ~}
     edit 0
-        set input-device "geneve-az1"
-        set output-device "geneve-az1"
+        set input-device "geneve-${az}"
+        set output-device "geneve-${az}"
     next
-    edit 0
-        set input-device "geneve-az2"
-        set output-device "geneve-az2"
-    next
+%{ endfor ~}
 end
 config firewall policy
     edit 0
         set name "private_to_internet"
         set srcintf "private-zone"
-        set dstintf "port2"
+        set dstintf "port1"
         set action accept
         set srcaddr "all"
         set dstaddr "all"
@@ -64,17 +53,14 @@ config firewall policy
         set dstaddr "all"
         set schedule "always"
         set service "ALL"
-        set utm-status enable
-        set av-profile "default"
-        set ips-sensor "default"
         set nat disable
-        set logtraffic all
     next
 end
-config system fortiguard
-    set auto-firmware-upgrade disable
-    set interface-select-method specify
-    set interface port3
+config system interface
+    edit port1
+        set allowaccess ping http probe-response
+        set defaultgw enable
+    next
 end
 diagnose sys forticonverter set-prompt-visibility hidden
 config system global
@@ -82,13 +68,16 @@ config system global
     set gui-firmware-upgrade-warning disable
     set admin-lockout-duration 0
 end
+config system fortiguard
+    set auto-firmware-upgrade disable
+    set interface-select-method specify
+    set interface port2
+end
 config system interface
-    edit port3
+    edit port2
         set vrf 1
         set allowaccess ping https http ssh snmp fgfm
         set defaultgw enable
         set dedicated-to management
     next
 yend
-
-

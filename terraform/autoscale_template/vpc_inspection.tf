@@ -7,12 +7,6 @@
 # Required Fortinet-Role tags are listed at the end of this file.
 #
 
-locals {
-  common_tags = {
-    Environment = var.env
-  }
-}
-
 check "config_validation" {
   assert {
     condition     = !(var.enable_dedicated_management_eni && var.enable_dedicated_management_vpc)

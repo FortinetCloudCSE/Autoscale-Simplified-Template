@@ -2,7 +2,10 @@ locals {
   dedicated_mgmt = var.enable_dedicated_management_vpc ? "-wdm" : var.enable_dedicated_management_eni ? "-wdm-eni" : ""
 }
 locals {
-  fgt_config_file = "./${var.firewall_policy_mode}${local.dedicated_mgmt}-${var.base_config_file}"
+  az_list = var.availability_zone_3 != "" ? ["az1", "az2", "az3"] : ["az1", "az2"]
+}
+locals {
+  fgt_config_template = "${path.module}/${var.firewall_policy_mode}${local.dedicated_mgmt}-fgt-conf.cfg.tftpl"
 }
 locals {
   management_device_index = var.firewall_policy_mode == "2-arm" ? 2 : 1
@@ -216,6 +219,9 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   ## Auto scale group
   fgt_intf_mode            = var.firewall_policy_mode
   fgt_access_internet_mode = var.access_internet_mode
+  fgt_config_shared = {
+    fgt_login_port_number = var.fortigate_gui_port != "443" ? var.fortigate_gui_port : ""
+  }
   asgs = merge(
     {
     fgt_byol_asg = {
@@ -274,7 +280,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         internal_port = "secgrp1"
       }
 
-      user_conf_file_path   = local.fgt_config_file
+      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list })
       asg_max_size          = var.asg_byol_asg_max_size
       asg_min_size          = var.asg_byol_asg_min_size
       asg_desired_capacity  = var.asg_byol_asg_desired_size
@@ -333,7 +339,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         login_port    = "secgrp1"
         internal_port = "secgrp1"
       }
-      user_conf_file_path  = local.fgt_config_file
+      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list })
       asg_max_size         = var.asg_ondemand_asg_max_size
       asg_min_size         = var.asg_ondemand_asg_min_size
       asg_desired_capacity = var.asg_ondemand_asg_desired_size
@@ -466,7 +472,6 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   enable_east_west_inspection = true
 
   ## Tag
-  general_tags = {
-    "purpose" = "ASG_TEST"
-  }
+  general_tags = merge(local.common_tags, {
+  })
 }

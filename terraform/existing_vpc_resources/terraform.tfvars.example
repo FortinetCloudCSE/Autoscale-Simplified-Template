@@ -23,6 +23,22 @@ cp  = "acme"  # Customer prefix - use your company/project name
 env = "test"  # Environment: prod, test, dev, staging, etc.
 
 #====================================================================================================
+# ADDITIONAL TAGS
+#====================================================================================================
+# Tags added here are applied to ALL resources created by this template (via AWS provider
+# default_tags). Add organization-specific tags such as cost center, owner, or project here.
+# Do not modify provider.tf or vpc_inspection.tf to add tags.
+#
+# Example:
+# additional_tags = {
+#   CostCenter = "12345"
+#   Owner      = "network-team"
+#   Project    = "fortigate-inspection"
+# }
+#
+additional_tags = {}
+
+#====================================================================================================
 # SECURITY VARIABLES
 #====================================================================================================
 # AWS EC2 keypair name for SSH access to instances (must already exist in target region)

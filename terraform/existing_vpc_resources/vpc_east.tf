@@ -1,11 +1,5 @@
 
 locals {
-    common_tags = {
-    Environment = var.env
-  }
-}
-
-locals {
   availability_zone_1 = "${var.aws_region}${var.availability_zone_1}"
 }
 

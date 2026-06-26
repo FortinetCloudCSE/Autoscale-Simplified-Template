@@ -1,6 +1,11 @@
 variable "aws_region" {
   description = "The AWS region to use"
 }
+variable "additional_tags" {
+  description = "Additional tags to apply to all resources. Merged with base tags in provider.tf default_tags, which propagates to every AWS resource in this template."
+  type        = map(string)
+  default     = {}
+}
 variable "availability_zone_1" {
   description = "Availability Zone 1 for VPC"
 }
