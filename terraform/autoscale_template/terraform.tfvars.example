@@ -24,6 +24,22 @@ cp  = "acme"  # Customer prefix - use your company/project name
 env = "test"  # Environment: prod, test, dev, staging, etc.
 
 #====================================================================================================
+# ADDITIONAL TAGS
+#====================================================================================================
+# Tags added here are applied to ALL resources created by this template AND the upstream autoscale
+# module (via AWS provider default_tags). Add organization-specific tags such as cost center, owner,
+# or project here. Do not modify provider.tf or vpc_inspection.tf to add tags.
+#
+# Example:
+# additional_tags = {
+#   CostCenter = "12345"
+#   Owner      = "network-team"
+#   Project    = "fortigate-inspection"
+# }
+#
+additional_tags = {}
+
+#====================================================================================================
 # SECURITY VARIABLES
 #====================================================================================================
 # AWS EC2 keypair name for SSH access to FortiGate instances (must already exist in target region)
@@ -281,13 +297,6 @@ fortimanager_vrf_select = 0
 #====================================================================================================
 # ADVANCED CONFIGURATION
 #====================================================================================================
-# Base FortiOS configuration file
-# Template file used to generate FortiGate bootstrap configuration
-# Prefixes are added automatically based on deployment mode (1-arm, 2-arm, etc.)
-# Default: "fgt-conf.cfg" results in files like "1-arm-fgt-conf.cfg", "2-arm-fgt-conf.cfg"
-#
-base_config_file = "fgt-conf.cfg"
-
 # ACL for linux instances (if any are deployed by this template)
 # Options: "public" (assigns public IP), "private" (private IP only)
 # This variable is typically not used by unified_template directly

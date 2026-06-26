@@ -56,3 +56,7 @@ logs/
 
 # Superseded scripts
 terraform/deploy_and_teardown.sh
+
+# PDF and generation script
+FortiGate_Autoscale_Template_Changes.pdf
+generate_changes_pdf.py

@@ -1,6 +1,11 @@
 variable "aws_region" {
   description = "The AWS region to use"
 }
+variable "additional_tags" {
+  description = "Additional tags to apply to all resources. Merged with base tags in provider.tf default_tags, which propagates to every AWS resource including those created by the upstream autoscale module."
+  type        = map(string)
+  default     = {}
+}
 variable "availability_zone_1" {
   description = "Availability Zone 1 for VPC"
 }
@@ -37,7 +42,8 @@ variable "access_internet_mode" {
 }
 variable "fortigate_gui_port" {
   description = "Fortigate GUI Port"
-  default = 443
+  default = "443"
+  type = string
 }
 variable "firewall_policy_mode" {
   description = "Firewall Policy Mode"
@@ -164,11 +170,6 @@ variable fortiflex_configid_list {
     description = "Config ID for FortiFlex"
     type = list(string)
     default = [""]
-}
-variable "base_config_file" {
-  description = "Initial Config File for Autoscale Group"
-  type        = string
-  default     = ""
 }
 variable "asg_byol_asg_min_size" {
     description = "Minimum size for the BYOL ASG"
