@@ -472,6 +472,5 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   enable_east_west_inspection = true
 
   ## Tag
-  general_tags = merge(local.common_tags, {
-  })
+  general_tags = local.common_tags
 }
