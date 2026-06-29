@@ -28,7 +28,7 @@ module "vpc-east" {
   depends_on = [ module.vpc-transit-gateway.tgw_id ]
   vpc_name   = "${var.cp}-${var.env}-east-vpc"
   vpc_cidr   = var.vpc_cidr_east
-
+  tags       = local.common_tags
 }
 
 module "subnet-east-public-az1" {
@@ -39,6 +39,7 @@ module "subnet-east-public-az1" {
   vpc_id            = module.vpc-east[0].vpc_id
   availability_zone = local.availability_zone_1
   subnet_cidr       = local.east_public_subnet_cidr_az1
+  tags              = local.common_tags
 }
 module "subnet-east-public-az2" {
   source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
@@ -49,6 +50,7 @@ module "subnet-east-public-az2" {
   vpc_id                     = module.vpc-east[0].vpc_id
   availability_zone          = local.availability_zone_2
   subnet_cidr                = local.east_public_subnet_cidr_az2
+  tags                       = local.common_tags
 }
 
 #
@@ -62,6 +64,7 @@ module "subnet-east-tgw-az1" {
   vpc_id            = module.vpc-east[0].vpc_id
   availability_zone = local.availability_zone_1
   subnet_cidr       = local.east_tgw_subnet_cidr_az1
+  tags              = local.common_tags
 }
 module "subnet-east-tgw-az2" {
   source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
@@ -71,6 +74,7 @@ module "subnet-east-tgw-az2" {
   vpc_id            = module.vpc-east[0].vpc_id
   availability_zone = local.availability_zone_2
   subnet_cidr       = local.east_tgw_subnet_cidr_az2
+  tags              = local.common_tags
 }
 module "subnet-east-public-az3" {
   source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
@@ -80,6 +84,7 @@ module "subnet-east-public-az3" {
   vpc_id            = module.vpc-east[0].vpc_id
   availability_zone = local.availability_zone_3
   subnet_cidr       = local.east_public_subnet_cidr_az3
+  tags              = local.common_tags
 }
 module "subnet-east-tgw-az3" {
   source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
@@ -89,6 +94,7 @@ module "subnet-east-tgw-az3" {
   vpc_id            = module.vpc-east[0].vpc_id
   availability_zone = local.availability_zone_3
   subnet_cidr       = local.east_tgw_subnet_cidr_az3
+  tags              = local.common_tags
 }
 
 #
@@ -97,9 +103,7 @@ module "subnet-east-tgw-az3" {
 resource "aws_route_table" "east-tgw-rt" {
   count  = var.enable_build_existing_subnets ? 1 : 0
   vpc_id = module.vpc-east[0].vpc_id
-  tags = {
-    Name = "${var.cp}-${var.env}-east-tgw-rt"
-  }
+  tags   = merge({ Name = "${var.cp}-${var.env}-east-tgw-rt" }, local.common_tags)
 }
 resource "aws_route_table_association" "east-tgw-az1" {
   count          = var.enable_build_existing_subnets ? 1 : 0
@@ -130,9 +134,7 @@ resource "aws_route" "default-route-east-tgw-subnet" {
 resource "aws_default_route_table" "route_east" {
   count                  = var.enable_build_existing_subnets ? 1 : 0
   default_route_table_id = module.vpc-east[0].vpc_main_route_table_id
-  tags = {
-    Name = "${var.cp}-${var.env}-east-vpc-main-route-table"
-  }
+  tags                   = merge({ Name = "${var.cp}-${var.env}-east-vpc-main-route-table" }, local.common_tags)
 }
 
 resource "aws_route" "default-route-east-public" {

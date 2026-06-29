@@ -61,6 +61,7 @@ module "vpc-management" {
   linux_host_ip                  = var.linux_host_ip
   linux_instance_type            = var.linux_instance_type
   vpc_cidr_sg                    = var.management_cidr_sg
+  tags                           = local.common_tags
 }
 
 #
@@ -189,9 +190,7 @@ resource "aws_security_group" "jump_box_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags = {
-    Name = "${var.cp}-${var.env}-jump-box-sg"
-  }
+  tags = merge({ Name = "${var.cp}-${var.env}-jump-box-sg" }, local.common_tags)
 }
 
 resource "aws_instance" "jump_box" {
@@ -206,9 +205,7 @@ resource "aws_instance" "jump_box" {
   user_data              = local.jump_box_userdata
   source_dest_check      = false  # Required for NAT functionality
 
-  tags = {
-    Name = "${var.cp}-${var.env}-jump-box"
-  }
+  tags = merge({ Name = "${var.cp}-${var.env}-jump-box" }, local.common_tags)
 }
 
 resource "aws_eip" "jump_box_eip" {
@@ -216,9 +213,7 @@ resource "aws_eip" "jump_box_eip" {
   instance = aws_instance.jump_box[0].id
   domain   = "vpc"
 
-  tags = {
-    Name = "${var.cp}-${var.env}-jump-box-eip"
-  }
+  tags = merge({ Name = "${var.cp}-${var.env}-jump-box-eip" }, local.common_tags)
 }
 
 #
