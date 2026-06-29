@@ -23,6 +23,7 @@ module "vpc-inspection" {
   named_tgw                       = var.attach_to_tgw_name
   enable_tgw_attachment           = var.enable_tgw_attachment
   enable_dedicated_management_eni = var.create_management_subnet_in_inspection_vpc
+  tags                            = local.common_tags
 }
 
 #

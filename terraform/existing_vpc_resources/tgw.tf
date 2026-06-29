@@ -6,6 +6,7 @@ module "vpc-transit-gateway" {
   default_route_table_association = "disable"
   default_route_table_propagation = "disable"
   dns_support                     = "disable"
+  tags                            = local.common_tags
 }
 
 #
@@ -25,14 +26,13 @@ module "vpc-transit-gateway-attachment-east" {
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
   vpc_id                                          = module.vpc-east[0].vpc_id
+  tags                                            = local.common_tags
 }
 
 resource "aws_ec2_transit_gateway_route_table" "east" {
   count                           = var.enable_build_existing_subnets ? 1 : 0
   transit_gateway_id              = module.vpc-transit-gateway[0].tgw_id
-  tags = {
-      Name = "${var.cp}-${var.env}-east-tgw-rtb"
-  }
+  tags = merge({ Name = "${var.cp}-${var.env}-east-tgw-rtb" }, local.common_tags)
 }
 resource "aws_ec2_transit_gateway_route_table_association" "east" {
   count                          = var.enable_build_existing_subnets ? 1 : 0
@@ -63,14 +63,13 @@ module "vpc-transit-gateway-attachment-west" {
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
   vpc_id                                          = module.vpc-west[0].vpc_id
+  tags                                            = local.common_tags
 }
 
 resource "aws_ec2_transit_gateway_route_table" "west" {
   count                           = var.enable_build_existing_subnets ? 1 : 0
   transit_gateway_id              = module.vpc-transit-gateway[0].tgw_id
-  tags = {
-    Name = "${var.cp}-${var.env}-west-tgw-rtb"
-  }
+  tags = merge({ Name = "${var.cp}-${var.env}-west-tgw-rtb" }, local.common_tags)
 }
 
 resource "aws_ec2_transit_gateway_route_table_association" "west" {
