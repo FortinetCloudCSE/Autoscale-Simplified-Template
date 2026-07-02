@@ -521,9 +521,9 @@ class FgtConf:
             # Update Serial numbers
             self.logger.info(f"MDW1: do_launch before update_all_sn_list")
             b_succ = self.update_all_sn_list()
-            self.logger.info(f"MDW1: do_launch after update_all_sn_list")
+            self.logger.info(f"MDW2: do_launch after update_all_sn_list")
             b_succ = self.upload_license(fgt_private_ip, self.fgt_vm_id)
-            self.logger.info(f"MDW1: do_launch after upload_license b_succ = {b_succ}")
+            self.logger.info(f"MDW3: do_launch after upload_license b_succ = {b_succ}")
             if not b_succ:
                 return
 
@@ -704,17 +704,20 @@ class FgtConf:
         self.logger.info("Get next available license.")
         # Get license file first
         b_locked = self.lock_lic_track_file()
+        self.logger.info(f"MDW: post lock_lic_track_file b_locked = {b_locked} ")
         if b_locked:
             b_find = False
             try:
                 go_next = True
                 license_type = ""
                 license_content = ""
+                self.logger.info(f"MDW: s3 bucket name = {self.s3_bucket_name} ")
                 if self.s3_bucket_name == "":
                     go_next = False
                 if go_next:
                     # Check whether license track file exist or not
                     lic_track_dict = self.get_lic_track_dict()
+                    self.logger.info(f"MDW: lic_track_dict = {lic_track_dict} ")
                     if not lic_track_dict:
                         go_next = False
                 if go_next:
@@ -748,7 +751,7 @@ class FgtConf:
                 self.logger.info(f"MDW: Activate serial number = {cur_sn} with token = {oauth_token} ")
                 b_succ = self.reactivate_sn(cur_sn, oauth_token)
                 if not b_succ:
-                    self.logger.info(f"MDW: success activating serial number")
+                    self.logger.info(f"MDW: failure activating serial number")
                     continue
                 vm_token = self.generate_vm_token(cur_sn, oauth_token)
                 if vm_token:
@@ -1067,11 +1070,14 @@ class FgtConf:
             "Authorization": f"Bearer {oauth_token}"
         }
         response = requests.get(url, headers=header, verify=False, timeout=10)
+        self.logger.info(f"MDW: verify oauth token status code = {response.status_code}")
         if response.status_code == 200:
             response_json = response.json()
+            self.logger.info(f"MDW: response_json = {response_json}")
             if response_json:
                 if "expires_in" in response_json:
                     expires_in = response_json['expires_in']
+                    self.logger.info(f"MDW: verify oauth token expires_in = {expires_in}")
                     b_valid = True
             else:
                 self.logger.info("Could not get http return status")
@@ -1119,15 +1125,19 @@ class FgtConf:
                     return oauth_token
         # If oauth_token not exist or will/already expired
         oauth_refresh_token = self.get_fortiflex_refresh_token()
+        self.logger.info(f"MDW: refresh oath token = {oauth_refresh_token}")
         new_oauth_token = ""
         if oauth_refresh_token:
             new_oauth_token = self.refresh_oauth_token(oauth_refresh_token)
+            self.logger.info(f"MDW: new oauth token = {new_oauth_token}")
         if not new_oauth_token:
             oauth_refresh_token = os.getenv("fortiflex_refresh_token")
             if oauth_refresh_token: # Generate OAuth token by given refresh token
                 new_oauth_token = self.refresh_oauth_token(oauth_refresh_token)
+                self.logger.info(f"MDW1: new oauth token = {new_oauth_token}")
             if not new_oauth_token: # Try FortiFlex API username and password if refresh token not been provided or invalid
                 new_oauth_token, new_refresh_token = self.generate_refresh_token()
+                self.logger.info(f"MDW2: new oauth_token = {new_oauth_token}, new_refresh_token = {new_refresh_token}")
                 
         return new_oauth_token
 
@@ -1214,8 +1224,10 @@ class FgtConf:
         body = {
             "serialNumber": sn
         }
+        self.logger.info(f"MDW: pre request post: url = {url}, header = {header}, body = {body}")
         response = requests.post(url, headers=header, json=body, verify=False, timeout=10)
         response_json = response.json()
+        self.logger.info(f"MDW: post request post: response = {response}, response_json = {response_json}")
         if response.status_code == 200:
             if response_json:
                 if "entitlements" not in response_json or not response_json["entitlements"]:
@@ -1223,10 +1235,12 @@ class FgtConf:
                         err_msg = response_json["error"]
                         self.logger.error(f"Could not reactivate the license for serial number {sn}, error msg: {err_msg}")
                 elif "status" in response_json and response_json["status"] == 0 :
+                    self.logger.info(f"MDW: Success on request post")
                     b_succ = True
             else:
                 self.logger.info("Could not get http return status")
         elif response.status_code == 400:
+            self.logger.info(f"MDW: response.status_code = 400")
             # return True if SN's status is 'PENDING' and could not be modified
             if "status" in response_json and response_json["status"] == -1:
                 b_succ = True
@@ -1308,8 +1322,9 @@ class FgtConf:
         return True
 
     def get_sn_by_configid(self, configid):
-        self.logger.info("Get serial numbers by config id.")
+        self.logger.info(f"Get serial numbers by config id = {configid}")
         oauth_token = self.get_fortiflex_oauth_token()
+        self.logger.info(f"MDW: fortiflex oauth token = {oauth_token}")
         if not oauth_token:
             self.logger.info(f"Could not get valid OAuth token.")
             return []
@@ -1323,6 +1338,7 @@ class FgtConf:
             "configId": configid
         }
         response = requests.post(url, headers=header, json=body, verify=False, timeout=10)
+        self.logger.info(f"MDW: response = {response}")
         if response.status_code == 200:
             response_json = response.json()
             if response_json:
@@ -1332,15 +1348,20 @@ class FgtConf:
                         self.logger.error(f"Could not get sefial numbers by config id {configid}, error msg: {err_msg}")
                     return []
                 for ele in response_json["entitlements"]:
+                    self.logger.info(f"MDW: ele = {ele}")
                     cur_sn = ele["serialNumber"]
+                    self.logger.info(f"cur_sn = {cur_sn}")
                     if ele["status"] in {"ACTIVE"} and ele["tokenStatus"] == "NOTUSED":
+                        self.logger.info(f"MDW2: status = {ele['status']}, tokenStatus = {ele['tokenStatus']}")
                         sn_list.append(cur_sn)
                         self.stop_sn(cur_sn, oauth_token)
                     elif ele["status"] in {"STOPPED", "PENDING"}:
+                        self.logger.info(f"MDW3: status = {ele['status']}")
                         sn_list.append(cur_sn)
             else:
                 self.logger.info("Could not get http return status")
         response.close()
+        self.logger.info(f"MDW: return sn_list = {sn_list}")
         return sn_list
 
     def get_next_available_sn(self):
