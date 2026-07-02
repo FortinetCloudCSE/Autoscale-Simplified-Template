@@ -1338,7 +1338,9 @@ class FgtConf:
             "configId": configid
         }
         response = requests.post(url, headers=header, json=body, verify=False, timeout=10)
-        self.logger.info(f"MDW: response = {response}")
+        self.logger.info(f"MDW: get_sn_by_configid response = {response}")
+        if response.status_code != 200: # added but not yet running
+            self.logger.info(f"MDW: get_sn_by_configid status != 200 - response text = {response.text}") # added but not yet running
         if response.status_code == 200:
             response_json = response.json()
             if response_json:
