@@ -103,6 +103,12 @@ asg_ondemand_asg_desired_size = 0
 - Predictable traffic patterns that rarely exceed max capacity
 - Willingness to accept capacity ceiling (no burst beyond BYOL max)
 
+{{% notice info %}}
+**BYOL-Only: No AWS Marketplace Subscription Required**
+
+When `asg_ondemand_asg_max_size = 0`, the on-demand autoscale group, its EC2 launch template, and its associated CloudWatch alarms are **not created at all**. This means no AWS Marketplace subscription for the FortiGate PAYG AMI is required. Deployments that previously failed at `terraform apply` due to a missing Marketplace subscription can use this setting to run a BYOL-only deployment without any Marketplace involvement.
+{{% /notice %}}
+
 ---
 
 ## CloudWatch Alarm Integration
