@@ -22,7 +22,7 @@ variable "cp" {
 variable "env" {
   description = "The Tag Environment to differentiate prod/test/dev"
 }
-variable subnet_bits {
+variable "subnet_bits" {
   description = "Number of bits in the network portion of the subnet CIDR"
 }
 variable "spoke_subnet_bits" {
@@ -34,20 +34,20 @@ variable "keypair" {
   description = "Keypair for instances that support keypairs"
 }
 variable "management_cidr_sg" {
-    description = "List of CIDRs to allow in security group for management access"
-    type        = list(string)
-    default     = ["0.0.0.0/0"]
+  description = "List of CIDRs to allow in security group for management access"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
 variable "vpc_cidr_management" {
-    description = "CIDR for the management VPC"
+  description = "CIDR for the management VPC"
 }
 variable "vpc_cidr_inspection" {
-    description = "CIDR for the inspection VPC"
-    type        = string
-    default     = "10.0.0.0/16"
+  description = "CIDR for the inspection VPC"
+  type        = string
+  default     = "10.0.0.0/16"
 }
 variable "vpc_cidr_ns_inspection" {
-    description = "CIDR for the inspection VPC"
+  description = "CIDR for the inspection VPC"
 }
 variable "enable_autoscale_deployment" {
   description = "Deploy FortiGate AutoScale group with Gateway Load Balancer"
@@ -169,13 +169,13 @@ variable "enable_tgw_attachment" {
   default     = true
 }
 variable "vpc_cidr_east" {
-    description = "CIDR for the whole east VPC"
+  description = "CIDR for the whole east VPC"
 }
 variable "vpc_cidr_spoke" {
-    description = "Super-Net CIDR for the spoke VPC's"
+  description = "Super-Net CIDR for the spoke VPC's"
 }
 variable "vpc_cidr_west" {
-    description = "CIDR for the whole west VPC"
+  description = "CIDR for the whole west VPC"
 }
 variable "acl" {
   description = "The acl for linux instances"

@@ -10,9 +10,9 @@
 #
 
 locals {
-  management_vpc_tag      = "${var.cp}-${var.env}-management-vpc"
-  management_public_az1   = "${var.cp}-${var.env}-management-public-az1"
-  management_public_az2   = "${var.cp}-${var.env}-management-public-az2"
+  management_vpc_tag    = "${var.cp}-${var.env}-management-vpc"
+  management_public_az1 = "${var.cp}-${var.env}-management-public-az1"
+  management_public_az2 = "${var.cp}-${var.env}-management-public-az2"
 }
 
 # Management VPC (shared with Blue — discovered by Fortinet-Role tag)

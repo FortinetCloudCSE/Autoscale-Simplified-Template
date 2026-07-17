@@ -55,9 +55,11 @@ jobs:
 
       - name: Select container image (default)
         run: |
-          echo "IMAGE=public.ecr.aws/k4n6m5h8/fortinet-hugo:latest" >> "$GITHUB_ENV"
+          image_repo="public.ecr.aws/k4n6m5h8/fortinet-hugo"
+          image_digest="sha256:d1800d7b20751e6b4d57d0c2c563ab92d291d167659b507ee8846611a0ccf43e"
+          echo "IMAGE=${image_repo}@${image_digest}" >> "$GITHUB_ENV"
           echo "LOCAL_IMAGE=fortinet-hugo:latest" >> "$GITHUB_ENV"
-          echo "IMAGE_REPO=public.ecr.aws/k4n6m5h8/fortinet-hugo" >> "$GITHUB_ENV"
+          echo "IMAGE_REPO=${image_repo}" >> "$GITHUB_ENV"
 
       - name: Select container image (dev override)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.image_variant == 'dev' }}

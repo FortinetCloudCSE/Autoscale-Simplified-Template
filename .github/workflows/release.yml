@@ -1,0 +1,158 @@
+---
+name: Publish Release
+
+# GitHub Actions uses `on` as an event key, not a boolean value.
+# yamllint disable-line rule:truthy
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: "1.14.7"
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  metadata:
+    name: Verify release metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Match tag, version file, and changelog
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="$(tr -d '[:space:]' < VERSION)"
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $tag"
+            exit 1
+          fi
+
+          if [[ "$tag" != "v$version" ]]; then
+            echo "Tag $tag does not match VERSION ($version)"
+            exit 1
+          fi
+
+          if ! grep -Fq "## [$version]" CHANGELOG.md; then
+            echo "CHANGELOG.md does not contain a [$version] release section"
+            exit 1
+          fi
+
+  format:
+    name: Check Terraform formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive terraform
+
+  validate:
+    name: Validate ${{ matrix.directory }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        directory:
+          - terraform/autoscale_template
+          - terraform/existing_vpc_resources
+          - terraform/green_inspection_stack
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Initialize without a backend
+        run: >-
+          terraform init -backend=false -input=false
+          -lockfile=readonly -no-color
+
+      - name: Validate configuration
+        run: terraform validate -no-color
+
+  workshop:
+    name: Build workshop
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Build workshop content
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: public.ecr.aws/k4n6m5h8/fortinet-hugo
+          IMAGE_DIGEST: >-
+            sha256:d1800d7b20751e6b4d57d0c2c563ab92d291d167659b507ee8846611a0ccf43e
+        run: |
+          IMAGE="$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+          docker pull "$IMAGE"
+          container_id=$(docker run -d \
+            -v "$GITHUB_WORKSPACE:/home/UserRepo" \
+            "$IMAGE" build)
+
+          exit_code=$(docker wait "$container_id")
+          if [[ "$exit_code" -ne 0 ]]; then
+            docker logs "$container_id"
+            docker rm "$container_id"
+            exit "$exit_code"
+          fi
+
+          docker cp "$container_id:/home/CentralRepo/public" docs
+          docker rm "$container_id"
+          test -d docs
+
+  release:
+    name: Create GitHub Release
+    needs:
+      - metadata
+      - format
+      - validate
+      - workshop
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish existing tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(
+            "$GITHUB_REF_NAME"
+            --repo "$GITHUB_REPOSITORY"
+            --verify-tag
+            --title "Autoscale Simplified Template $GITHUB_REF_NAME"
+            --generate-notes
+          )
+
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+
+          gh release create "${args[@]}"

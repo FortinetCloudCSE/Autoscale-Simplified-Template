@@ -23,16 +23,16 @@ locals {
 # east VPC
 #
 module "vpc-east" {
-  source     = "git::https://github.com/40netse/terraform-modules.git//aws_vpc"
+  source     = "git::https://github.com/40netse/terraform-modules.git//aws_vpc?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count      = var.enable_build_existing_subnets ? 1 : 0
-  depends_on = [ module.vpc-transit-gateway.tgw_id ]
+  depends_on = [module.vpc-transit-gateway.tgw_id]
   vpc_name   = "${var.cp}-${var.env}-east-vpc"
   vpc_cidr   = var.vpc_cidr_east
   tags       = local.common_tags
 }
 
 module "subnet-east-public-az1" {
-  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count  = var.enable_build_existing_subnets ? 1 : 0
 
   subnet_name       = "${var.cp}-${var.env}-east-public-az1-subnet"
@@ -42,22 +42,22 @@ module "subnet-east-public-az1" {
   tags              = local.common_tags
 }
 module "subnet-east-public-az2" {
-  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count  = var.enable_build_existing_subnets ? 1 : 0
 
-  subnet_name                = "${var.cp}-${var.env}-east-public-az2-subnet"
+  subnet_name = "${var.cp}-${var.env}-east-public-az2-subnet"
 
-  vpc_id                     = module.vpc-east[0].vpc_id
-  availability_zone          = local.availability_zone_2
-  subnet_cidr                = local.east_public_subnet_cidr_az2
-  tags                       = local.common_tags
+  vpc_id            = module.vpc-east[0].vpc_id
+  availability_zone = local.availability_zone_2
+  subnet_cidr       = local.east_public_subnet_cidr_az2
+  tags              = local.common_tags
 }
 
 #
 # TGW attachment subnets - dedicated subnets for TGW to avoid IP conflicts with EC2 instances
 #
 module "subnet-east-tgw-az1" {
-  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count  = var.enable_build_existing_subnets ? 1 : 0
 
   subnet_name       = "${var.cp}-${var.env}-east-tgw-az1-subnet"
@@ -67,7 +67,7 @@ module "subnet-east-tgw-az1" {
   tags              = local.common_tags
 }
 module "subnet-east-tgw-az2" {
-  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count  = var.enable_build_existing_subnets ? 1 : 0
 
   subnet_name       = "${var.cp}-${var.env}-east-tgw-az2-subnet"
@@ -77,7 +77,7 @@ module "subnet-east-tgw-az2" {
   tags              = local.common_tags
 }
 module "subnet-east-public-az3" {
-  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count  = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
 
   subnet_name       = "${var.cp}-${var.env}-east-public-az3-subnet"
@@ -87,7 +87,7 @@ module "subnet-east-public-az3" {
   tags              = local.common_tags
 }
 module "subnet-east-tgw-az3" {
-  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count  = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
 
   subnet_name       = "${var.cp}-${var.env}-east-tgw-az3-subnet"
@@ -151,5 +151,4 @@ resource "aws_route" "management-route-east-public" {
   destination_cidr_block = var.vpc_cidr_management
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
-
 

@@ -11,25 +11,25 @@ locals {
 # west VPC
 #
 module "vpc-west" {
-  source      = "git::https://github.com/40netse/terraform-modules.git//aws_vpc"
-  depends_on  = [ module.vpc-transit-gateway.tgw_id ]
-  count       = var.enable_build_existing_subnets ? 1 : 0
-  vpc_name                   = "${var.cp}-${var.env}-west-vpc"
-  vpc_cidr                   = var.vpc_cidr_west
-  tags                       = local.common_tags
+  source     = "git::https://github.com/40netse/terraform-modules.git//aws_vpc?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
+  depends_on = [module.vpc-transit-gateway.tgw_id]
+  count      = var.enable_build_existing_subnets ? 1 : 0
+  vpc_name   = "${var.cp}-${var.env}-west-vpc"
+  vpc_cidr   = var.vpc_cidr_west
+  tags       = local.common_tags
 }
 
 module "subnet-west-public-az1" {
-  source                     = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
-  count                      = var.enable_build_existing_subnets ? 1 : 0
-  subnet_name                = "${var.cp}-${var.env}-west-public-az1-subnet"
-  vpc_id                     = module.vpc-west[0].vpc_id
-  availability_zone          = local.availability_zone_1
-  subnet_cidr                = local.west_public_subnet_cidr_az1
-  tags                       = local.common_tags
+  source            = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
+  count             = var.enable_build_existing_subnets ? 1 : 0
+  subnet_name       = "${var.cp}-${var.env}-west-public-az1-subnet"
+  vpc_id            = module.vpc-west[0].vpc_id
+  availability_zone = local.availability_zone_1
+  subnet_cidr       = local.west_public_subnet_cidr_az1
+  tags              = local.common_tags
 }
 module "subnet-west-public-az2" {
-  source            = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source            = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count             = var.enable_build_existing_subnets ? 1 : 0
   subnet_name       = "${var.cp}-${var.env}-west-public-az2-subnet"
   vpc_id            = module.vpc-west[0].vpc_id
@@ -42,7 +42,7 @@ module "subnet-west-public-az2" {
 # TGW attachment subnets - dedicated subnets for TGW to avoid IP conflicts with EC2 instances
 #
 module "subnet-west-tgw-az1" {
-  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count  = var.enable_build_existing_subnets ? 1 : 0
 
   subnet_name       = "${var.cp}-${var.env}-west-tgw-az1-subnet"
@@ -52,7 +52,7 @@ module "subnet-west-tgw-az1" {
   tags              = local.common_tags
 }
 module "subnet-west-tgw-az2" {
-  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count  = var.enable_build_existing_subnets ? 1 : 0
 
   subnet_name       = "${var.cp}-${var.env}-west-tgw-az2-subnet"
@@ -62,7 +62,7 @@ module "subnet-west-tgw-az2" {
   tags              = local.common_tags
 }
 module "subnet-west-public-az3" {
-  source            = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source            = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count             = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
   subnet_name       = "${var.cp}-${var.env}-west-public-az3-subnet"
   vpc_id            = module.vpc-west[0].vpc_id
@@ -71,7 +71,7 @@ module "subnet-west-public-az3" {
   tags              = local.common_tags
 }
 module "subnet-west-tgw-az3" {
-  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_subnet?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count  = (var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
 
   subnet_name       = "${var.cp}-${var.env}-west-tgw-az3-subnet"

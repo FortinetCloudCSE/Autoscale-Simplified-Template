@@ -8,8 +8,8 @@ locals {
   rfc1918_172 = "172.16.0.0/12"
 }
 resource "random_string" "random" {
-  length           = 5
-  special          = false
+  length  = 5
+  special = false
 }
 
 locals {
@@ -27,9 +27,9 @@ locals {
   }) : ""
 }
 module "vpc-management" {
-  source                         = "git::https://github.com/40netse/terraform-modules.git//aws_management_vpc"
+  source                         = "git::https://github.com/40netse/terraform-modules.git//aws_management_vpc?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count                          = var.enable_build_management_vpc ? 1 : 0
-  depends_on                     = [ module.vpc-transit-gateway.tgw_id ]
+  depends_on                     = [module.vpc-transit-gateway.tgw_id]
   aws_region                     = var.aws_region
   cp                             = var.cp
   env                            = var.env
@@ -203,7 +203,7 @@ resource "aws_instance" "jump_box" {
   vpc_security_group_ids = [aws_security_group.jump_box_sg[0].id]
   private_ip             = cidrhost(cidrsubnet(var.vpc_cidr_management, var.subnet_bits, 0), var.linux_host_ip)
   user_data              = local.jump_box_userdata
-  source_dest_check      = false  # Required for NAT functionality
+  source_dest_check      = false # Required for NAT functionality
 
   tags = merge({ Name = "${var.cp}-${var.env}-jump-box" }, local.common_tags)
 }

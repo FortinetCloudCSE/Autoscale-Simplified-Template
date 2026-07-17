@@ -10,7 +10,7 @@ locals {
 }
 
 module "vpc-inspection" {
-  source                          = "git::https://github.com/40netse/terraform-modules.git//aws_inspection_vpc"
+  source                          = "git::https://github.com/40netse/terraform-modules.git//aws_inspection_vpc?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count                           = var.enable_build_inspection_vpc ? 1 : 0
   depends_on                      = [module.vpc-transit-gateway]
   vpc_name                        = "${var.cp}-${var.env}-inspection"
@@ -269,7 +269,7 @@ resource "aws_ec2_tag" "inspection_natgw_az3_role" {
 
 # TGW Attachment Tag (conditional)
 resource "aws_ec2_tag" "inspection_tgw_attachment_role" {
-  depends_on = [module.vpc-inspection]
+  depends_on  = [module.vpc-inspection]
   count       = (var.enable_build_inspection_vpc && var.enable_tgw_attachment) ? 1 : 0
   resource_id = module.vpc-inspection[0].inspection_tgw_attachment_id
   key         = "Fortinet-Role"
@@ -278,7 +278,7 @@ resource "aws_ec2_tag" "inspection_tgw_attachment_role" {
 
 # TGW Route Table Tag (conditional)
 resource "aws_ec2_tag" "inspection_tgw_rtb_role" {
-  depends_on = [module.vpc-inspection]
+  depends_on  = [module.vpc-inspection]
   count       = (var.enable_build_inspection_vpc && var.enable_tgw_attachment) ? 1 : 0
   resource_id = module.vpc-inspection[0].inspection_tgw_route_table_id
   key         = "Fortinet-Role"

@@ -1,0 +1,73 @@
+---
+name: Validate Terraform
+
+# GitHub Actions uses `on` as an event key, not a boolean value.
+# yamllint disable-line rule:truthy
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # This is the deterministic CI validation toolchain, not yet the minimum
+  # supported Terraform version. Update it when the tested baseline is chosen.
+  TERRAFORM_VERSION: "1.14.7"
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  format:
+    name: Check Terraform formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive terraform
+
+  validate:
+    name: Validate ${{ matrix.directory }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        directory:
+          - terraform/autoscale_template
+          - terraform/existing_vpc_resources
+          - terraform/green_inspection_stack
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Initialize without a backend
+        run: >-
+          terraform init -backend=false -input=false
+          -lockfile=readonly -no-color
+
+      - name: Validate configuration
+        run: terraform validate -no-color

@@ -7,7 +7,7 @@
 #
 
 module "spk_tgw_gwlb_asg_fgt_igw" {
-  source = "git::https://github.com/fortinetdev/terraform-aws-cloud-modules.git//examples/spk_tgw_gwlb_asg_fgt_igw"
+  source = "git::https://github.com/fortinetdev/terraform-aws-cloud-modules.git//examples/spk_tgw_gwlb_asg_fgt_igw?ref=f8286c4d68d64c5253a7f05ef7a9861078c0fd05"
 
   ## Root config
   region        = var.aws_region

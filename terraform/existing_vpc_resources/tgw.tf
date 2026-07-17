@@ -1,6 +1,6 @@
 
 module "vpc-transit-gateway" {
-  source                          = "git::https://github.com/40netse/terraform-modules.git//aws_tgw"
+  source                          = "git::https://github.com/40netse/terraform-modules.git//aws_tgw?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
   count                           = var.enable_build_existing_subnets ? 1 : 0
   tgw_name                        = "${var.cp}-${var.env}-tgw"
   default_route_table_association = "disable"
@@ -13,16 +13,16 @@ module "vpc-transit-gateway" {
 # East VPC Transit Gateway Attachment, Route Table and Routes
 #
 module "vpc-transit-gateway-attachment-east" {
-  source                         = "git::https://github.com/40netse/terraform-modules.git//aws_tgw_attachment"
-  count                          = var.enable_build_existing_subnets ? 1 : 0
-  depends_on                     = [module.vpc-transit-gateway,
-                                    module.subnet-east-tgw-az1,
-                                    module.subnet-east-tgw-az2,
-                                    module.subnet-east-tgw-az3]
-  tgw_attachment_name            = "${var.cp}-${var.env}-east-tgw-attachment"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_tgw_attachment?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
+  count  = var.enable_build_existing_subnets ? 1 : 0
+  depends_on = [module.vpc-transit-gateway,
+    module.subnet-east-tgw-az1,
+    module.subnet-east-tgw-az2,
+  module.subnet-east-tgw-az3]
+  tgw_attachment_name = "${var.cp}-${var.env}-east-tgw-attachment"
 
-  transit_gateway_id             = module.vpc-transit-gateway[0].tgw_id
-  subnet_ids                     = var.availability_zone_3 != "" ? [ module.subnet-east-tgw-az1[0].id, module.subnet-east-tgw-az2[0].id, module.subnet-east-tgw-az3[0].id ] : [ module.subnet-east-tgw-az1[0].id, module.subnet-east-tgw-az2[0].id ]
+  transit_gateway_id                              = module.vpc-transit-gateway[0].tgw_id
+  subnet_ids                                      = var.availability_zone_3 != "" ? [module.subnet-east-tgw-az1[0].id, module.subnet-east-tgw-az2[0].id, module.subnet-east-tgw-az3[0].id] : [module.subnet-east-tgw-az1[0].id, module.subnet-east-tgw-az2[0].id]
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
   vpc_id                                          = module.vpc-east[0].vpc_id
@@ -30,9 +30,9 @@ module "vpc-transit-gateway-attachment-east" {
 }
 
 resource "aws_ec2_transit_gateway_route_table" "east" {
-  count                           = var.enable_build_existing_subnets ? 1 : 0
-  transit_gateway_id              = module.vpc-transit-gateway[0].tgw_id
-  tags = merge({ Name = "${var.cp}-${var.env}-east-tgw-rtb" }, local.common_tags)
+  count              = var.enable_build_existing_subnets ? 1 : 0
+  transit_gateway_id = module.vpc-transit-gateway[0].tgw_id
+  tags               = merge({ Name = "${var.cp}-${var.env}-east-tgw-rtb" }, local.common_tags)
 }
 resource "aws_ec2_transit_gateway_route_table_association" "east" {
   count                          = var.enable_build_existing_subnets ? 1 : 0
@@ -50,16 +50,16 @@ resource "aws_ec2_transit_gateway_route" "default-route-east-tgw" {
 # West VPC Transit Gateway Attachment, Route Table and Routes
 #
 module "vpc-transit-gateway-attachment-west" {
-  source               = "git::https://github.com/40netse/terraform-modules.git//aws_tgw_attachment"
-  count                = var.enable_build_existing_subnets ? 1 : 0
-  depends_on           = [module.vpc-transit-gateway,
-                          module.subnet-west-tgw-az1,
-                          module.subnet-west-tgw-az2,
-                          module.subnet-west-tgw-az3]
-  tgw_attachment_name  = "${var.cp}-${var.env}-west-tgw-attachment"
+  source = "git::https://github.com/40netse/terraform-modules.git//aws_tgw_attachment?ref=3c5c13341e17986e2c21ef3bce2dc2aba5af5b74"
+  count  = var.enable_build_existing_subnets ? 1 : 0
+  depends_on = [module.vpc-transit-gateway,
+    module.subnet-west-tgw-az1,
+    module.subnet-west-tgw-az2,
+  module.subnet-west-tgw-az3]
+  tgw_attachment_name = "${var.cp}-${var.env}-west-tgw-attachment"
 
-  transit_gateway_id   = module.vpc-transit-gateway[0].tgw_id
-  subnet_ids           = var.availability_zone_3 != "" ? [ module.subnet-west-tgw-az1[0].id, module.subnet-west-tgw-az2[0].id, module.subnet-west-tgw-az3[0].id ] : [ module.subnet-west-tgw-az1[0].id, module.subnet-west-tgw-az2[0].id ]
+  transit_gateway_id                              = module.vpc-transit-gateway[0].tgw_id
+  subnet_ids                                      = var.availability_zone_3 != "" ? [module.subnet-west-tgw-az1[0].id, module.subnet-west-tgw-az2[0].id, module.subnet-west-tgw-az3[0].id] : [module.subnet-west-tgw-az1[0].id, module.subnet-west-tgw-az2[0].id]
   transit_gateway_default_route_table_propogation = "true"
   appliance_mode_support                          = "enable"
   vpc_id                                          = module.vpc-west[0].vpc_id
@@ -67,9 +67,9 @@ module "vpc-transit-gateway-attachment-west" {
 }
 
 resource "aws_ec2_transit_gateway_route_table" "west" {
-  count                           = var.enable_build_existing_subnets ? 1 : 0
-  transit_gateway_id              = module.vpc-transit-gateway[0].tgw_id
-  tags = merge({ Name = "${var.cp}-${var.env}-west-tgw-rtb" }, local.common_tags)
+  count              = var.enable_build_existing_subnets ? 1 : 0
+  transit_gateway_id = module.vpc-transit-gateway[0].tgw_id
+  tags               = merge({ Name = "${var.cp}-${var.env}-west-tgw-rtb" }, local.common_tags)
 }
 
 resource "aws_ec2_transit_gateway_route_table_association" "west" {

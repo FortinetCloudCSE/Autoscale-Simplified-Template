@@ -8,7 +8,7 @@
 
 data "aws_vpc_endpoint" "green_endpoint_az1" {
   depends_on = [module.spk_tgw_gwlb_asg_fgt_igw]
-  vpc_id = aws_vpc.green_inspection.id
+  vpc_id     = aws_vpc.green_inspection.id
   filter {
     name   = "tag:Name"
     values = [var.endpoint_name_az1]
@@ -16,7 +16,7 @@ data "aws_vpc_endpoint" "green_endpoint_az1" {
 }
 data "aws_vpc_endpoint" "green_endpoint_az2" {
   depends_on = [module.spk_tgw_gwlb_asg_fgt_igw]
-  vpc_id = aws_vpc.green_inspection.id
+  vpc_id     = aws_vpc.green_inspection.id
   filter {
     name   = "tag:Name"
     values = [var.endpoint_name_az2]

@@ -21,8 +21,8 @@ locals {
   availability_zone_1 = "${var.aws_region}${var.availability_zone_1}"
   availability_zone_2 = "${var.aws_region}${var.availability_zone_2}"
 
-  dedicated_mgmt         = var.enable_dedicated_management_vpc ? "-wdm" : var.enable_dedicated_management_eni ? "-wdm-eni" : ""
-  fgt_config_file        = "./${var.firewall_policy_mode}${local.dedicated_mgmt}-${var.base_config_file}"
+  dedicated_mgmt          = var.enable_dedicated_management_vpc ? "-wdm" : var.enable_dedicated_management_eni ? "-wdm-eni" : ""
+  fgt_config_file         = "./${var.firewall_policy_mode}${local.dedicated_mgmt}-${var.base_config_file}"
   management_device_index = var.firewall_policy_mode == "2-arm" ? 2 : 1
 
   # Subnet index offsets — mirrors aws_inspection_vpc/main.tf exactly

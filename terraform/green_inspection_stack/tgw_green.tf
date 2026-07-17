@@ -25,10 +25,10 @@ data "aws_ec2_transit_gateway" "tgw" {
 }
 
 resource "aws_ec2_transit_gateway_vpc_attachment" "green_inspection" {
-  count              = var.enable_tgw_attachment ? 1 : 0
-  vpc_id             = aws_vpc.green_inspection.id
-  subnet_ids         = [aws_subnet.green_private_az1.id, aws_subnet.green_private_az2.id]
-  transit_gateway_id = data.aws_ec2_transit_gateway.tgw[0].id
+  count                  = var.enable_tgw_attachment ? 1 : 0
+  vpc_id                 = aws_vpc.green_inspection.id
+  subnet_ids             = [aws_subnet.green_private_az1.id, aws_subnet.green_private_az2.id]
+  transit_gateway_id     = data.aws_ec2_transit_gateway.tgw[0].id
   appliance_mode_support = "enable"
 
   # Disable default route table association and propagation.
