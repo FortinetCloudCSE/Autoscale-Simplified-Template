@@ -269,7 +269,7 @@ resource "aws_ec2_tag" "inspection_natgw_az3_role" {
 
 # TGW Attachment Tag (conditional)
 resource "aws_ec2_tag" "inspection_tgw_attachment_role" {
-  depends_on = [module.vpc-inspection]
+  depends_on  = [module.vpc-inspection]
   count       = (var.enable_build_inspection_vpc && var.enable_tgw_attachment) ? 1 : 0
   resource_id = module.vpc-inspection[0].inspection_tgw_attachment_id
   key         = "Fortinet-Role"
@@ -278,7 +278,7 @@ resource "aws_ec2_tag" "inspection_tgw_attachment_role" {
 
 # TGW Route Table Tag (conditional)
 resource "aws_ec2_tag" "inspection_tgw_rtb_role" {
-  depends_on = [module.vpc-inspection]
+  depends_on  = [module.vpc-inspection]
   count       = (var.enable_build_inspection_vpc && var.enable_tgw_attachment) ? 1 : 0
   resource_id = module.vpc-inspection[0].inspection_tgw_route_table_id
   key         = "Fortinet-Role"
@@ -371,63 +371,63 @@ resource "aws_route" "inspection-gwlbe-default-route-igw-az3" {
 #
 resource "aws_route" "inspection-gwlbe-192-route-tgw-az1" {
   depends_on             = [module.vpc-inspection]
-  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? 1 : 0
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az1_id
   destination_cidr_block = local.rfc1918_192
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "inspection-gwlbe-192-route-tgw-az2" {
   depends_on             = [module.vpc-inspection]
-  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? 1 : 0
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az2_id
   destination_cidr_block = local.rfc1918_192
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "inspection-gwlbe-192-route-tgw-az3" {
   depends_on             = [module.vpc-inspection]
-  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment && var.availability_zone_3 != "") ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az3_id
   destination_cidr_block = local.rfc1918_192
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "inspection-gwlbe-10-route-tgw-az1" {
   depends_on             = [module.vpc-inspection]
-  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? 1 : 0
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az1_id
   destination_cidr_block = local.rfc1918_10
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "inspection-gwlbe-10-route-tgw-az2" {
   depends_on             = [module.vpc-inspection]
-  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? 1 : 0
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az2_id
   destination_cidr_block = local.rfc1918_10
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "inspection-gwlbe-10-route-tgw-az3" {
   depends_on             = [module.vpc-inspection]
-  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment && var.availability_zone_3 != "") ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az3_id
   destination_cidr_block = local.rfc1918_10
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "inspection-gwlbe-172-route-tgw-az1" {
   depends_on             = [module.vpc-inspection]
-  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? 1 : 0
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az1_id
   destination_cidr_block = local.rfc1918_172
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "inspection-gwlbe-172-route-tgw-az2" {
   depends_on             = [module.vpc-inspection]
-  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? 1 : 0
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az2_id
   destination_cidr_block = local.rfc1918_172
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_route" "inspection-gwlbe-172-route-tgw-az3" {
   depends_on             = [module.vpc-inspection]
-  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.availability_zone_3 != "") ? 1 : 0
+  count                  = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment && var.availability_zone_3 != "") ? 1 : 0
   route_table_id         = module.vpc-inspection[0].route_table_gwlbe_az3_id
   destination_cidr_block = local.rfc1918_172
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
