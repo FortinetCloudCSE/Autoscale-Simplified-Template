@@ -72,6 +72,11 @@ variable "enable_dedicated_management_eni" {
   description = "Boolean to allow creation of dedicated management subnets and ENI in the inspection VPC"
   type        = bool
 }
+variable "enable_fgt_management_public_ip" {
+  description = "Boolean to attach a public IP to the FortiGate's dedicated management port (only relevant when enable_dedicated_management_vpc or enable_dedicated_management_eni is true)"
+  type        = bool
+  default     = true
+}
 variable "primary_scalein_protection" {
   description = "Boolean to set the scale-in protection for the primary instance in the autoscale group"
   type        = bool
@@ -194,9 +199,6 @@ variable "asg_ondemand_asg_max_size" {
 variable "asg_ondemand_asg_desired_size" {
     description = "Desired size for the OnDemand ASG"
     type        = number
-}
-variable "acl" {
-  description = "The acl for linux instances"
 }
 variable "enable_fortimanager_integration" {
   description = "Boolean to enable FortiManager integration"

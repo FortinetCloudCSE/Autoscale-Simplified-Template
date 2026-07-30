@@ -236,7 +236,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
           device_index     = local.management_device_index
-          enable_public_ip = true
+          enable_public_ip = var.enable_fgt_management_public_ip
           subnet = concat(
             [
               {
@@ -302,7 +302,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
           device_index     = local.management_device_index
-          enable_public_ip = true
+          enable_public_ip = var.enable_fgt_management_public_ip
           subnet = concat(
             [
               {

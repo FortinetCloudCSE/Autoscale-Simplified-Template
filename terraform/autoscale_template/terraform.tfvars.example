@@ -295,15 +295,6 @@ fortimanager_sn = ""
 fortimanager_vrf_select = 0
 
 #====================================================================================================
-# ADVANCED CONFIGURATION
-#====================================================================================================
-# ACL for linux instances (if any are deployed by this template)
-# Options: "public" (assigns public IP), "private" (private IP only)
-# This variable is typically not used by unified_template directly
-#
-acl = "private"
-
-#====================================================================================================
 # CONFIGURATION EXAMPLES AND USE CASES
 #====================================================================================================
 #

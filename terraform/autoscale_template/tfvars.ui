@@ -540,9 +540,6 @@ fortimanager_vrf_select = 0
 base_config_file = "fgt-conf.cfg"
 
 # @ui-hidden: true
-acl = "private"
-
-# @ui-hidden: true
 public_subnet_index = 0
 
 # @ui-hidden: true
