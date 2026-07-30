@@ -3,8 +3,6 @@ public/
 docs/
 node_modules/
 docker-compose.yml
-package-lock.json
-package.json
 /venv
 # Created by .ignore support plugin (hsz.mobi)
 **/.DS_Store
@@ -44,8 +42,7 @@ terraform/.deploy_state.env
 **/tfplan_evr
 **/tfplan_asg
 
-# Terraform tfvars backups and scratch copies
-**/terraform.tfvars.bak
+# Terraform tfvars scratch copies
 **/terraform.tfvars.mdw
 
 # Terraform state backups
