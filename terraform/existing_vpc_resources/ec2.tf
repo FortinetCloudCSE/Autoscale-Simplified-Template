@@ -4,6 +4,10 @@
 locals {
   enable_management_tgw_attachment = var.enable_build_existing_subnets ? var.enable_management_tgw_attachment : false
   enable_linux_spoke_instances     = var.enable_build_existing_subnets ? var.enable_linux_spoke_instances : false
+  enable_windows_spoke_instances   = var.enable_build_existing_subnets ? var.enable_windows_spoke_instances : false
+}
+locals {
+  enable_east_west_spoke_endpoints = local.enable_linux_spoke_instances || local.enable_windows_spoke_instances
 }
 #
 # Implied false: FortiManager must be enabled for these to take effect
@@ -38,8 +42,8 @@ locals {
 }
 
 data "aws_subnet" "subnet-east-public-az1" {
-  count = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on = [ module.subnet-east-public-az1 ]
+  count      = local.enable_east_west_spoke_endpoints ? 1 : 0
+  depends_on = [module.subnet-east-public-az1]
   filter {
     name   = "tag:Name"
     values = ["${var.cp}-${var.env}-east-public-az1-subnet"]
@@ -50,8 +54,8 @@ data "aws_subnet" "subnet-east-public-az1" {
   }
 }
 data "aws_subnet" "subnet-east-public-az2" {
-  count = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on = [ module.subnet-east-public-az2 ]
+  count      = local.enable_linux_spoke_instances ? 1 : 0
+  depends_on = [module.subnet-east-public-az2]
   filter {
     name   = "tag:Name"
     values = ["${var.cp}-${var.env}-east-public-az2-subnet"]
@@ -62,8 +66,8 @@ data "aws_subnet" "subnet-east-public-az2" {
   }
 }
 data "aws_subnet" "subnet-west-public-az1" {
-  count = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on = [ module.subnet-west-public-az1 ]
+  count      = local.enable_east_west_spoke_endpoints ? 1 : 0
+  depends_on = [module.subnet-west-public-az1]
   filter {
     name   = "tag:Name"
     values = ["${var.cp}-${var.env}-west-public-az1-subnet"]
@@ -74,8 +78,8 @@ data "aws_subnet" "subnet-west-public-az1" {
   }
 }
 data "aws_subnet" "subnet-west-public-az2" {
-  count = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on = [ module.subnet-west-public-az2 ]
+  count      = local.enable_linux_spoke_instances ? 1 : 0
+  depends_on = [module.subnet-west-public-az2]
   filter {
     name   = "tag:Name"
     values = ["${var.cp}-${var.env}-west-public-az2-subnet"]
@@ -87,8 +91,8 @@ data "aws_subnet" "subnet-west-public-az2" {
 }
 
 data "aws_vpc" "vpc-east" {
-  count = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on = [ module.vpc-east ]
+  count      = local.enable_east_west_spoke_endpoints ? 1 : 0
+  depends_on = [module.vpc-east]
   filter {
     name   = "tag:Name"
     values = ["${var.cp}-${var.env}-east-vpc"]
@@ -100,8 +104,8 @@ data "aws_vpc" "vpc-east" {
 }
 
 data "aws_vpc" "vpc-west" {
-  count = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on = [ module.vpc-west ]
+  count      = local.enable_east_west_spoke_endpoints ? 1 : 0
+  depends_on = [module.vpc-west]
   filter {
     name   = "tag:Name"
     values = ["${var.cp}-${var.env}-west-vpc"]
@@ -138,6 +142,30 @@ data "aws_ami" "ubuntu" {
 }
 
 #
+# Endpoint AMI to use for optional Windows Spoke Instances (bare, RDP-only, no bootstrap)
+#
+data "aws_ami" "windows" {
+  count       = local.enable_windows_spoke_instances ? 1 : 0
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["Windows_Server-2022-English-Full-Base-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+  owners = ["amazon"]
+}
+
+locals {
+  windows_east_ip_address = local.enable_windows_spoke_instances ? cidrhost(local.east_public_subnet_cidr_az1, var.windows_host_ip) : null
+  windows_west_ip_address = local.enable_windows_spoke_instances ? cidrhost(local.west_public_subnet_cidr_az1, var.windows_host_ip) : null
+}
+
+#
 # EC2 Endpoint Resources
 #
 
@@ -146,87 +174,126 @@ data "aws_ami" "ubuntu" {
 #
 
 module "east_instance_public_az1" {
-  count                       = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on                  = [module.vpc-east, module.vpc-transit-gateway-attachment-east, time_sleep.wait_for_jump_box]
-  source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
-  aws_ec2_instance_name       = "${var.cp}-${var.env}-east-public-az1-instance"
-  enable_public_ips           = false
-  availability_zone           = local.availability_zone_1
-  public_subnet_id            = data.aws_subnet.subnet-east-public-az1[0].id
-  public_ip_address           = local.linux_east_az1_ip_address
-  aws_ami                     = data.aws_ami.ubuntu[0].id
-  keypair                     = var.keypair
-  instance_type               = var.linux_instance_type
-  security_group_public_id    = aws_security_group.ec2-linux-east-vpc-sg[0].id
-  acl                         = var.acl
-  iam_instance_profile_id     = module.linux_iam_profile[0].id
-  userdata_rendered           = local.web_userdata_az1
+  count                    = local.enable_linux_spoke_instances ? 1 : 0
+  depends_on               = [module.vpc-east, module.vpc-transit-gateway-attachment-east, time_sleep.wait_for_jump_box]
+  source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
+  aws_ec2_instance_name    = "${var.cp}-${var.env}-east-public-az1-instance"
+  enable_public_ips        = false
+  availability_zone        = local.availability_zone_1
+  public_subnet_id         = data.aws_subnet.subnet-east-public-az1[0].id
+  public_ip_address        = local.linux_east_az1_ip_address
+  aws_ami                  = data.aws_ami.ubuntu[0].id
+  keypair                  = var.keypair
+  instance_type            = var.linux_instance_type
+  security_group_public_id = aws_security_group.ec2-linux-east-vpc-sg[0].id
+  acl                      = var.acl
+  iam_instance_profile_id  = module.linux_iam_profile[0].id
+  userdata_rendered        = local.web_userdata_az1
 }
 
 module "east_instance_public_az2" {
-  count                       = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on                  = [module.vpc-east, module.vpc-transit-gateway-attachment-east, time_sleep.wait_for_jump_box]
-  source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
-  aws_ec2_instance_name       = "${var.cp}-${var.env}-east-public-az2-instance"
-  enable_public_ips           = false
-  availability_zone           = local.availability_zone_2
-  public_subnet_id            = data.aws_subnet.subnet-east-public-az2[0].id
-  public_ip_address           = local.linux_east_az2_ip_address
-  aws_ami                     = data.aws_ami.ubuntu[0].id
-  keypair                     = var.keypair
-  instance_type               = var.linux_instance_type
-  security_group_public_id    = aws_security_group.ec2-linux-east-vpc-sg[0].id
-  acl                         = var.acl
-  iam_instance_profile_id     = module.linux_iam_profile[0].id
-  userdata_rendered           = local.web_userdata_az2
+  count                    = local.enable_linux_spoke_instances ? 1 : 0
+  depends_on               = [module.vpc-east, module.vpc-transit-gateway-attachment-east, time_sleep.wait_for_jump_box]
+  source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
+  aws_ec2_instance_name    = "${var.cp}-${var.env}-east-public-az2-instance"
+  enable_public_ips        = false
+  availability_zone        = local.availability_zone_2
+  public_subnet_id         = data.aws_subnet.subnet-east-public-az2[0].id
+  public_ip_address        = local.linux_east_az2_ip_address
+  aws_ami                  = data.aws_ami.ubuntu[0].id
+  keypair                  = var.keypair
+  instance_type            = var.linux_instance_type
+  security_group_public_id = aws_security_group.ec2-linux-east-vpc-sg[0].id
+  acl                      = var.acl
+  iam_instance_profile_id  = module.linux_iam_profile[0].id
+  userdata_rendered        = local.web_userdata_az2
 }
 
 #
 # West Linux Instance for Generating West->East Traffic
 #
 module "west_instance_public_az1" {
-  count                       = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on                  = [module.vpc-west, module.vpc-transit-gateway-attachment-west, time_sleep.wait_for_jump_box]
-  source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
-  aws_ec2_instance_name       = "${var.cp}-${var.env}-west-public-az1-instance"
-  enable_public_ips           = false
-  availability_zone           = local.availability_zone_1
-  public_subnet_id            = data.aws_subnet.subnet-west-public-az1[0].id
-  public_ip_address           = local.linux_west_az1_ip_address
-  aws_ami                     = data.aws_ami.ubuntu[0].id
-  keypair                     = var.keypair
-  instance_type               = var.linux_instance_type
-  security_group_public_id    = aws_security_group.ec2-linux-west-vpc-sg[0].id
-  acl                         = var.acl
-  iam_instance_profile_id     = module.linux_iam_profile[0].id
-  userdata_rendered           = local.web_userdata_az1
+  count                    = local.enable_linux_spoke_instances ? 1 : 0
+  depends_on               = [module.vpc-west, module.vpc-transit-gateway-attachment-west, time_sleep.wait_for_jump_box]
+  source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
+  aws_ec2_instance_name    = "${var.cp}-${var.env}-west-public-az1-instance"
+  enable_public_ips        = false
+  availability_zone        = local.availability_zone_1
+  public_subnet_id         = data.aws_subnet.subnet-west-public-az1[0].id
+  public_ip_address        = local.linux_west_az1_ip_address
+  aws_ami                  = data.aws_ami.ubuntu[0].id
+  keypair                  = var.keypair
+  instance_type            = var.linux_instance_type
+  security_group_public_id = aws_security_group.ec2-linux-west-vpc-sg[0].id
+  acl                      = var.acl
+  iam_instance_profile_id  = module.linux_iam_profile[0].id
+  userdata_rendered        = local.web_userdata_az1
 }
 
 module "west_instance_public_az2" {
-  count                       = local.enable_linux_spoke_instances ? 1 : 0
-  depends_on                  = [module.vpc-west, module.vpc-transit-gateway-attachment-west, time_sleep.wait_for_jump_box]
-  source                      = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
-  aws_ec2_instance_name       = "${var.cp}-${var.env}-west-public-az2-instance"
-  enable_public_ips           = false
-  availability_zone           = local.availability_zone_2
-  public_subnet_id            = data.aws_subnet.subnet-west-public-az2[0].id
-  public_ip_address           = local.linux_west_az2_ip_address
-  aws_ami                     = data.aws_ami.ubuntu[0].id
-  keypair                     = var.keypair
-  instance_type               = var.linux_instance_type
-  security_group_public_id    = aws_security_group.ec2-linux-west-vpc-sg[0].id
-  acl                         = var.acl
-  iam_instance_profile_id     = module.linux_iam_profile[0].id
-  userdata_rendered           = local.web_userdata_az2
+  count                    = local.enable_linux_spoke_instances ? 1 : 0
+  depends_on               = [module.vpc-west, module.vpc-transit-gateway-attachment-west, time_sleep.wait_for_jump_box]
+  source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
+  aws_ec2_instance_name    = "${var.cp}-${var.env}-west-public-az2-instance"
+  enable_public_ips        = false
+  availability_zone        = local.availability_zone_2
+  public_subnet_id         = data.aws_subnet.subnet-west-public-az2[0].id
+  public_ip_address        = local.linux_west_az2_ip_address
+  aws_ami                  = data.aws_ami.ubuntu[0].id
+  keypair                  = var.keypair
+  instance_type            = var.linux_instance_type
+  security_group_public_id = aws_security_group.ec2-linux-west-vpc-sg[0].id
+  acl                      = var.acl
+  iam_instance_profile_id  = module.linux_iam_profile[0].id
+  userdata_rendered        = local.web_userdata_az2
+}
+
+#
+# Optional Windows Spoke Instances - one per VPC (not per-AZ), bare/no bootstrap, private only.
+# Reachable via SSH port-forward through the jump box (e.g. ssh -L 3389:<private-ip>:3389) or a FortiGate VIP.
+#
+module "east_instance_windows" {
+  count                    = local.enable_windows_spoke_instances ? 1 : 0
+  depends_on               = [module.vpc-east, module.vpc-transit-gateway-attachment-east, time_sleep.wait_for_jump_box]
+  source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
+  aws_ec2_instance_name    = "${var.cp}-${var.env}-east-windows-instance"
+  enable_public_ips        = false
+  availability_zone        = local.availability_zone_1
+  public_subnet_id         = data.aws_subnet.subnet-east-public-az1[0].id
+  public_ip_address        = local.windows_east_ip_address
+  aws_ami                  = data.aws_ami.windows[0].id
+  keypair                  = var.windows_keypair
+  instance_type            = var.windows_instance_type
+  security_group_public_id = aws_security_group.ec2-linux-east-vpc-sg[0].id
+  iam_instance_profile_id  = module.linux_iam_profile[0].id
+  userdata_rendered        = ""
+}
+
+module "west_instance_windows" {
+  count                    = local.enable_windows_spoke_instances ? 1 : 0
+  depends_on               = [module.vpc-west, module.vpc-transit-gateway-attachment-west, time_sleep.wait_for_jump_box]
+  source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
+  aws_ec2_instance_name    = "${var.cp}-${var.env}-west-windows-instance"
+  enable_public_ips        = false
+  availability_zone        = local.availability_zone_1
+  public_subnet_id         = data.aws_subnet.subnet-west-public-az1[0].id
+  public_ip_address        = local.windows_west_ip_address
+  aws_ami                  = data.aws_ami.windows[0].id
+  keypair                  = var.windows_keypair
+  instance_type            = var.windows_instance_type
+  security_group_public_id = aws_security_group.ec2-linux-west-vpc-sg[0].id
+  iam_instance_profile_id  = module.linux_iam_profile[0].id
+  userdata_rendered        = ""
 }
 
 #
 # Security Groups are VPC specific, so an "ALLOW ALL" for each VPC
+# Shared by both Linux and Windows spoke instances.
 #
 resource "aws_security_group" "ec2-linux-east-vpc-sg" {
-  count                       = local.enable_linux_spoke_instances ? 1 : 0
-  description                 = "Security Group for Linux Instances in the East Spoke VPC"
-  vpc_id                      = data.aws_vpc.vpc-east[0].id
+  count       = local.enable_east_west_spoke_endpoints ? 1 : 0
+  description = "Security Group for Linux/Windows Instances in the East Spoke VPC"
+  vpc_id      = data.aws_vpc.vpc-east[0].id
   ingress {
     description = "Allow All"
     from_port   = 0
@@ -243,9 +310,9 @@ resource "aws_security_group" "ec2-linux-east-vpc-sg" {
   }
 }
 resource "aws_security_group" "ec2-linux-west-vpc-sg" {
-  count                       = local.enable_linux_spoke_instances ? 1 : 0
-  description                 = "Security Group for Linux Instances in the West Spoke VPC"
-  vpc_id                      = data.aws_vpc.vpc-west[0].id
+  count       = local.enable_east_west_spoke_endpoints ? 1 : 0
+  description = "Security Group for Linux/Windows Instances in the West Spoke VPC"
+  vpc_id      = data.aws_vpc.vpc-west[0].id
   ingress {
     description = "Allow All"
     from_port   = 0
@@ -263,10 +330,10 @@ resource "aws_security_group" "ec2-linux-west-vpc-sg" {
 }
 
 #
-# IAM Profile for linux instance
+# IAM Profile shared by Linux and Windows spoke instances
 #
 module "linux_iam_profile" {
   source        = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance_iam_role"
-  count         = local.enable_linux_spoke_instances ? 1 : 0
+  count         = local.enable_east_west_spoke_endpoints ? 1 : 0
   iam_role_name = "${var.cp}-${var.env}-${random_string.random.result}-linux-instance_role"
 }
