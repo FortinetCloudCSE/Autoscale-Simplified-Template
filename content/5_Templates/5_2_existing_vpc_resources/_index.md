@@ -33,6 +33,7 @@ The template conditionally creates the following components based on boolean var
 | Transit Gateway | Central hub for VPC interconnectivity | No | ~$36 + data transfer |
 | Spoke VPCs (East/West) | Simulated workload VPCs | No | ~$50 (networking) |
 | Linux Instances | HTTP servers and traffic generators | No | ~$14 (2x t3.micro) |
+| Windows Instances | RDP-testable bastion targets in each spoke VPC | No | ~$61 (2x t3.medium) |
 
 **Total estimated cost for complete lab**: ~$300-400/month
 
@@ -313,6 +314,54 @@ curl http://<linux-instance-ip>
 # Generate internet egress traffic
 ssh ec2-user@<linux-instance-ip>
 curl http://www.google.com  # Traffic goes through FortiGate
+```
+
+#### Windows Instances (RDP Testing, Optional)
+
+**Configuration**:
+```hcl
+enable_windows_spoke_instances = true
+windows_instance_type          = "t3.medium"
+windows_host_ip                = 13
+windows_keypair                = "my-rsa-keypair"
+```
+
+**What they provide**:
+- One bare Windows Server 2022 instance in each spoke VPC (East and West — not per-AZ, so 2 total, unlike the per-AZ Linux instances)
+- No bootstrap script; these exist purely for RDP connectivity testing
+- Always private (no public IP), sharing the same East/West public AZ1 subnet and security group as the Linux instances
+
+{{% notice warning %}}
+**Requires a separate RSA keypair**
+
+`windows_keypair` is a distinct variable from `keypair` and **must be an RSA-type keypair** — AWS rejects ED25519 keys for Windows AMIs (`Unsupported: ED25519 key pairs are not supported with Windows AMIs`) because Windows password retrieval (`GetPasswordData`) requires RSA encryption. A modern `ssh-keygen` default is often ED25519, so don't assume your existing `keypair` will work here. Check the type with:
+```bash
+aws ec2 describe-key-pairs --query 'KeyPairs[].{Name:KeyName,Type:KeyType}'
+```
+If you don't have an RSA keypair, create one:
+```bash
+aws ec2 create-key-pair --key-name <name> --key-type rsa --key-format pem \
+  --query 'KeyMaterial' --output text > ~/.ssh/<name>.pem && chmod 400 ~/.ssh/<name>.pem
+```
+`windows_keypair` defaults to `""` and has no validation forcing it to be set — `terraform plan` will not catch a missing or wrong keypair here, only `apply` will.
+{{% /notice %}}
+
+{{% notice tip %}}
+**Avoiding IP collisions**
+
+`windows_host_ip` shares the same East/West public AZ1 subnet as `linux_host_ip` — pick a distinct value for each, and make sure it fits the subnet's actual host range. With the default `spoke_subnet_bits = 4`, that subnet is a `/28` (16 addresses); AWS reserves the first 4 and the last address, leaving host numbers roughly 4–14 usable. A safe convention: `linux_host_ip = 11`, `windows_host_ip = 13`. If you use a different `spoke_subnet_bits`, recompute the usable range accordingly.
+{{% /notice %}}
+
+**Reaching the Windows instances** (always private, no public IP):
+```bash
+# SSH port-forward through the jump box
+ssh -i <keypair>.pem -L 3389:<windows-instance-private-ip>:3389 ubuntu@<jump-box-public-ip>
+# Then point your RDP client at localhost:3389
+```
+Or route RDP through a FortiGate VIP if one is configured for that private IP. Find the instance's private IP via the AWS Console or:
+```bash
+aws ec2 describe-instances --filters "Name=tag:Name,Values=*windows-instance*" \
+  --query 'Reservations[].Instances[].PrivateIpAddress'
 ```
 
 #### Debug TGW Attachment (Optional)
@@ -616,6 +665,17 @@ east_linux_instance_type = "t3.micro"
 enable_west_linux_instances = true
 west_linux_instance_type = "t3.micro"
 ```
+
+#### Windows Instances (Optional, RDP Testing)
+
+```hcl
+enable_windows_spoke_instances = true
+windows_instance_type          = "t3.medium"
+windows_host_ip                = 13
+windows_keypair                = "my-rsa-keypair"  # Must be RSA -- ED25519 keys are rejected for Windows AMIs
+```
+
+One bare, always-private Windows Server instance per spoke VPC (East and West), for RDP testing only — no bootstrap script. See the "Windows Instances" section above for keypair requirements, IP collision rules, and how to reach it via the jump box or a FortiGate VIP.
 
 #### Debug TGW Attachment
 
@@ -994,6 +1054,24 @@ Error: Error creating VPC: VpcLimitExceeded
 2. Check security groups allow port 80 and 22
 3. Verify NAT Gateway is functioning for internet access
 4. Check route tables in spoke VPCs
+
+### Issue: Windows Instance RDP Fails or Instance Won't Launch
+
+**Symptoms**:
+- `terraform apply` fails on the Windows instance with a keypair/AMI error
+- RDP connection times out or is refused once the instance is running
+
+**Solutions**:
+1. Confirm `windows_keypair` is an **RSA** keypair, not ED25519 — this is the most common cause, and `terraform plan` doesn't catch it, only `apply` does:
+   ```bash
+   aws ec2 describe-key-pairs --query 'KeyPairs[].{Name:KeyName,Type:KeyType}'
+   ```
+2. Confirm `windows_host_ip` doesn't collide with `linux_host_ip` and is a valid host address for the East/West public AZ1 subnet's actual size (see the IP collision note above)
+3. Windows instances are always private — connect via SSH port-forward through the jump box or a FortiGate VIP, never directly
+4. Check the instance system log for boot issues:
+   ```bash
+   aws ec2 get-console-output --instance-id <instance-id>
+   ```
 
 ### Issue: High Costs After Deployment
 

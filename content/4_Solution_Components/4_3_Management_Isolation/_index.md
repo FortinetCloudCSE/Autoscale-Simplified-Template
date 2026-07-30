@@ -91,6 +91,15 @@ If you require public internet access to the FortiGate management interface with
 3. Implement AWS Systems Manager Session Manager for private connectivity
 {{% /notice %}}
 
+### Public IP on the Dedicated Management Port
+
+Independent of the above, `enable_fgt_management_public_ip` (default `true`) controls whether the dedicated management port itself is assigned a public IP at all. If you reach management exclusively through Direct Connect, VPN, or a peered/TGW-attached network, set this to `false` — a public IP on a management interface is unneeded exposure once a private path exists.
+
+```hcl
+enable_dedicated_management_eni = true
+enable_fgt_management_public_ip = false
+```
+
 ### Characteristics
 - **Clear separation of concerns**: Management traffic isolated from data plane
 - **Independent security policies**: Separate security groups for management interface

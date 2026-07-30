@@ -142,6 +142,7 @@ Use this decision tree to determine your deployment approach:
 - Management VPC with FortiManager, FortiAnalyzer, and Jump Box
 - Transit Gateway with spoke VPCs
 - Linux instances for traffic generation
+- Windows instances for RDP connectivity testing (optional)
 - FortiGate autoscale group with GWLB
 - Complete end-to-end testing environment
 

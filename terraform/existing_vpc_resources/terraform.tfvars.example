@@ -302,6 +302,39 @@ linux_host_ip = 11
 acl = "public"
 
 #====================================================================================================
+# WINDOWS SPOKE INSTANCE CONFIGURATION (OPTIONAL, RDP TESTING)
+#====================================================================================================
+# Enable deployment of one Windows instance in each of the East and West spoke VPCs (not per-AZ)
+# Bare instances, no bootstrap script -- for RDP connectivity testing only
+# Always private (no public IP): reach them via SSH port-forward through the jump box
+# (e.g. ssh -i <keypair>.pem -L 3389:<private-ip>:3389 ubuntu@<jump-box-public-ip>, then RDP to
+# localhost:3389) or through a FortiGate VIP
+# Set to false if you don't need Windows test instances
+#
+enable_windows_spoke_instances = false
+
+# Windows instance type -- Windows needs more resources than the Linux t3.micro default
+# Recommended: t3.medium (2 vCPU/4GB) minimum
+#
+windows_instance_type = "t3.medium"
+
+# Host portion of Windows instance IP addresses within their respective spoke VPCs' public AZ1 subnet
+# Full IPs will be: <vpc_cidr_east_base>.<host_ip> and <vpc_cidr_west_base>.<host_ip>
+# Must NOT collide with linux_host_ip above -- both instance types share the same AZ1 subnet
+# Must also fit within the subnet's host range: with the default spoke_subnet_bits = 4, subnets
+# are /28 (16 addresses) and AWS reserves the first 4 and the last, leaving ~4-14 usable
+#
+windows_host_ip = 13
+
+# Keypair for the Windows instances -- MUST be an RSA-type keypair, not ED25519
+# AWS rejects ED25519 keys for Windows AMIs: Windows password retrieval (GetPasswordData)
+# requires RSA encryption. This is deliberately separate from the main `keypair` variable
+# above, which may be ED25519 and works fine for Linux/FortiGate instances.
+# Create one if needed: aws ec2 create-key-pair --key-name <name> --key-type rsa --key-format pem
+#
+windows_keypair = ""
+
+#====================================================================================================
 # CONFIGURATION EXAMPLES AND USE CASES
 #====================================================================================================
 #

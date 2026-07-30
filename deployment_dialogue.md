@@ -113,6 +113,27 @@ or any further docs/code drift beyond what's noted below.
     every `plan` looked completely clean. If you have credentials and the
     customer wants to actually deploy (not just generate the tfvars files),
     don't stop at a clean `plan` and call it done.
+12. **Never assume the customer wants to reuse a previous run's values as a
+    shortcut — not even when reconfiguring from scratch after an existing
+    `terraform.tfvars` you already have on disk.** Corrected directly by the
+    customer: presenting old values as an implicit default (e.g. "same as
+    before?") skips the point of walking through the phase at all. Ask every
+    question explicitly and let the customer supply each value themselves,
+    even if it turns out identical to what came before.
+13. **When writing the final `terraform.tfvars`, start from
+    `terraform.tfvars.example` (copy it, checking Ground Rule 2 first) and
+    edit only the specific variable values decided in the dialogue — never
+    hand-assemble a bare-bones tfvars containing just the discussed
+    variables.** Corrected directly by the customer. The example file's
+    comments, section headers, `USE CASE` examples, and `IMPORTANT NOTES`
+    aren't just scaffolding to discard once you have the values — they're
+    what the customer (or whoever tweaks this file later, possibly without
+    you in the loop) uses to understand what every other variable does and
+    how to safely change it themselves. A minimal rewritten file loses all of
+    that context permanently. Practically: `cp terraform.tfvars.example
+    terraform.tfvars`, then apply the dialogue's answers as targeted edits to
+    that copy, leaving every comment, every unrelated variable, and the
+    file's original structure intact.
 
 ---
 
@@ -138,12 +159,32 @@ Then ask:
     [Required Fortinet-Role Tags](https://fortinetcloudcse.github.io/Autoscale-Simplified-Template/5_templates/5_1_overview/#required-fortinet-role-tags)
     table before `autoscale_template` will find anything.
   - No → continue, both Phase 2 and Phase 3 run.
-- **Do you want this template to also build a Transit Gateway + East/West spoke
-  test VPCs** (for traffic generation and east-west inspection testing), **or
-  just the core Inspection VPC?** This is the main cost/complexity lever
-  ([full cost breakdown](https://fortinetcloudcse.github.io/Autoscale-Simplified-Template/5_templates/5_2_existing_vpc_resources/#component-overview)):
-  Inspection VPC alone is the cheapest/fastest path; adding TGW+spokes gives a
-  complete testable lab (~$100–150/month more) but takes longer to stand up.
+- **What's the Transit Gateway situation: none, a brand-new demo TGW, or an
+  existing production TGW?** This is the main cost/complexity lever
+  ([full cost breakdown](https://fortinetcloudcse.github.io/Autoscale-Simplified-Template/5_templates/5_2_existing_vpc_resources/#component-overview)),
+  and it's easy to steer a real customer toward the wrong option here if you
+  don't explain what `enable_build_existing_subnets` actually does — it does
+  **not** mean "attach to my existing TGW." It means "build a brand-new TGW
+  plus synthetic East/West spoke VPCs with Linux traffic-generator instances"
+  — this is a Fortinet demo/lab construct for generating test traffic and
+  exercising east-west inspection in a self-contained sandbox, not something a
+  real customer's production TGW setup normally wants. **A real customer
+  almost always already has an existing TGW with real workload VPCs attached
+  to it, and what they actually want is to attach the Inspection VPC to that
+  existing TGW** — which is `enable_build_existing_subnets = false` +
+  `enable_tgw_attachment = true` + `attach_to_tgw_name` set to their real TGW's
+  name, not the demo-spokes path. Lay out all three options plainly:
+  - **No TGW** — just the core Inspection VPC, cheapest/fastest path, no
+    east-west inspection between other VPCs.
+  - **Build a new demo TGW + East/West spoke VPCs** (`enable_build_existing_subnets
+    = true`) — for lab/demo/POC use, generates its own synthetic test traffic.
+    Adds ~$100–150/month. Don't recommend this to a customer describing a real
+    production network unless they specifically want a sandboxed demo alongside it.
+  - **Attach to an existing TGW** (`enable_build_existing_subnets = false`,
+    `enable_tgw_attachment = true`, `attach_to_tgw_name` = their real TGW's
+    name) — the customer's actual workload VPCs are already attached to that
+    TGW; this just adds the Inspection VPC as another attachment so it can
+    inspect east-west traffic between the customer's existing VPCs.
 
 Everything else that used to be bundled into a single "pick a pattern" choice
 (management VPC, FortiManager, licensing, egress mode, etc.) is now asked
@@ -200,9 +241,16 @@ Ask in this order:
      `terraform apply`. Do not ask about FortiFlex.
    - **FortiFlex** → collect credentials **now**: `fortiflex_username`,
      `fortiflex_password`, `fortiflex_configid_list` (config ID(s) from the
-     FortiFlex portal — must match the instance type's vCPU count, decided in
-     Phase 3), and `fortiflex_sn_list` (optional — restricts to specific
-     program serial numbers). Point to the
+     FortiFlex portal), and `fortiflex_sn_list` (optional — restricts to
+     specific program serial numbers). **Don't infer the required vCPU count
+     from the config ID's name** — corrected directly by the customer. A name
+     like `Standard_Autoscale_FGT_4vcpu` is just a human-chosen label; nothing
+     about the string itself is enforced by FortiFlex or this template. The
+     actual vCPU requirement lives in that config ID's real definition in the
+     FortiFlex portal, which you can't see from the name alone — ask the
+     customer to confirm it directly (or check the portal) rather than
+     assuming the name is accurate, when picking `fgt_instance_type` in Phase 3.
+     Point to the
      [FortiFlex setup guide](https://fortinetcloudcse.github.io/Autoscale-Simplified-Template/4_solution_components/4_4_licensing_options/4_4_1_fortiflex_setup/).
      Ask whether these go directly in the tfvars file or as
      `TF_VAR_fortiflex_username` / `TF_VAR_fortiflex_password` environment
@@ -324,25 +372,56 @@ does it reach the separate Management VPC's *private* IPs?** →
   second ENI/subnet for management traffic, but it doesn't reach the separate
   Management VPC (no route). `create_management_subnet_in_inspection_vpc =
   true`, `enable_dedicated_management_eni = true`,
-  `enable_dedicated_management_vpc = false`.
+  `enable_dedicated_management_vpc = false`. This is the only sub-option that
+  actually uses the Inspection VPC's own dedicated management subnet
+  (`{cp}-{env}-inspection-management-az{N}`) — verified: `autoscale_template`'s
+  lookups for that subnet and its route table (`vpc_inspection.tf` lines
+  142-157, 228-243) are gated on `enable_dedicated_management_eni`, not
+  `enable_dedicated_management_vpc`. If `existing_vpc_resources` didn't
+  actually set `create_management_subnet_in_inspection_vpc = true`, those
+  lookups find nothing and `terraform plan` fails with `Missing required
+  argument: route_table_id` — a mismatch between the two templates' settings,
+  not a TGW issue.
 - **Dedicated ENI reaching the separate Management VPC** —
-  `enable_dedicated_management_vpc = true` (implies
-  `enable_dedicated_management_eni = true`, don't set both) plus
-  `create_management_subnet_in_inspection_vpc = true` in
-  existing_vpc_resources. **Requires a real network path from the Inspection
-  VPC to the Management VPC — this template has no VPC peering, only Transit
-  Gateway.** If Phase 0 chose no TGW, this option has nowhere to route to:
-  `autoscale_template` looks up `{cp}-{env}-inspection-management-rt-az1/az2`
-  tags that `existing_vpc_resources` never creates without
-  `create_management_subnet_in_inspection_vpc = true`, and `terraform plan`
-  fails with `Missing required argument: route_table_id`. **Only offer this
-  sub-option if Phase 0 built a TGW.**
+  `enable_dedicated_management_vpc = true` (mutually exclusive with
+  `enable_dedicated_management_eni` — a `check` block hard-fails `plan` if
+  both are `true`, so leave `enable_dedicated_management_eni = false`
+  explicitly). **Corrected — verified the hard way, `create_management_subnet_in_inspection_vpc`
+  must be `false` here, not `true`.** This option never touches the
+  Inspection VPC's own dedicated management subnet at all: it uses AWS's
+  multi-VPC ENI attachment feature to attach the FortiGate's second interface
+  directly to the *Management VPC's own* public subnet instead
+  (`autoscale_group.tf` lines 243, 247, 309, 313 pull
+  `data.aws_subnet.public_subnet_az1/az2`, not the inspection-management
+  subnets, whenever `enable_dedicated_management_vpc = true`). Setting
+  `create_management_subnet_in_inspection_vpc = true` here just creates a
+  wasted, unused subnet in the Inspection VPC.
+  **Also corrected — does not require a TGW**, contrary to what this file
+  previously said: checked every resource gated by
+  `enable_dedicated_management_vpc` in `autoscale_template` (`autoscale_group.tf`,
+  `vpc_inspection.tf`) and none of them reference TGW, TGW attachments, or
+  any routed connectivity — they only look up the Management VPC's own public
+  subnets/IGW. The multi-VPC ENI attachment is a direct interface attachment,
+  not IP-routed connectivity, so it needs no TGW and no VPC peering. Safe to
+  offer this sub-option regardless of Phase 0's TGW answer.
 
-**Practical guidance**: if the customer wants FortiManager/FortiAnalyzer/jump
-box (Question A: yes) but Phase 0 had no TGW, tell them plainly — they get the
-VPC and the instances, reachable by public IP, but Question B defaults to "no
-dedicated ENI." FortiManager integration (Section 6 below) then uses
-FortiManager's **public** IP, not its private one, for the same reason.
+**Practical guidance**: since "Dedicated ENI reaching Management VPC" doesn't
+require a TGW (see above), Phase 0's TGW answer doesn't constrain Question B
+at all — all three sub-options are always available regardless. The customer
+only ends up on "no dedicated ENI" if they actually choose it, or if Question
+A was "no" (no Management VPC built at all, nothing to reach). If Question B
+picked "reaching Management VPC," FortiManager integration (Section 6 below)
+can use FortiManager's **private** IP — the multi-VPC ENI attachment gives
+the FortiGate a real interface directly in the Management VPC regardless of
+TGW.
+
+**Question C: if Question B chose either dedicated-ENI sub-option, does the
+FortiGate's dedicated management port itself get a public IP?** →
+`enable_fgt_management_public_ip` (`autoscale_template`, default `true`).
+Default assumption is yes (internet access to that port), unless the customer
+has Direct Connect/VPN giving a private path to it — same logic as Section 5's
+public-IP sub-questions below, just for the FortiGate's own management port
+instead of FortiManager/FortiAnalyzer/jump box.
 
 **Doc/code drift**: the published docs show `dedicated_management_vpc_tag`,
 `dedicated_management_public_az1_subnet_tag`, and
@@ -377,6 +456,17 @@ Ask which of the three the customer wants (independent yes/no each) — sets
 `existing_vpc_resources`. (Instance sizes, versions, passwords, and license
 files for whichever ones are enabled get collected in Phase 2 — this section is
 just the yes/no.)
+
+**Fold the public-IP decision into each component's yes/no, right here — don't
+defer it to a separate batched question in Phase 2 Section 5a.** For each of
+FortiManager/FortiAnalyzer/jump box the customer enables, immediately ask
+whether *that one* gets a public IP: default assumption is yes (internet
+access), unless the customer has Direct Connect/VPN reaching it privately, in
+which case recommend `false` — same reasoning as Question C above, just
+per-component instead of templatewide. This sets
+`enable_fortimanager_public_ip` / `enable_fortianalyzer_public_ip` /
+`enable_jump_box_public_ip` right away; Phase 2 Section 5a just writes the
+values already decided here, it doesn't ask again.
 
 **Historical bug, now fixed — kept here as context in case it regresses.**
 `vpc_management.tf` intentionally builds its own custom jump box
@@ -417,14 +507,15 @@ FortiManager 7.6.3+ requires `set fgfm-allow-vm enable` under
 `config system global` on the FortiManager CLI before FortiGates can register.
 
 **Which IP for `fortimanager_ip` depends directly on Section 4's answer**:
-if Question B ended up "no dedicated ENI" (no TGW, or customer chose not to
-route to the Management VPC), use FortiManager's **public** IP — the FortiGate
-has no private path to `10.3.0.x`. Only use the private IP
-(`vpc_cidr_management` base + `fortimanager_host_ip`) if Question B's third
-sub-option (dedicated ENI reaching the Management VPC via TGW) was actually
-selected. Get this wrong and `terraform apply` succeeds but the FortiGates
-simply can never reach FortiManager — no error, just silent non-functionality,
-so get it right rather than defaulting to the private IP out of habit.
+if Question B ended up "no dedicated ENI" (or Question A was "no", no
+Management VPC at all), use FortiManager's **public** IP — the FortiGate has
+no private path to `10.3.0.x`. Use the private IP (`vpc_cidr_management` base
++ `fortimanager_host_ip`) if Question B's third sub-option (dedicated ENI
+reaching the Management VPC via multi-VPC ENI attachment — no TGW required,
+see Section 4) was selected. Get this wrong and `terraform apply` succeeds
+but the FortiGates simply can never reach FortiManager — no error, just
+silent non-functionality, so get it right rather than defaulting to the
+private IP out of habit.
 
 ### 7. Primary Scale-In Protection
 
@@ -501,31 +592,59 @@ that combination, check `provider.tf` for `ignore_tags { keys =
 
 - `management_cidr_sg` — list of CIDRs allowed to reach management interfaces
   (FortiManager/FortiAnalyzer/jump box). Default suggestion: their current public
-  IP as a /32 (`curl ifconfig.me`). Explain this is a list, so they can add a VPN
-  range or office CIDR too. Remember Ground Rule 7 once `vpc_cidr_management` is
-  known in the next step.
+  IP as a /32 (`curl ifconfig.me`).
   **Always ask if they have a VPN/SASE tunnel** — if so, their public IP differs
   depending on whether it's up or down, and they need access in both states.
   Grab it once with the tunnel up and once with it down (`curl ifconfig.me`
   each time, prompting them to toggle in between), and add both to the list.
+  **The only CIDR this wizard auto-appends to this list is `vpc_cidr_management`
+  itself, per Ground Rule 7, once that value is known in the next step — never
+  proactively suggest adding the inspection VPC CIDR, spoke CIDRs, or any other
+  VPC's CIDR here.** Those aren't what this security group is for.
+  **Always end with one explicit followup question**: "Any other CIDRs to add
+  that I can't detect myself?" — prompt with concrete examples rather than
+  asking blind, since the customer may not think to mention these unprompted:
+  additional public IP ranges for an on-prem FortiAnalyzer/FortiManager that
+  also needs to reach these management interfaces, or private CIDRs if
+  management access happens exclusively over Direct Connect. Don't skip this
+  just because you already have their current public IP(s).
+  **Public IP exposure for FortiManager/FortiAnalyzer/jump box is a separate
+  question, folded into each component's yes/no in Phase 1 Section 5** — don't
+  raise it here, this section is CIDRs only.
+  **Reassure the customer this list isn't set in stone**: `management_cidr_sg`
+  becomes a security group rule set, which can be edited directly in the AWS
+  Console (EC2 > Security Groups) after the fact if they need to add a CIDR
+  later — they don't have to get it perfectly complete right now, and don't
+  need a `terraform apply` just to add one more allowed IP.
 
 ### 4. Network CIDRs
 
 Explain the CIDR plan needs non-overlapping ranges for: management VPC,
-inspection VPC, and the spoke supernet. Ask:
+inspection VPC, and the spoke supernet.
 
-- `vpc_cidr_management` (default suggestion `10.3.0.0/16`, only needed if
-  building a management VPC)
-- `vpc_cidr_inspection` **and** `vpc_cidr_ns_inspection` — **both exist and are
-  usually set to the same value.** `vpc_cidr_ns_inspection` is the one that
-  `autoscale_template`'s `vpc_cidr_inspection` must match later — flag this
-  explicitly so the customer doesn't get tripped up by the similar names.
-  Default suggestion: `10.0.0.0/16`.
-- `vpc_cidr_spoke` (supernet, default `192.168.0.0/16`), `vpc_cidr_east`
-  (`192.168.0.0/24`), `vpc_cidr_west` (`192.168.1.0/24`) — only needed if
-  deploying spoke VPCs (Phase 0).
-- `subnet_bits` (default `8`) and `spoke_subnet_bits` (default `4`) — explain
-  briefly: these control how big the subnets are within each VPC's CIDR.
+**Present the suggested defaults up front as a table, don't just ask the
+customer to supply every value cold** — most lab/test deployments take the
+defaults as-is, and making them ask "what's the default?" separately wastes a
+turn:
+
+| Variable | Suggested default |
+|---|---|
+| `vpc_cidr_management` | `10.3.0.0/16` (only needed if building a management VPC) |
+| `vpc_cidr_inspection` | `10.0.0.0/16` |
+| `vpc_cidr_ns_inspection` | `10.0.0.0/16` (same value — see note below) |
+| `vpc_cidr_spoke` | `192.168.0.0/16` (only needed if deploying spoke VPCs, Phase 0) |
+| `vpc_cidr_east` | `192.168.0.0/24` |
+| `vpc_cidr_west` | `192.168.1.0/24` |
+| `subnet_bits` | `8` |
+| `spoke_subnet_bits` | `4` |
+
+Flag explicitly: `vpc_cidr_inspection` **and** `vpc_cidr_ns_inspection` both
+exist and are usually the same value, but `vpc_cidr_ns_inspection` is the one
+that `autoscale_template`'s `vpc_cidr_inspection` must match later — easy to
+mix up since the names are so similar. `subnet_bits`/`spoke_subnet_bits`
+control how big the subnets are within each VPC's CIDR.
+
+Then ask: use these defaults as-is, or adjust any of them?
 
 Now apply Ground Rule 7: append `vpc_cidr_management` to `management_cidr_sg`
 from Section 3, tell the customer you're doing it and why, offer to remove it.
@@ -584,12 +703,21 @@ FortiManager, FortiAnalyzer, and FortiGate version catalogs are independent —
 don't assume a version available for one is available for the others; pick
 one present in all three if you want them aligned.
 
-If TGW/spokes are enabled, ask for `attach_to_tgw_name` — default to
-`{cp}-{env}-tgw` (this repo auto-creates a TGW with that name when
-`enable_build_existing_subnets = true`). If attaching to an **existing**
-production TGW instead, ask for its real name (`aws ec2 describe-transit-gateways
---query 'TransitGateways[*].[Tags[?Key==`Name`].Value|[0],TransitGatewayId]'`
-finds it).
+**These three TGW-related questions are important enough to ask individually,
+each with a full explanation — don't batch them into one grouped question:**
+
+**1. `attach_to_tgw_name`** — this is the `Name` tag applied to the Transit
+Gateway `existing_vpc_resources` creates. It matters beyond cosmetics:
+`autoscale_template` (Phase 3) uses this exact name to *discover* which TGW to
+attach the FortiGate autoscale group to. If the names don't match
+byte-for-byte between the two templates, `autoscale_template` either fails to
+find the TGW or attaches to the wrong one if multiple TGWs share similar names
+in the account. Default convention: `{cp}-{env}-tgw` (this repo auto-creates a
+TGW with that name when `enable_build_existing_subnets = true`). Only deviate
+from this if attaching to an **existing** production TGW instead — in that
+case use its actual `Name` tag (`aws ec2 describe-transit-gateways --query
+'TransitGateways[*].[Tags[?Key==`Name`].Value|[0],TransitGatewayId]'` finds
+it), and `existing_vpc_resources` won't be the one creating it.
 
 ### 5a. Public IPs and spoke instance settings
 
@@ -598,9 +726,9 @@ component they belong to is enabled, easy to miss, and not covered elsewhere in
 this playbook. Don't skip them:
 
 - `enable_fortimanager_public_ip`, `enable_fortianalyzer_public_ip`,
-  `enable_jump_box_public_ip` — one per enabled component. Default suggestion
-  `true` for a lab/demo (direct GUI/SSH access without VPN); `false` if the
-  customer only wants access via VPN/Direct Connect or through the jump box.
+  `enable_jump_box_public_ip` — **already decided in Phase 1 Section 5**,
+  folded into each component's yes/no question at the point it was asked.
+  Just write the values here, don't ask again.
 - `linux_instance_type` and `linux_host_ip` are needed whenever **either**
   `enable_linux_spoke_instances = true` **or** `enable_jump_box = true`, not
   just spoke instances — the jump box uses the same two variables
@@ -611,6 +739,49 @@ this playbook. Don't skip them:
   Section 5 above. `acl` (`"public"` for internet-reachable spoke test
   instances, `"private"` for internal-only) only matters when
   `enable_linux_spoke_instances = true`.
+
+**Optional: Windows spoke instances.** Ask whether the customer also wants
+`enable_windows_spoke_instances = true` — one bare Windows Server instance per
+spoke VPC (East and West, not per-AZ, so 2 total, not 4 like the Linux ones).
+No bootstrap script; these are for RDP connectivity testing only, always
+private (no public IP) — reachable via SSH port-forward through the jump box
+(`ssh -i <keypair>.pem -L 3389:<private-ip>:3389 ubuntu@<jump-box-public-ip>`,
+then RDP to `localhost:3389`) or a FortiGate VIP. Defaults to `false`; when
+enabled, also confirm `windows_instance_type` (default `t3.medium`) and
+`windows_host_ip` (default `13`).
+**`windows_host_ip` has two collision constraints, not one — verified the hard
+way via a real `terraform plan` failure**: it must not collide with
+`linux_host_ip` (both instance types share the same East/West public AZ1
+subnet), **and** it must fit within that subnet's actual host range. With the
+default `spoke_subnet_bits = 4`, the East/West public subnets are `/28`s (16
+addresses), and AWS always reserves the first 4 and the last address in every
+subnet, leaving only host numbers roughly 4-14 usable. A value like `21`
+looks like a normal host number but is invalid for a `/28` regardless of
+whether `enable_windows_spoke_instances` is even `true` — the IP-address
+locals in `ec2.tf` call `cidrhost()` unconditionally unless explicitly guarded
+by the enable flag, so an out-of-range value here can break `terraform plan`
+even for customers who never touch this feature. If the customer sets a
+smaller `spoke_subnet_bits` (larger subnets, more room) or a larger one
+(smaller subnets, less room), recompute the usable range accordingly rather
+than assuming `4-14` always applies.
+
+**Windows instances need their own, separate keypair — verified via a real
+`terraform apply` failure**: `windows_keypair` is a distinct variable from
+`keypair`, not an oversight. AWS rejects ED25519 keypairs for Windows AMIs
+outright (`Unsupported: ED25519 key pairs are not supported with Windows
+AMIs`) — Windows password retrieval (`GetPasswordData`) requires RSA
+encryption, which ED25519 doesn't support. Since a customer's main `keypair`
+(used for Linux/FortiGate instances) is very often ED25519 these days (it's
+`ssh-keygen`'s modern default), **always ask whether their existing keypair is
+RSA or ED25519 before assuming it can be reused for Windows** —
+`aws ec2 describe-key-pairs --query 'KeyPairs[].{Name:KeyName,Type:KeyType}'`
+shows the type. If they don't have an RSA keypair, create one:
+`aws ec2 create-key-pair --key-name <name> --key-type rsa --key-format pem
+--query 'KeyMaterial' --output text > ~/.ssh/<name>.pem && chmod 400
+~/.ssh/<name>.pem`. `windows_keypair` defaults to `""` (empty) in
+`variables.tf` and has no validation forcing it to be set — `terraform plan`
+won't catch a missing/wrong keypair here, only `apply` will, so don't skip
+asking just because `plan` looked clean.
 
 **Required-but-unused gotcha — verified by actually running `terraform plan`**:
 `linux_instance_type`, `linux_host_ip`, `acl`, `enable_management_tgw_attachment`,
@@ -630,18 +801,65 @@ in this playbook, `variables.tf` is ground truth and this file has already
 been wrong about "only required if enabled" more than once.
 
 If TGW/spokes ARE enabled, the same variables get real values instead of
-placeholders, and also confirm:
-- `create_tgw_routes_for_existing` — recommended `true` for lab/test (lets the
-  jump box reach spoke Linux instances), `false` for production.
-- `enable_management_tgw_attachment` — attaches the Management VPC to the TGW.
-  Recommended `true` for lab/testing; ⚠️ not recommended for production (keeps
-  management plane isolated there).
+placeholders, and also confirm the remaining two important TGW questions
+below — same rule as `attach_to_tgw_name` above: ask each individually, with a
+full explanation, not batched:
+
+**2. `create_tgw_routes_for_existing`** — this populates the Transit Gateway's
+own route tables with default routes pointing spoke VPC traffic toward the
+Management VPC. Concretely, this is what lets the jump box (and FortiManager/
+FortiAnalyzer) actually reach the East/West spoke Linux instances over the
+TGW, and vice versa — without it, the spoke VPCs and Management VPC are both
+attached to the TGW but have no routes telling traffic how to cross between
+them. Recommended `true` for lab/test environments where you want that
+connectivity for testing. Recommended `false` for production: in production
+you typically don't want the management plane automatically routable to every
+spoke VPC by default — routing should be deliberate, not a blanket default
+route baked in at TGW setup time.
+
+**Hard dependency, now enforced in code**: this variable only makes sense when
+`enable_build_existing_subnets = true` — the template can only populate TGW
+route tables for spoke VPCs it actually built and knows the CIDRs/attachments
+for, and has no way to safely generate routes for a customer's existing,
+unknown network behind their own TGW. `existing_vpc_resources/variables.tf`'s
+`create_tgw_routes_for_existing` variable has a `validation` block that fails
+`terraform plan` immediately with a clear message if you set it `true` while
+`enable_build_existing_subnets = false` — you no longer need to catch this
+yourself, but still explain the *why* to the customer rather than just
+letting the validation error surprise them.
+
+**Related cross-template gotcha in `autoscale_template` — verified, deliberately left undocumented-only (not fixed in code)**: `autoscale_template` has its own separately-declared `create_tgw_routes_for_existing` variable (`autoscale_template/variables.tf` line 85), gating four `data` sources in `autoscale_template/vpc_inspection.tf` (lines 313, 324, 331, 342) that look up the `{cp}-{env}-east-tgw-attachment`/`east-tgw-rtb`/`west-tgw-attachment`/`west-tgw-rtb` tags `existing_vpc_resources` only creates when *its* `enable_build_existing_subnets = true`. Because these are two separate Terraform configurations/state files, `autoscale_template` has no way to see `existing_vpc_resources`'s variable value — a `validation` block can't reach across templates. **This means the same-name `create_tgw_routes_for_existing` in Phase 3 must be kept manually in sync with Phase 2's `enable_build_existing_subnets`** (not just Phase 2's own `create_tgw_routes_for_existing` value, which is what Phase 3 Section 2 currently says to mirror) — if they drift, `autoscale_template` fails with a generic "no matching resource found" on those four data sources rather than anything pointing at the real cause. Flag this explicitly to the customer in Phase 3 Section 2 rather than assuming the mirrored value is automatically safe.
+
+**3. `enable_management_tgw_attachment`** — this attaches the Management VPC
+itself to the Transit Gateway. **Get the directionality right — corrected
+directly by the customer**: this is not about spokes reaching into the
+management plane. It's the other way around — it's what lets the **jump box
+(and other tools in the Management VPC) reach OUT to the demo East/West spoke
+Linux instances** over the TGW, for testing/administering that synthetic
+traffic-generator setup. Without this attachment, the Management VPC is
+isolated from the TGW entirely — FortiManager/FortiAnalyzer/jump box are only
+reachable by their public IPs (or via the dedicated management ENI path from
+Phase 1 Section 4), and the jump box has no path *into* the spoke VPCs at all.
+
+**This is a test/demo-environment feature specifically, not a production
+consideration to weigh** — it only matters because the demo East/West spokes
+(Phase 0's `enable_build_existing_subnets = true` path) exist to be reached
+and administered from the jump box in the first place. A real customer
+attaching to their existing production TGW (Phase 0's other branch) has no
+synthetic spokes to reach this way, so this variable is simply irrelevant to
+them, not something to weigh production risk against. Recommended `true`
+whenever you're building the demo spokes and want the jump box to reach them;
+`false` (or just not applicable) otherwise.
 
 ### 6. Review and write
 
-Show the complete `terraform.tfvars` content, confirm, then write it to
-`terraform/existing_vpc_resources/terraform.tfvars` (checking Ground Rule 2
-first).
+Per Ground Rule 13: copy `terraform/existing_vpc_resources/terraform.tfvars.example`
+to `terraform/existing_vpc_resources/terraform.tfvars` (checking Ground Rule 2
+first), then edit only the variables this phase's dialogue actually decided —
+leave every comment, section header, and unrelated variable from the example
+file untouched. Show the customer a summary of exactly which values you
+changed from the example (not the whole file — they can read the file
+themselves), confirm, then save.
 
 ---
 
@@ -659,11 +877,20 @@ All architecture flags (`firewall_policy_mode`, `access_internet_mode`,
 `enable_dedicated_management_eni`, `enable_dedicated_management_vpc`,
 `enable_tgw_attachment`, licensing model, capacity tier) are already *decided*
 from Phase 1 — this phase just fills in the remaining values. **"Decided" is
-not the same as "written"**: `enable_dedicated_management_eni` in particular
-has no default in `variables.tf` and must be explicitly set to `true` even
-though `enable_dedicated_management_vpc = true` implies it logically —
-Terraform doesn't infer one variable's value from another, only the module
-code does, and that inference happens *after* input validation, not before.
+not the same as "written"**: both `enable_dedicated_management_eni` and
+`enable_dedicated_management_vpc` have no default in `variables.tf`, so both
+must be written explicitly even though only one is really "on."
+**Corrected — this previously said the opposite and was wrong**: do NOT set
+`enable_dedicated_management_eni = true` alongside `enable_dedicated_management_vpc
+= true`. A `check` block (`autoscale_template/vpc_inspection.tf` line 12)
+hard-fails `terraform plan` if both are `true` simultaneously
+(`!(enable_dedicated_management_eni && enable_dedicated_management_vpc)` — pure
+boolean logic, not something that needs a live test to confirm). When Phase 1
+Section 4 chose "dedicated ENI reaching the Management VPC," write
+`enable_dedicated_management_vpc = true` and `enable_dedicated_management_eni
+= false` explicitly — the `vpc` flag alone is sufficient to create the extra
+network interface (see `autoscale_group.tf`'s `extra_network_interfaces`
+condition, which triggers on *either* flag being true, not requiring both).
 
 If Phase 0 said the customer already has tagged VPCs, ask for the carried-
 forward values fresh, and remind them they must exactly match whatever tags
@@ -685,9 +912,24 @@ exist on their VPCs.
 From Phase 0 (TGW+spokes decision):
 - `enable_tgw_attachment` — attaches the inspection VPC to the TGW.
 - If true: `attach_to_tgw_name` (reuse Phase 2's TGW name), 
-  `create_tgw_routes_for_existing` (usually matches Phase 2's value).
+  `create_tgw_routes_for_existing`.
 - `enable_east_west_inspection` — routes spoke-to-spoke traffic through the
   FortiGate for inspection. Only meaningful with TGW attachment on — ask.
+
+**`create_tgw_routes_for_existing` here must match Phase 2's
+`enable_build_existing_subnets`, not Phase 2's own `create_tgw_routes_for_existing`
+value.** Verified cross-template gotcha: this is a *separately declared*
+variable in `autoscale_template`, gating four `data` sources
+(`autoscale_template/vpc_inspection.tf` lines 313, 324, 331, 342) that look up
+the demo East/West TGW attachment/route-table tags `existing_vpc_resources`
+only creates when *its* `enable_build_existing_subnets = true`. Since
+`autoscale_template` is a separate Terraform configuration/state, there's no
+code-level check tying these together — get it wrong and you get a generic
+"no matching resource found" instead of anything pointing at the real cause.
+**Only set this `true` if Phase 2 built the demo TGW + spokes
+(`enable_build_existing_subnets = true`) — if Phase 0 chose "attach to an
+existing TGW" instead, this must be `false` here regardless of what Phase 2's
+own `create_tgw_routes_for_existing` was set to.**
 
 **`create_tgw_routes_for_existing` and `enable_east_west_inspection` have no
 default in `variables.tf` — write them even when `enable_tgw_attachment =
@@ -746,9 +988,27 @@ they need to plan around.
 
 From Phase 1 Section 1's answers, fill in the actual values now:
 - Perpetual files → `asg_license_directory` value
+- **Whenever perpetual files are NOT in use (FortiFlex or PAYG) — explicitly
+  set `asg_license_directory = null` in the tfvars file, don't just leave it
+  unset.** Verified the hard way via a real `terraform apply` failure:
+  `variables.tf` defaults this to `""` (empty string), not `null`, but the
+  downloaded `fgt_asg` module (`main.tf` local `lic_folder`/`lic_file_set`)
+  only treats a literal `null` as "no license directory" — an empty string
+  fails that check and falls through to `fileset("", "*")`, which lists every
+  file in the `autoscale_template` working directory (`.tf` files,
+  `terraform.tfstate`, `.tftpl` config templates) and tries to upload them to
+  S3 as if they were license files, failing with `Call to function "filemd5"
+  failed: open /provider.tf: no such file or directory` (and similarly for
+  every other file in the directory). This is a bug in the external module,
+  not something fixable in this repo's own `.tf` files — the tfvars-level
+  workaround (`asg_license_directory = null`) avoids it entirely.
 - FortiFlex → `fortiflex_username`, `fortiflex_password`, `fortiflex_sn_list`,
-  `fortiflex_configid_list` (confirm `configid_list` matches the vCPU count of
-  `fgt_instance_type` picked in Section 3 above — e.g. `t3.xlarge` = 4 vCPUs)
+  `fortiflex_configid_list` — ask the customer to confirm the actual vCPU
+  requirement from the FortiFlex portal's real config ID definition before
+  picking `fgt_instance_type` in Section 3. Don't infer it from the config
+  ID's name string (e.g. don't assume `Standard_Autoscale_FGT_4vcpu` means 4
+  vCPUs just because the name says so) — the name is a label, not an
+  enforced constraint.
 - Capacity tier from Phase 1 → concrete `asg_byol_asg_min_size` /
   `max_size` / `desired_size` and `asg_ondemand_asg_min_size` / `max_size` /
   `desired_size`
@@ -793,17 +1053,29 @@ treat them the same:**
 - **Required — no default, must be written even though the value is almost
   always the same**: `allow_cross_zone_load_balancing` (`true`),
   `gwlb_health_check_port` (`8008`), `gwlb_health_check_interval` (`60`),
-  `gwlb_healthy_threshold` (`5`), `asg_health_check_grace_period` (`700`),
-  `acl` (`"private"`). Write all six into the tfvars file with these
-  recommended values — don't skip them as "just defaults," `terraform plan`
-  will fail with "No value for required variable" if you do. Only skip asking
-  the customer about them (the values are rarely worth customizing), not
+  `gwlb_healthy_threshold` (`5`), `asg_health_check_grace_period` (`700`).
+  Write all five into the tfvars file with these recommended values — don't
+  skip them as "just defaults," `terraform plan` will fail with "No value for
+  required variable" if you do. Only skip asking the customer about them (the
+  values are rarely worth customizing), not
   skip *writing* them.
+
+**Removed as dead code**: `autoscale_template` used to also declare a
+required, no-default `acl` variable (copy-pasted from `existing_vpc_resources`,
+where it genuinely controls Linux spoke instance visibility). Confirmed via
+grep across this template's own `.tf` files and the entire downloaded module
+tree — nothing referenced `var.acl` anywhere in `autoscale_template`. It's
+been deleted from `variables.tf`, `terraform.tfvars.example`, and `tfvars.ui`.
+Don't ask about or write `acl` for `autoscale_template` going forward.
 
 ### 7. Review and write
 
-Show the complete `terraform.tfvars` content, confirm, then write it to
-`terraform/autoscale_template/terraform.tfvars` (checking Ground Rule 2 first).
+Per Ground Rule 13: copy `terraform/autoscale_template/terraform.tfvars.example`
+to `terraform/autoscale_template/terraform.tfvars` (checking Ground Rule 2
+first), then edit only the variables this phase's dialogue actually decided —
+leave every comment, section header, and unrelated variable from the example
+file untouched. Show the customer a summary of exactly which values you
+changed from the example (not the whole file), confirm, then save.
 
 ---
 

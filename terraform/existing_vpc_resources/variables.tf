@@ -22,7 +22,7 @@ variable "cp" {
 variable "env" {
   description = "The Tag Environment to differentiate prod/test/dev"
 }
-variable subnet_bits {
+variable "subnet_bits" {
   description = "Number of bits in the network portion of the subnet CIDR"
 }
 variable "spoke_subnet_bits" {
@@ -34,20 +34,20 @@ variable "keypair" {
   description = "Keypair for instances that support keypairs"
 }
 variable "management_cidr_sg" {
-    description = "List of CIDRs to allow in security group for management access"
-    type        = list(string)
-    default     = ["0.0.0.0/0"]
+  description = "List of CIDRs to allow in security group for management access"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
 variable "vpc_cidr_management" {
-    description = "CIDR for the management VPC"
+  description = "CIDR for the management VPC"
 }
 variable "vpc_cidr_inspection" {
-    description = "CIDR for the inspection VPC"
-    type        = string
-    default     = "10.0.0.0/16"
+  description = "CIDR for the inspection VPC"
+  type        = string
+  default     = "10.0.0.0/16"
 }
 variable "vpc_cidr_ns_inspection" {
-    description = "CIDR for the inspection VPC"
+  description = "CIDR for the inspection VPC"
 }
 variable "enable_autoscale_deployment" {
   description = "Deploy FortiGate AutoScale group with Gateway Load Balancer"
@@ -153,10 +153,35 @@ variable "create_tgw_routes_for_existing" {
   description = "Populate TGW route tables with routes between Management VPC and Spoke VPCs. Recommended for test environments only."
   type        = bool
   default     = false
+
+  validation {
+    condition     = !var.create_tgw_routes_for_existing || var.enable_build_existing_subnets
+    error_message = "create_tgw_routes_for_existing can only be true when enable_build_existing_subnets is also true -- these routes point at the demo East/West spoke VPCs and TGW route tables that this template only builds in that mode. If you're attaching to an existing TGW (enable_build_existing_subnets = false), set this to false too."
+  }
 }
 variable "enable_linux_spoke_instances" {
   description = "Boolean to allow creation of Linux Spoke Instances in East and West VPCs"
   type        = bool
+}
+variable "enable_windows_spoke_instances" {
+  description = "Boolean to allow creation of one Windows Spoke Instance in each of the East and West VPCs (private only, reachable via jump box or FortiGate VIP)"
+  type        = bool
+  default     = false
+}
+variable "windows_instance_type" {
+  description = "Windows Spoke Instance Type"
+  type        = string
+  default     = "t3.medium"
+}
+variable "windows_host_ip" {
+  description = "Host portion of the Windows Spoke Instance IP address within the East/West public AZ1 subnets. Must not collide with linux_host_ip in the same subnets, and must fit within the subnet's host range (with the default spoke_subnet_bits = 4, subnets are /28 -- 16 addresses -- and AWS reserves the first 4 and the last, leaving host numbers roughly 4-14 usable)."
+  type        = number
+  default     = 13
+}
+variable "windows_keypair" {
+  description = "Keypair for the Windows Spoke Instances. Must be an RSA-type keypair -- AWS rejects ED25519 keys for Windows AMIs with 'Unsupported: ED25519 key pairs are not supported with Windows AMIs', since Windows password retrieval (GetPasswordData) requires RSA encryption. This is deliberately separate from var.keypair, which may be ED25519 and is fine for Linux/FortiGate instances."
+  type        = string
+  default     = ""
 }
 variable "attach_to_tgw_name" {
   description = "Name of the TGW to attach to"
@@ -169,13 +194,13 @@ variable "enable_tgw_attachment" {
   default     = true
 }
 variable "vpc_cidr_east" {
-    description = "CIDR for the whole east VPC"
+  description = "CIDR for the whole east VPC"
 }
 variable "vpc_cidr_spoke" {
-    description = "Super-Net CIDR for the spoke VPC's"
+  description = "Super-Net CIDR for the spoke VPC's"
 }
 variable "vpc_cidr_west" {
-    description = "CIDR for the whole west VPC"
+  description = "CIDR for the whole west VPC"
 }
 variable "acl" {
   description = "The acl for linux instances"
