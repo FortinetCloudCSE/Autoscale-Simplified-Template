@@ -317,6 +317,7 @@ If you're deploying into a production or compliance-governed account and can't u
         "dynamodb:CreateTable",
         "dynamodb:DeleteTable",
         "dynamodb:DescribeTable",
+        "dynamodb:DescribeContinuousBackups",
         "dynamodb:PutItem",
         "dynamodb:GetItem",
         "dynamodb:DeleteItem",
