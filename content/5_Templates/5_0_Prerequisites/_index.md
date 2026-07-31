@@ -344,7 +344,8 @@ If you're deploying into a production or compliance-governed account and can't u
         "s3:PutEncryptionConfiguration",
         "s3:GetEncryptionConfiguration",
         "s3:PutBucketPublicAccessBlock",
-        "s3:GetBucketPublicAccessBlock"
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketPolicy"
       ],
       "Resource": "*"
     },
