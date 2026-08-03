@@ -12,6 +12,10 @@ The FortiGate Autoscale Simplified Template consists of two complementary Terraf
 1. **[existing_vpc_resources](../5_2_existing_vpc_resources/)** (Required First): Creates the Inspection VPC and supporting infrastructure with `Fortinet-Role` tags for resource discovery
 2. **[autoscale_template](../5_3_autoscale_template/)** (Required Second): Deploys the FortiGate autoscale group into the existing Inspection VPC
 
+{{% notice info %}}
+**Before you start**: the AWS identity you deploy with needs permissions across EC2, ELB, IAM, and (for `autoscale_template`) Auto Scaling, Lambda, DynamoDB, S3, EventBridge, and CloudWatch. See [Prerequisites: AWS IAM Permissions](../5_0_prerequisites/) for the full breakdown.
+{{% /notice %}}
+
 {{% notice warning %}}
 **Important Workflow Change**
 
@@ -142,6 +146,7 @@ Use this decision tree to determine your deployment approach:
 - Management VPC with FortiManager, FortiAnalyzer, and Jump Box
 - Transit Gateway with spoke VPCs
 - Linux instances for traffic generation
+- Windows instances for RDP connectivity testing (optional)
 - FortiGate autoscale group with GWLB
 - Complete end-to-end testing environment
 

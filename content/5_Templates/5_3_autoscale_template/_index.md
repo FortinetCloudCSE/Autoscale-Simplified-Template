@@ -60,6 +60,10 @@ These two options are mutually exclusive:
 Setting `enable_dedicated_management_vpc = true` automatically implies `enable_dedicated_management_eni = true`; you do not need to set both.
 {{% /notice %}}
 
+#### Public IP on the Dedicated Management Port
+
+When either `enable_dedicated_management_eni` or `enable_dedicated_management_vpc` is `true`, the FortiGate's dedicated management port is controlled by `enable_fgt_management_public_ip` (default `true`). Set it to `false` if you reach the management interface exclusively through a private path (Direct Connect, VPN, or a peered/TGW-attached network) and don't want a public IP on that port at all — it's unneeded exposure once a private path exists.
+
 ### Components Created
 
 | Component | Purpose | Always Created |
@@ -82,6 +86,7 @@ Setting `enable_dedicated_management_vpc = true` automatically implies `enable_d
 | **Transit Gateway Attachment** | Connection to TGW for centralized architecture | `enable_tgw_attachment` |
 | **Dedicated Management ENI** | Isolated management interface | `enable_dedicated_management_eni` |
 | **Dedicated Management VPC Connection** | Management in separate VPC | `enable_dedicated_management_vpc` |
+| **Public IP on Dedicated Management Port** | Public IP on the FortiGate's dedicated management interface | `enable_fgt_management_public_ip` (default `true`) |
 | **FortiManager Integration** | Centralized policy management | `enable_fortimanager_integration` |
 | **East-West Inspection** | Inter-spoke traffic inspection | `enable_east_west_inspection` |
 
