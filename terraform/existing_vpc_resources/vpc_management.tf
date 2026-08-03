@@ -230,8 +230,17 @@ resource "time_sleep" "wait_for_jump_box" {
 # Default routes for private subnet route tables pointing to jump box ENI
 # This allows traffic from spoke VPCs (via TGW) to NAT through the jump box
 #
+# NOTE: the management VPC module only creates these private subnets/route
+# tables when it sees enable_jump_box=true (which we deliberately don't pass
+# through - see the module call above, custom jump box built here instead) OR
+# when the management VPC attaches to a TGW. So these routes - which only
+# matter for routing spoke-VPC traffic through the jump box's NAT via that
+# same TGW - must also be gated on the TGW attachment, or route_table_id
+# resolves to null and terraform plan fails with "Missing required argument"
+# even though enable_jump_box is true.
+#
 resource "aws_route" "private-az1-default-to-jump-box" {
-  count                  = (var.enable_build_management_vpc && var.enable_jump_box) ? 1 : 0
+  count                  = (var.enable_build_management_vpc && var.enable_jump_box && local.enable_management_tgw_attachment) ? 1 : 0
   depends_on             = [aws_instance.jump_box]
   route_table_id         = module.vpc-management[0].route_table_management_private_az1
   destination_cidr_block = "0.0.0.0/0"
@@ -239,14 +248,14 @@ resource "aws_route" "private-az1-default-to-jump-box" {
 }
 
 resource "aws_route" "private-az2-default-to-jump-box" {
-  count                  = (var.enable_build_management_vpc && var.enable_jump_box) ? 1 : 0
+  count                  = (var.enable_build_management_vpc && var.enable_jump_box && local.enable_management_tgw_attachment) ? 1 : 0
   depends_on             = [aws_instance.jump_box]
   route_table_id         = module.vpc-management[0].route_table_management_private_az2
   destination_cidr_block = "0.0.0.0/0"
   network_interface_id   = aws_instance.jump_box[0].primary_network_interface_id
 }
 resource "aws_route" "private-az3-default-to-jump-box" {
-  count                  = (var.enable_build_management_vpc && var.enable_jump_box && var.availability_zone_3 != "") ? 1 : 0
+  count                  = (var.enable_build_management_vpc && var.enable_jump_box && local.enable_management_tgw_attachment && var.availability_zone_3 != "") ? 1 : 0
   depends_on             = [aws_instance.jump_box]
   route_table_id         = module.vpc-management[0].route_table_management_private_az3
   destination_cidr_block = "0.0.0.0/0"

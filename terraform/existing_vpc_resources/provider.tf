@@ -11,4 +11,17 @@ locals {
 
 provider "aws" {
   region = var.aws_region
+
+  # Fortinet-Role tags are managed out-of-band via standalone aws_ec2_tag
+  # resources (see the "Fortinet-Role Tags for resource discovery" blocks in
+  # vpc_inspection.tf / vpc_management.tf). Without this, any update to the
+  # tagged resource itself (e.g. from a provider schema change adding a new
+  # computed attribute) causes the AWS provider to reconcile that resource's
+  # live tag set against what it computes from its own `tags` argument alone
+  # and DELETE any tag it doesn't recognize - including Fortinet-Role, which
+  # breaks autoscale_template's resource discovery. ignore_tags tells the
+  # provider to leave this key alone entirely.
+  ignore_tags {
+    keys = ["Fortinet-Role"]
+  }
 }
