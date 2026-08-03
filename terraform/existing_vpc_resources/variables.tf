@@ -191,7 +191,7 @@ variable "attach_to_tgw_name" {
 variable "enable_tgw_attachment" {
   description = "Attach inspection VPC to Transit Gateway"
   type        = bool
-  default     = true
+  default     = false
 }
 variable "vpc_cidr_east" {
   description = "CIDR for the whole east VPC"
