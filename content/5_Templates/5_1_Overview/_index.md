@@ -515,8 +515,8 @@ availability_zone_1 = "a"
 availability_zone_2 = "c"
 cp                  = "acme"      # Creates tags like "acme-test-inspection-vpc"
 env                 = "test"
-vpc_cidr_ns_inspection = "10.0.0.0/16"
-vpc_cidr_management    = "10.3.0.0/16"
+vpc_cidr_inspection = "10.0.0.0/16"
+vpc_cidr_management = "10.3.0.0/16"
 ```
 
 **autoscale_template/terraform.tfvars**:
@@ -526,7 +526,7 @@ availability_zone_1 = "a"          # MUST MATCH
 availability_zone_2 = "c"          # MUST MATCH
 cp                  = "acme"       # MUST MATCH - used for tag lookup
 env                 = "test"       # MUST MATCH - used for tag lookup
-vpc_cidr_inspection = "10.0.0.0/16"  # Should match existing VPC CIDR
+vpc_cidr_inspection = "10.0.0.0/16"  # MUST MATCH existing_vpc_resources
 vpc_cidr_management = "10.3.0.0/16"  # Should match if using management VPC
 
 attach_to_tgw_name = "acme-test-tgw"  # Matches cp-env naming convention
