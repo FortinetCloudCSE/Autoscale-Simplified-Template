@@ -679,11 +679,15 @@ See [FortiManager Integration Configuration](/mnt/project/fmg_integration_config
 ```hcl
 vpc_cidr_inspection = "10.0.0.0/16"
 vpc_cidr_management = "10.3.0.0/16"  # Must match existing_vpc_resources if used
-vpc_cidr_spoke      = "192.168.0.0/16"  # Supernet for all spoke VPCs
 vpc_cidr_east       = "192.168.0.0/24"
 vpc_cidr_west       = "192.168.1.0/24"
 
 subnet_bits = 8  # /16 + 8 = /24 subnets
+
+# Optional — the FortiGate's east-west inspection route is built from this
+# list. Leave unset to default to [vpc_cidr_east, vpc_cidr_west]; override
+# only if your real spoke VPCs differ from the two demo spokes above.
+# spoke_cidrs = ["192.168.0.0/24", "192.168.1.0/24"]
 ```
 
 {{% notice warning %}}
@@ -692,7 +696,7 @@ subnet_bits = 8  # /16 + 8 = /24 subnets
 Ensure:
 - ✅ No overlap with existing networks
 - ✅ Management VPC CIDR matches `existing_vpc_resources` if used
-- ✅ Spoke supernet encompasses all individual spoke VPC CIDRs
+- ✅ `spoke_cidrs` (if overridden) lists every spoke VPC CIDR that needs a FortiGate east-west inspection route — there's no supernet to keep in sync, just a plain list
 - ✅ Sufficient address space for growth
 - ✅ Alignment with corporate IP addressing standards
 
@@ -700,6 +704,7 @@ Ensure:
 - ❌ Overlapping inspection VPC with management VPC
 - ❌ Spoke CIDR too small for number of VPCs
 - ❌ Mismatched CIDRs between templates
+- ❌ Adding a production spoke VPC to the TGW without adding its CIDR to `spoke_cidrs` — the FortiGate simply won't have an east-west route for it
 {{% /notice %}}
 
 ### Step 13: Configure GWLB Endpoint Names
@@ -821,7 +826,6 @@ enable_fgt_system_autoscale = true
 #-----------------------------------------------------------------------
 vpc_cidr_inspection = "10.0.0.0/16"
 vpc_cidr_management = "10.3.0.0/16"
-vpc_cidr_spoke      = "192.168.0.0/16"
 vpc_cidr_east       = "192.168.0.0/24"
 vpc_cidr_west       = "192.168.1.0/24"
 subnet_bits         = 8

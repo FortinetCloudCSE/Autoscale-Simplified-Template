@@ -70,7 +70,10 @@ design choice, not a limitation.
 
 FortiGate configurations contain hard-coded references to inspection VPC CIDRs:
 - `vdom-exceptions` — reference management interface subnet CIDRs
-- `router static` — routes to spoke VPC supernet via inspection VPC gateway
+- `router static` — one east-west inspection route per spoke CIDR in `spoke_cidrs`
+  (defaults to `[vpc_cidr_east, vpc_cidr_west]`), rendered as literal `set dst`
+  values via each geneve interface — more entries than before, but the same
+  "hard-coded at render time" property applies
 - `system interface` — IP addresses derived from subnet assignments
 - `firewall address` — objects may reference internal subnets
 

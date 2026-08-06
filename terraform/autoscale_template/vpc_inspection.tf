@@ -427,7 +427,8 @@ resource "null_resource" "delete_existing_east_tgw_default_route" {
   count = (var.enable_tgw_attachment && var.create_tgw_routes_for_existing) ? 1 : 0
 
   provisioner "local-exec" {
-    command = <<-EOF
+    interpreter = ["bash", "-c"]
+    command     = <<-EOF
       OUTPUT=$(aws ec2 delete-transit-gateway-route \
         --transit-gateway-route-table-id ${data.aws_ec2_transit_gateway_route_table.east-tgw-rtb[0].id} \
         --destination-cidr-block 0.0.0.0/0 \
@@ -445,7 +446,8 @@ resource "null_resource" "delete_existing_west_tgw_default_route" {
   count = (var.enable_tgw_attachment && var.create_tgw_routes_for_existing) ? 1 : 0
 
   provisioner "local-exec" {
-    command = <<-EOF
+    interpreter = ["bash", "-c"]
+    command     = <<-EOF
       OUTPUT=$(aws ec2 delete-transit-gateway-route \
         --transit-gateway-route-table-id ${data.aws_ec2_transit_gateway_route_table.west-tgw-rtb[0].id} \
         --destination-cidr-block 0.0.0.0/0 \

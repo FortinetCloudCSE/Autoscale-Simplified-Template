@@ -21,12 +21,14 @@ config system zone
 end
 config router static
 %{ for az in az_list ~}
+%{ for cidr in spoke_cidrs ~}
     edit 0
-        set dst 192.168.0.0 255.255.0.0
+        set dst ${split("/", cidr)[0]} ${cidrnetmask(cidr)}
         set distance 5
         set priority 100
         set device "geneve-${az}"
     next
+%{ endfor ~}
 %{ endfor ~}
 end
 config router policy

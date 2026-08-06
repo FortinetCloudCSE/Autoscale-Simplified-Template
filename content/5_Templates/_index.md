@@ -50,7 +50,7 @@ When using both templates together, ensure these variables **match exactly**:
 - `cp` (customer prefix)
 - `env` (environment)
 - `vpc_cidr_management`
-- `vpc_cidr_spoke`
+- `vpc_cidr_east` and `vpc_cidr_west` (if deploying spoke VPCs)
 
 See [Templates Overview](5_1_overview/) for detailed coordination requirements.
 

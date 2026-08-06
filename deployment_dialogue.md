@@ -631,18 +631,25 @@ turn:
 |---|---|
 | `vpc_cidr_management` | `10.3.0.0/16` (only needed if building a management VPC) |
 | `vpc_cidr_inspection` | `10.0.0.0/16` |
-| `vpc_cidr_ns_inspection` | `10.0.0.0/16` (same value — see note below) |
-| `vpc_cidr_spoke` | `192.168.0.0/16` (only needed if deploying spoke VPCs, Phase 0) |
-| `vpc_cidr_east` | `192.168.0.0/24` |
-| `vpc_cidr_west` | `192.168.1.0/24` |
+| `vpc_cidr_east` | `192.168.0.0/24` (only needed if deploying spoke VPCs, Phase 0) |
+| `vpc_cidr_west` | `192.168.1.0/24` (only needed if deploying spoke VPCs, Phase 0) |
 | `subnet_bits` | `8` |
 | `spoke_subnet_bits` | `4` |
 
-Flag explicitly: `vpc_cidr_inspection` **and** `vpc_cidr_ns_inspection` both
-exist and are usually the same value, but `vpc_cidr_ns_inspection` is the one
-that `autoscale_template`'s `vpc_cidr_inspection` must match later — easy to
-mix up since the names are so similar. `subnet_bits`/`spoke_subnet_bits`
-control how big the subnets are within each VPC's CIDR.
+**Fixed since this was last a footgun**: `existing_vpc_resources` used to
+declare *both* `vpc_cidr_inspection` (dead, unused) and `vpc_cidr_ns_inspection`
+(the one that actually built the VPC) — `autoscale_template`'s
+`vpc_cidr_inspection` had to match the *latter*, not the similarly-named
+former. `vpc_cidr_ns_inspection` has been removed entirely; both templates now
+use `vpc_cidr_inspection` for the same thing, with the same name, so there's
+nothing left to mix up. Likewise, `vpc_cidr_spoke` (a "supernet" variable that
+was supposed to contain `vpc_cidr_east`/`vpc_cidr_west` but was never actually
+validated against them) has also been removed — see `spoke_cidrs` in
+`autoscale_template` if you need the FortiGate's east-west inspection route to
+cover more than just the two demo spoke VPCs; it defaults to
+`[vpc_cidr_east, vpc_cidr_west]` with no supernet math required.
+`subnet_bits`/`spoke_subnet_bits` control how big the subnets are within each
+VPC's CIDR.
 
 Then ask: use these defaults as-is, or adjust any of them?
 
@@ -785,14 +792,14 @@ asking just because `plan` looked clean.
 
 **Required-but-unused gotcha — verified by actually running `terraform plan`**:
 `linux_instance_type`, `linux_host_ip`, `acl`, `enable_management_tgw_attachment`,
-`vpc_cidr_east`, `vpc_cidr_spoke`, and `vpc_cidr_west` all have **no default**
+`vpc_cidr_east`, and `vpc_cidr_west` all have **no default**
 in `existing_vpc_resources/variables.tf` — Terraform requires values for all of
 them even when `enable_linux_spoke_instances = false` and
 `enable_build_existing_subnets = false` (no TGW/spokes at all). If the
 customer skipped TGW/spokes in Phase 0, fill these in as unused placeholders
 so `terraform plan` doesn't fail with "No value for required variable":
 `linux_instance_type = "t3.micro"`, `linux_host_ip = 11`, `acl = "private"`,
-`enable_management_tgw_attachment = false`, `vpc_cidr_spoke = "192.168.0.0/16"`,
+`enable_management_tgw_attachment = false`,
 `vpc_cidr_east = "192.168.0.0/24"`, `vpc_cidr_west = "192.168.1.0/24"` — tell
 the customer these are unused placeholders in that case, not a real network
 they need to plan around. **Run `terraform plan` yourself before telling the
@@ -870,9 +877,10 @@ https://fortinetcloudcse.github.io/Autoscale-Simplified-Template/5_templates/5_3
 
 If Phase 2 ran, **auto-fill and do not re-ask**: `aws_region`,
 `availability_zone_1`, `availability_zone_2`, `availability_zone_3`, `cp`, `env`,
-`vpc_cidr_management`. Set `vpc_cidr_inspection` here to the **`vpc_cidr_ns_inspection`
-value from Phase 2** (not Phase 2's `vpc_cidr_inspection` — see the CIDR note
-there; getting this wrong is the most common copy-paste mistake in this repo).
+`vpc_cidr_management`. Set `vpc_cidr_inspection` here to the **same
+`vpc_cidr_inspection` value from Phase 2** — both templates now use the same
+variable name for this CIDR (the old `vpc_cidr_ns_inspection` duplicate that
+used to cause copy-paste mistakes here has been removed).
 All architecture flags (`firewall_policy_mode`, `access_internet_mode`,
 `enable_dedicated_management_eni`, `enable_dedicated_management_vpc`,
 `enable_tgw_attachment`, licensing model, capacity tier) are already *decided*
@@ -934,19 +942,20 @@ own `create_tgw_routes_for_existing` was set to.**
 **`create_tgw_routes_for_existing` and `enable_east_west_inspection` have no
 default in `variables.tf` — write them even when `enable_tgw_attachment =
 false`** (both `false` in that case, they're just not meaningfully "used").
-Same class of gotcha as `vpc_cidr_east`/`west`/`spoke` below — don't skip
+Same class of gotcha as `vpc_cidr_east`/`west` below — don't skip
 writing a variable just because the feature it controls is off.
 
-**Required-but-unused gotcha**: `vpc_cidr_east`, `vpc_cidr_west`, and
-`vpc_cidr_spoke` have **no defaults** in `autoscale_template/variables.tf` —
-Terraform requires a value for all three even when
-`enable_tgw_attachment = false` and no spoke VPCs exist anywhere in this
-deployment. If Phase 2 built spoke VPCs, reuse those exact CIDRs here (they
-must match). If not, fill in the conventional placeholder values anyway so
-`terraform plan` doesn't fail: `vpc_cidr_spoke = "192.168.0.0/16"`,
+**Required-but-unused gotcha**: `vpc_cidr_east` and `vpc_cidr_west` have **no
+defaults** in `autoscale_template/variables.tf` — Terraform requires a value
+for both even when `enable_tgw_attachment = false` and no spoke VPCs exist
+anywhere in this deployment. If Phase 2 built spoke VPCs, reuse those exact
+CIDRs here (they must match). If not, fill in the conventional placeholder
+values anyway so `terraform plan` doesn't fail:
 `vpc_cidr_east = "192.168.0.0/24"`, `vpc_cidr_west = "192.168.1.0/24"` — tell
 the customer these are unused placeholders in this case, not a real network
-they need to plan around.
+they need to plan around. (There's also an optional `spoke_cidrs` list — leave
+it unset; it defaults to `[vpc_cidr_east, vpc_cidr_west]` and only needs
+setting if the real spoke list differs from those two.)
 
 ### 3. FortiGate specs
 
@@ -1083,16 +1092,14 @@ changed from the example (not the whole file), confirm, then save.
 
 **Pre-flight: diff-check, don't just trust that Phase 3's "auto-fill" actually
 matched.** Before running anything, actually compare the two written files —
-`aws_region`, `availability_zone_1`/`2`/`3`, `cp`, `env`, and (if applicable)
-`attach_to_tgw_name` must be byte-identical between
+`aws_region`, `availability_zone_1`/`2`/`3`, `cp`, `env`, `vpc_cidr_inspection`,
+and (if applicable) `attach_to_tgw_name` must be byte-identical between
 `existing_vpc_resources/terraform.tfvars` and
-`autoscale_template/terraform.tfvars`, and `autoscale_template`'s
-`vpc_cidr_inspection` must equal `existing_vpc_resources`'s
-`vpc_cidr_ns_inspection` specifically (not its `vpc_cidr_inspection` — the
-recurring footgun noted earlier). A quick `grep` of both files for these keys
-and eyeballing the values takes seconds and catches a copy-paste slip before
-it burns 10+ minutes of `apply` time discovering it as "no matching VPC
-found."
+`autoscale_template/terraform.tfvars` (the old `vpc_cidr_inspection` vs.
+`vpc_cidr_ns_inspection` footgun is gone now — both templates use the same
+name). A quick `grep` of both files for these keys and eyeballing the values
+takes seconds and catches a copy-paste slip before it burns 10+ minutes of
+`apply` time discovering it as "no matching VPC found."
 
 Walk the customer through, **one template at a time, in order**:
 

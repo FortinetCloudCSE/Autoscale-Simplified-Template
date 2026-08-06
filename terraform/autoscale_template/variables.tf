@@ -115,8 +115,10 @@ variable "vpc_cidr_west" {
 variable "vpc_cidr_management" {
     description = "CIDR for the management VPC"
 }
-variable "vpc_cidr_spoke" {
-    description = "Super-Net CIDR for the spoke VPC's"
+variable "spoke_cidrs" {
+    description = "List of all spoke VPC CIDRs south of the TGW that need FortiGate east-west inspection routes. Leave empty to default to [vpc_cidr_east, vpc_cidr_west]; override with the real list of production spoke CIDRs if they differ from the demo east/west VPCs."
+    type        = list(string)
+    default     = []
 }
 variable "attach_to_tgw_name" {
   description = "Name of the TGW to attach to"

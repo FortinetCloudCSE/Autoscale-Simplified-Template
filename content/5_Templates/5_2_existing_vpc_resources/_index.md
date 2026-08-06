@@ -280,7 +280,6 @@ Transit Gateway
 ```hcl
 vpc_cidr_east = "192.168.0.0/24"
 vpc_cidr_west = "192.168.1.0/24"
-vpc_cidr_spoke = "192.168.0.0/16"  # Supernet
 ```
 
 **Components per spoke VPC**:
@@ -687,13 +686,27 @@ Enables bypass path for connectivity testing without FortiGate inspection.
 
 ### Step 6: Configure Network CIDRs
 
-![Management and Spoke CIDRs](../mgmt-spoke-cidrs.png)
+| Variable | Description | Default | Required |
+|---|---|---|---|
+| `vpc_cidr_management` | CIDR for the management VPC | *(none)* | Yes |
+| `vpc_cidr_inspection` | CIDR for the inspection VPC | `10.0.0.0/16` | No |
+| `vpc_cidr_east` | CIDR for the whole east spoke VPC | *(none)* | Yes |
+| `vpc_cidr_west` | CIDR for the whole west spoke VPC | *(none)* | Yes |
+| `subnet_bits` | Bits added to `vpc_cidr_management`/`vpc_cidr_inspection` when carving their subnets | *(none)* | Yes |
+| `spoke_subnet_bits` | Bits added to `vpc_cidr_east`/`vpc_cidr_west` when carving their subnets | `4` | No |
+
+`vpc_cidr_east`/`vpc_cidr_west` and `vpc_cidr_management` are required even
+when you don't plan to use the spoke VPCs or management VPC — Terraform
+requires a value for every variable with no default regardless of which
+feature flags are on. Individual subnet CIDRs (public/private/TGW/NAT-GW,
+per AZ) are never separate variables — they're always computed from the VPC
+CIDR via `cidrsubnet()`, so there's nothing else to set here.
 
 ```hcl
 vpc_cidr_management = "10.3.0.0/16"
-vpc_cidr_east       = "192.168.0.0/24"
-vpc_cidr_west       = "192.168.1.0/24"
-vpc_cidr_spoke      = "192.168.0.0/16"  # Supernet for all spoke VPCs
+vpc_cidr_inspection  = "10.0.0.0/16"
+vpc_cidr_east        = "192.168.0.0/24"
+vpc_cidr_west        = "192.168.1.0/24"
 ```
 
 {{% notice warning %}}

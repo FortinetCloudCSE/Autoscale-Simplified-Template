@@ -46,9 +46,6 @@ variable "vpc_cidr_inspection" {
   type        = string
   default     = "10.0.0.0/16"
 }
-variable "vpc_cidr_ns_inspection" {
-  description = "CIDR for the inspection VPC"
-}
 variable "enable_autoscale_deployment" {
   description = "Deploy FortiGate AutoScale group with Gateway Load Balancer"
   type        = bool
@@ -195,9 +192,6 @@ variable "enable_tgw_attachment" {
 }
 variable "vpc_cidr_east" {
   description = "CIDR for the whole east VPC"
-}
-variable "vpc_cidr_spoke" {
-  description = "Super-Net CIDR for the spoke VPC's"
 }
 variable "vpc_cidr_west" {
   description = "CIDR for the whole west VPC"
