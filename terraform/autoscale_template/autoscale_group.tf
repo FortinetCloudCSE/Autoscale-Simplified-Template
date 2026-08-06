@@ -5,6 +5,12 @@ locals {
   az_list = var.availability_zone_3 != "" ? ["az1", "az2", "az3"] : ["az1", "az2"]
 }
 locals {
+  # All spoke CIDRs south of the TGW that need a FortiGate east-west inspection
+  # route. Defaults to the demo east/west VPCs; override var.spoke_cidrs with
+  # the real production spoke list if it differs.
+  spoke_cidrs = length(var.spoke_cidrs) > 0 ? var.spoke_cidrs : [var.vpc_cidr_east, var.vpc_cidr_west]
+}
+locals {
   fgt_config_template = "${path.module}/${var.firewall_policy_mode}${local.dedicated_mgmt}-fgt-conf.cfg.tftpl"
 }
 locals {
@@ -280,7 +286,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         internal_port = "secgrp1"
       }
 
-      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list })
+      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs })
       asg_max_size          = var.asg_byol_asg_max_size
       asg_min_size          = var.asg_byol_asg_min_size
       asg_desired_capacity  = var.asg_byol_asg_desired_size
@@ -339,7 +345,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         login_port    = "secgrp1"
         internal_port = "secgrp1"
       }
-      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list })
+      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs })
       asg_max_size         = var.asg_ondemand_asg_max_size
       asg_min_size         = var.asg_ondemand_asg_min_size
       asg_desired_capacity = var.asg_ondemand_asg_desired_size

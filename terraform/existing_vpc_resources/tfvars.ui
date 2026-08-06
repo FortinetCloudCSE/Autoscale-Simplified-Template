@@ -129,9 +129,6 @@ enable_ha_pair_deployment = false
 # @ui-placeholder: 10.0.0.0/16
 vpc_cidr_inspection = "10.0.0.0/16"
 
-# Hidden field - required by Terraform but same as vpc_cidr_inspection
-vpc_cidr_ns_inspection = "10.0.0.0/16"
-
 # @ui-type: number
 # @ui-label: Subnet Bits
 # @ui-description: Number of bits for subnet CIDR calculation
@@ -345,9 +342,6 @@ vpc_cidr_east            = "192.168.0.0/24"
 # @ui-default: 4
 # @ui-help: Creates smaller subnets in spoke VPCs (e.g., /28 subnets from /24 VPC)
 spoke_subnet_bits = 4
-
-# Hidden field - supernet CIDR encompassing all spoke VPCs
-vpc_cidr_spoke = "192.168.0.0/16"
 
 # @ui-type: output
 # @ui-label: West Public Subnet AZ1

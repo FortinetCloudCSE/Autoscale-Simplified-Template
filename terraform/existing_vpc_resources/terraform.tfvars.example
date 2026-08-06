@@ -64,14 +64,7 @@ vpc_cidr_management = "10.3.0.0/16"
 # Inspection VPC CIDR - where FortiGate autoscale group and GWLB will be deployed
 # This CIDR should not overlap with management VPC or spoke VPCs
 #
-vpc_cidr_inspection    = "10.0.0.0/16"
-vpc_cidr_ns_inspection = "10.0.0.0/16"
-
-# Supernet CIDR that encompasses all spoke VPCs
-# Used for route table summarization and TGW route configuration
-# Must be large enough to contain all individual spoke VPC CIDRs
-#
-vpc_cidr_spoke = "192.168.0.0/16"
+vpc_cidr_inspection = "10.0.0.0/16"
 
 # East and West spoke VPC CIDRs
 # These VPCs simulate workload VPCs for testing east-west and north-south traffic flows
@@ -405,7 +398,7 @@ windows_keypair = ""
 # 2. MATCHING VALUES WITH UNIFIED_TEMPLATE
 #    - cp and env MUST match between templates for resource discovery
 #    - attach_to_tgw_name MUST match between templates for TGW attachment
-#    - vpc_cidr_ns_inspection MUST match inspection_vpc_cidr in unified_template
+#    - vpc_cidr_inspection MUST match vpc_cidr_inspection in autoscale_template
 #    - vpc_cidr_management MUST match if using dedicated management VPC integration
 #    - create_nat_gateway_subnets MUST match access_internet_mode in unified_template
 #    - create_management_subnet_in_inspection_vpc MUST match enable_dedicated_management_eni

@@ -14,7 +14,7 @@ module "vpc-inspection" {
   count                           = var.enable_build_inspection_vpc ? 1 : 0
   depends_on                      = [module.vpc-transit-gateway]
   vpc_name                        = "${var.cp}-${var.env}-inspection"
-  vpc_cidr                        = var.vpc_cidr_ns_inspection
+  vpc_cidr                        = var.vpc_cidr_inspection
   subnet_bits                     = var.subnet_bits
   availability_zone_1             = local.availability_zone_1
   availability_zone_2             = local.availability_zone_2
