@@ -125,6 +125,19 @@ variable "attach_to_tgw_name" {
   type        = string
   default     = ""
 }
+#
+# Distributed egress (dual-egress: centralized + distributed) feature
+#
+variable "enable_distributed_egress" {
+  description = "Attach a GWLB Endpoint to each discovered distributed-egress VPC (tag-discovered lab VPCs from existing_vpc_resources, plus any explicit distributed_egress_endpoint_subnet_ids), sharing the same GWLB Endpoint Service used by the centralized/Inspection VPC path"
+  type        = bool
+  default     = false
+}
+variable "distributed_egress_endpoint_subnet_ids" {
+  description = "Explicit list of GWLBe-placement subnet IDs in customer-owned distributed VPCs that this template doesn't otherwise discover via Fortinet-Role tags. A GWLB Endpoint is created in each, but -- unlike tag-discovered subnets -- their route tables are never modified; redirecting the customer's own route table to the new endpoint is left to the customer."
+  type        = list(string)
+  default     = []
+}
 variable "endpoint_name_az1" {
   description = "Name of the gwlb endpoint to route to in AZ1"
   type        = string
