@@ -220,3 +220,194 @@ resource "aws_route" "distributed_2_gwlbe_default_route_igw_az2" {
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = module.vpc-distributed-2[0].igw_id
 }
+
+#
+# Default route for the public subnets to this VPC's own IGW. This is the ONLY subnet in each
+# distributed VPC that gets a public IP -- it never gets redirected to the GWLB endpoint (that
+# only happens to the private subnet, owned by autoscale_template), so there's no risk of the
+# asymmetric-routing/GWLB-flow-symmetry problem a public IP would create on the private subnet.
+#
+resource "aws_route" "distributed_1_public_default_route_igw_az1" {
+  depends_on             = [module.vpc-distributed-1]
+  count                  = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  route_table_id         = module.vpc-distributed-1[0].route_table_public_az1_id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = module.vpc-distributed-1[0].igw_id
+}
+resource "aws_route" "distributed_1_public_default_route_igw_az2" {
+  depends_on             = [module.vpc-distributed-1]
+  count                  = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  route_table_id         = module.vpc-distributed-1[0].route_table_public_az2_id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = module.vpc-distributed-1[0].igw_id
+}
+resource "aws_route" "distributed_2_public_default_route_igw_az1" {
+  depends_on             = [module.vpc-distributed-2]
+  count                  = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  route_table_id         = module.vpc-distributed-2[0].route_table_public_az1_id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = module.vpc-distributed-2[0].igw_id
+}
+resource "aws_route" "distributed_2_public_default_route_igw_az2" {
+  depends_on             = [module.vpc-distributed-2]
+  count                  = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  route_table_id         = module.vpc-distributed-2[0].route_table_public_az2_id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = module.vpc-distributed-2[0].igw_id
+}
+
+#
+# Traffic-generator Linux instance -- one per distributed VPC, in the public subnet, with a real
+# EIP. Reachable directly for SSH; scoped to management_cidr_sg rather than the east/west
+# spoke pattern's "allow all 0.0.0.0/0" since this instance is genuinely internet-facing.
+#
+
+data "aws_subnet" "distributed_1_public_az1" {
+  count = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  id    = module.vpc-distributed-1[0].subnet_public_az1_id
+}
+data "aws_subnet" "distributed_2_public_az1" {
+  count = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  id    = module.vpc-distributed-2[0].subnet_public_az1_id
+}
+
+data "aws_ami" "ubuntu_distributed" {
+  count       = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-20250603*"]
+  }
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+  owners = ["099720109477"] # Canonical
+}
+
+module "distributed_linux_iam_profile" {
+  source        = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance_iam_role"
+  count         = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  iam_role_name = "${var.cp}-${var.env}-${random_string.random.result}-distributed-linux-instance_role"
+}
+
+resource "aws_security_group" "distributed_1_linux_sg" {
+  count       = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  name        = "${var.cp}-${var.env}-distributed-1-linux-sg"
+  description = "Security group for the distributed-1 traffic-generator Linux instance"
+  vpc_id      = module.vpc-distributed-1[0].vpc_id
+
+  ingress {
+    description = "SSH from allowed CIDRs"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = var.management_cidr_sg
+  }
+  ingress {
+    description = "HTTPS from allowed CIDRs"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = var.management_cidr_sg
+  }
+  ingress {
+    description = "ICMP from allowed CIDRs"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = var.management_cidr_sg
+  }
+  ingress {
+    description = "All from RFC1918"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [local.rfc1918_10, local.rfc1918_172, local.rfc1918_192]
+  }
+  egress {
+    description = "Allow all outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+resource "aws_security_group" "distributed_2_linux_sg" {
+  count       = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  name        = "${var.cp}-${var.env}-distributed-2-linux-sg"
+  description = "Security group for the distributed-2 traffic-generator Linux instance"
+  vpc_id      = module.vpc-distributed-2[0].vpc_id
+
+  ingress {
+    description = "SSH from allowed CIDRs"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = var.management_cidr_sg
+  }
+  ingress {
+    description = "HTTPS from allowed CIDRs"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = var.management_cidr_sg
+  }
+  ingress {
+    description = "ICMP from allowed CIDRs"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = var.management_cidr_sg
+  }
+  ingress {
+    description = "All from RFC1918"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [local.rfc1918_10, local.rfc1918_172, local.rfc1918_192]
+  }
+  egress {
+    description = "Allow all outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+module "distributed_1_instance" {
+  count                    = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  depends_on               = [module.vpc-distributed-1, aws_route.distributed_1_public_default_route_igw_az1]
+  source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
+  aws_ec2_instance_name    = "${var.cp}-${var.env}-distributed-1-instance"
+  enable_public_ips        = true
+  availability_zone        = local.availability_zone_1
+  public_subnet_id         = module.vpc-distributed-1[0].subnet_public_az1_id
+  public_ip_address        = cidrhost(data.aws_subnet.distributed_1_public_az1[0].cidr_block, 11)
+  aws_ami                  = data.aws_ami.ubuntu_distributed[0].id
+  keypair                  = var.keypair
+  instance_type            = var.linux_instance_type
+  security_group_public_id = aws_security_group.distributed_1_linux_sg[0].id
+  acl                      = var.acl
+  iam_instance_profile_id  = module.distributed_linux_iam_profile[0].id
+  userdata_rendered        = ""
+}
+module "distributed_2_instance" {
+  count                    = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  depends_on               = [module.vpc-distributed-2, aws_route.distributed_2_public_default_route_igw_az1]
+  source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
+  aws_ec2_instance_name    = "${var.cp}-${var.env}-distributed-2-instance"
+  enable_public_ips        = true
+  availability_zone        = local.availability_zone_1
+  public_subnet_id         = module.vpc-distributed-2[0].subnet_public_az1_id
+  public_ip_address        = cidrhost(data.aws_subnet.distributed_2_public_az1[0].cidr_block, 11)
+  aws_ami                  = data.aws_ami.ubuntu_distributed[0].id
+  keypair                  = var.keypair
+  instance_type            = var.linux_instance_type
+  security_group_public_id = aws_security_group.distributed_2_linux_sg[0].id
+  acl                      = var.acl
+  iam_instance_profile_id  = module.distributed_linux_iam_profile[0].id
+  userdata_rendered        = ""
+}
