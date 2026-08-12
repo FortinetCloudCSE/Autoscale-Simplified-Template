@@ -134,6 +134,18 @@ create_tgw_routes_for_existing = false
 #
 enable_east_west_inspection = true
 
+# Distributed egress (dual-egress: centralized + distributed) -- attaches a GWLB Endpoint to each
+# tag-discovered distributed VPC (built by existing_vpc_resources) plus any explicit
+# distributed_egress_endpoint_subnet_ids, sharing the same GWLB Endpoint Service as above.
+#
+enable_distributed_egress = false
+
+# Explicit list of GWLBe-placement subnet IDs in customer-owned distributed VPCs not discovered
+# via Fortinet-Role tags. A GWLB Endpoint is created in each, but -- unlike tag-discovered
+# subnets -- their route tables are never modified; that's left to the customer.
+#
+# distributed_egress_endpoint_subnet_ids = ["subnet-xxxxxxxxxxxxxxxxx"]
+
 #====================================================================================================
 # GATEWAY LOAD BALANCER CONFIGURATION
 #====================================================================================================
