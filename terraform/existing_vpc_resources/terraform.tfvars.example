@@ -261,6 +261,14 @@ attach_to_tgw_name = "acme-test-tgw"
 #
 create_tgw_routes_for_existing = false
 
+# Use TGW route table propagation instead of explicit static routes
+# Exchanges the East/West/Management VPC CIDRs across their TGW route tables via
+# propagation rather than hand-written routes. Only affects those CIDR-specific
+# routes -- the 0.0.0.0/0 default routes to the inspection VPC always stay static,
+# since propagation can't express a default route.
+#
+use_propagations = false
+
 # Enable Transit Gateway attachment for management VPC
 # Allows management VPC (jump box, FortiManager, FortiAnalyzer) to reach spoke VPC resources
 # Useful for testing but NOT recommended for production environments

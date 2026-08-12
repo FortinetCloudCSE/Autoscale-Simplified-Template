@@ -131,16 +131,28 @@ resource "aws_route" "public-172-route-tgw" {
   transit_gateway_id     = module.vpc-transit-gateway[0].tgw_id
 }
 resource "aws_ec2_transit_gateway_route" "route-to-west-tgw" {
-  count                          = (local.enable_management_tgw_attachment && var.enable_build_management_vpc) ? 1 : 0
+  count                          = (!var.use_propagations && local.enable_management_tgw_attachment && var.enable_build_management_vpc) ? 1 : 0
   depends_on                     = [module.vpc-management]
   destination_cidr_block         = var.vpc_cidr_west
   transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-west[0].tgw_attachment_id
   transit_gateway_route_table_id = module.vpc-management[0].management_tgw_route_table_id
 }
 resource "aws_ec2_transit_gateway_route" "route-to-east-tgw" {
-  count                          = (local.enable_management_tgw_attachment && var.enable_build_management_vpc) ? 1 : 0
+  count                          = (!var.use_propagations && local.enable_management_tgw_attachment && var.enable_build_management_vpc) ? 1 : 0
   depends_on                     = [module.vpc-management]
   destination_cidr_block         = var.vpc_cidr_east
+  transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-east[0].tgw_attachment_id
+  transit_gateway_route_table_id = module.vpc-management[0].management_tgw_route_table_id
+}
+resource "aws_ec2_transit_gateway_route_table_propagation" "west-to-management-tgw" {
+  count                          = (var.use_propagations && local.enable_management_tgw_attachment && var.enable_build_management_vpc) ? 1 : 0
+  depends_on                     = [module.vpc-management]
+  transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-west[0].tgw_attachment_id
+  transit_gateway_route_table_id = module.vpc-management[0].management_tgw_route_table_id
+}
+resource "aws_ec2_transit_gateway_route_table_propagation" "east-to-management-tgw" {
+  count                          = (var.use_propagations && local.enable_management_tgw_attachment && var.enable_build_management_vpc) ? 1 : 0
+  depends_on                     = [module.vpc-management]
   transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-east[0].tgw_attachment_id
   transit_gateway_route_table_id = module.vpc-management[0].management_tgw_route_table_id
 }
