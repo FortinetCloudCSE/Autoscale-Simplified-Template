@@ -8,8 +8,8 @@ locals {
   rfc1918_172 = "172.16.0.0/12"
 }
 resource "random_string" "random" {
-  length           = 5
-  special          = false
+  length  = 5
+  special = false
 }
 
 locals {
@@ -27,9 +27,11 @@ locals {
   }) : ""
 }
 module "vpc-management" {
-  source                         = "git::https://github.com/40netse/terraform-modules.git//aws_management_vpc"
+  # TEMPORARY: pinned to the security-group-tightening branch for testing. Revert to the
+  # unpinned (main) source once feat/tighten-fmg-faz-security-groups merges upstream.
+  source                         = "git::https://github.com/40netse/terraform-modules.git//aws_management_vpc?ref=feat/tighten-fmg-faz-security-groups"
   count                          = var.enable_build_management_vpc ? 1 : 0
-  depends_on                     = [ module.vpc-transit-gateway.tgw_id ]
+  depends_on                     = [module.vpc-transit-gateway.tgw_id]
   aws_region                     = var.aws_region
   cp                             = var.cp
   env                            = var.env
@@ -61,7 +63,13 @@ module "vpc-management" {
   linux_host_ip                  = var.linux_host_ip
   linux_instance_type            = var.linux_instance_type
   vpc_cidr_sg                    = var.management_cidr_sg
-  tags                           = local.common_tags
+  # FGFM (541) source -- only where the managed FortiGates actually live (the Inspection VPC's
+  # autoscale group), not the whole admin CIDR list.
+  fgfm_source_cidr_sg = [var.vpc_cidr_inspection]
+  # Log ingest (OFTP 514/tcp, syslog 514/udp) sources -- FortiGates (Inspection VPC) plus
+  # FortiManager itself, which also forwards logs to FortiAnalyzer.
+  log_source_cidr_sg = [var.vpc_cidr_inspection, var.vpc_cidr_management]
+  tags               = local.common_tags
 }
 
 #
@@ -177,11 +185,11 @@ resource "aws_security_group" "jump_box_sg" {
     cidr_blocks = var.management_cidr_sg
   }
   ingress {
-    description = "All from RFC1918"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = [local.rfc1918_10, local.rfc1918_172, local.rfc1918_192]
+    description = "HTTPS from spoke VPCs for NAT passthrough (cloud-init apt access)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr_east, var.vpc_cidr_west]
   }
   egress {
     description = "Allow all outbound"
@@ -203,7 +211,7 @@ resource "aws_instance" "jump_box" {
   vpc_security_group_ids = [aws_security_group.jump_box_sg[0].id]
   private_ip             = cidrhost(cidrsubnet(var.vpc_cidr_management, var.subnet_bits, 0), var.linux_host_ip)
   user_data              = local.jump_box_userdata
-  source_dest_check      = false  # Required for NAT functionality
+  source_dest_check      = false # Required for NAT functionality
 
   tags = merge({ Name = "${var.cp}-${var.env}-jump-box" }, local.common_tags)
 }
