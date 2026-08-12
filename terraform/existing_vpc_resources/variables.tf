@@ -156,6 +156,16 @@ variable "create_tgw_routes_for_existing" {
     error_message = "create_tgw_routes_for_existing can only be true when enable_build_existing_subnets is also true -- these routes point at the demo East/West spoke VPCs and TGW route tables that this template only builds in that mode. If you're attaching to an existing TGW (enable_build_existing_subnets = false), set this to false too."
   }
 }
+variable "use_propagations" {
+  description = "Use TGW route table propagation instead of explicit static routes to exchange the East/West/Management VPC CIDRs across their TGW route tables. Only affects the CIDR-specific routes between the demo spokes and Management VPC -- the 0.0.0.0/0 default routes to the inspection VPC (which propagation cannot express) are unaffected and stay static either way."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.use_propagations || var.enable_build_existing_subnets
+    error_message = "use_propagations can only be true when enable_build_existing_subnets is also true -- it only applies to the demo East/West spoke and Management VPC TGW route tables this template builds in that mode."
+  }
+}
 variable "enable_linux_spoke_instances" {
   description = "Boolean to allow creation of Linux Spoke Instances in East and West VPCs"
   type        = bool

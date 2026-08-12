@@ -438,16 +438,28 @@ resource "aws_route" "inspection-gwlbe-172-route-tgw-az3" {
 # This enables east-west inspection through the FortiGate autoscale group
 #
 resource "aws_ec2_transit_gateway_route" "inspection-route-to-west-tgw" {
-  count                          = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
+  count                          = (!var.use_propagations && var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
   depends_on                     = [module.vpc-inspection]
   destination_cidr_block         = var.vpc_cidr_west
   transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-west[0].tgw_attachment_id
   transit_gateway_route_table_id = module.vpc-inspection[0].inspection_tgw_route_table_id
 }
 resource "aws_ec2_transit_gateway_route" "inspection-route-to-east-tgw" {
-  count                          = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
+  count                          = (!var.use_propagations && var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
   depends_on                     = [module.vpc-inspection]
   destination_cidr_block         = var.vpc_cidr_east
+  transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-east[0].tgw_attachment_id
+  transit_gateway_route_table_id = module.vpc-inspection[0].inspection_tgw_route_table_id
+}
+resource "aws_ec2_transit_gateway_route_table_propagation" "inspection-from-west-tgw" {
+  count                          = (var.use_propagations && var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
+  depends_on                     = [module.vpc-inspection]
+  transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-west[0].tgw_attachment_id
+  transit_gateway_route_table_id = module.vpc-inspection[0].inspection_tgw_route_table_id
+}
+resource "aws_ec2_transit_gateway_route_table_propagation" "inspection-from-east-tgw" {
+  count                          = (var.use_propagations && var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment) ? 1 : 0
+  depends_on                     = [module.vpc-inspection]
   transit_gateway_attachment_id  = module.vpc-transit-gateway-attachment-east[0].tgw_attachment_id
   transit_gateway_route_table_id = module.vpc-inspection[0].inspection_tgw_route_table_id
 }
@@ -463,9 +475,15 @@ resource "aws_ec2_transit_gateway_route" "inspection-route-to-east-tgw" {
 # Management VPC routes to inspection VPC (if management VPC is enabled)
 #
 resource "aws_ec2_transit_gateway_route" "inspection-route-to-management-tgw" {
-  count                          = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment && var.enable_build_management_vpc && local.enable_management_tgw_attachment) ? 1 : 0
+  count                          = (!var.use_propagations && var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment && var.enable_build_management_vpc && local.enable_management_tgw_attachment) ? 1 : 0
   depends_on                     = [module.vpc-inspection, module.vpc-management]
   destination_cidr_block         = var.vpc_cidr_management
+  transit_gateway_attachment_id  = module.vpc-management[0].management_tgw_attachment_id
+  transit_gateway_route_table_id = module.vpc-inspection[0].inspection_tgw_route_table_id
+}
+resource "aws_ec2_transit_gateway_route_table_propagation" "inspection-from-management-tgw" {
+  count                          = (var.use_propagations && var.enable_build_inspection_vpc && var.enable_build_existing_subnets && var.enable_tgw_attachment && var.enable_build_management_vpc && local.enable_management_tgw_attachment) ? 1 : 0
+  depends_on                     = [module.vpc-inspection, module.vpc-management]
   transit_gateway_attachment_id  = module.vpc-management[0].management_tgw_attachment_id
   transit_gateway_route_table_id = module.vpc-inspection[0].inspection_tgw_route_table_id
 }

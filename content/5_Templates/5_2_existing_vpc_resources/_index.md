@@ -387,6 +387,23 @@ Jump Box → TGW → Spoke VPC Linux Instances (bypassing FortiGate inspection)
 The debug attachment bypasses FortiGate inspection entirely. **Do not enable in production environments**. This is strictly for testing and validation purposes.
 {{% /notice %}}
 
+#### TGW Route Table Propagation (Optional)
+
+**Configuration**:
+```hcl
+use_propagations = true
+```
+
+**Purpose**: By default, the East/West spoke, Management, and Inspection VPC route tables exchange each other's CIDRs through hand-written `aws_ec2_transit_gateway_route` resources — one static route per VPC pair. Setting `use_propagations = true` replaces those specific-CIDR routes with `aws_ec2_transit_gateway_route_table_propagation` instead, so each route table learns its neighbors' CIDRs automatically from their TGW attachments rather than from a static list.
+
+{{% notice info %}}
+**What this does and doesn't change**
+
+`use_propagations` only affects the CIDR-specific routes between the demo East/West spoke, Management, and Inspection VPCs. The `0.0.0.0/0` default routes that send spoke traffic to the Inspection VPC for FortiGate inspection **always stay static routes** — TGW route propagation can only advertise the literal CIDR block of an attached VPC, never a summarized default route. This variable also has no effect on the FortiGate's own internal routing (the `spoke_cidrs` static routes rendered into the bootstrap config) — see [Bootstrap Configuration](../5_5_bootstrap_configuration/).
+{{% /notice %}}
+
+Only valid when `enable_build_existing_subnets = true`, since it applies solely to the demo spoke/management/inspection route tables this template builds in that mode.
+
 ---
 
 ## Configuration Scenarios
