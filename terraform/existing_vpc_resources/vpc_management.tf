@@ -27,9 +27,7 @@ locals {
   }) : ""
 }
 module "vpc-management" {
-  # TEMPORARY: pinned to the security-group-tightening branch for testing. Revert to the
-  # unpinned (main) source once feat/tighten-fmg-faz-security-groups merges upstream.
-  source                         = "git::https://github.com/40netse/terraform-modules.git//aws_management_vpc?ref=feat/tighten-fmg-faz-security-groups"
+  source                         = "git::https://github.com/40netse/terraform-modules.git//aws_management_vpc"
   count                          = var.enable_build_management_vpc ? 1 : 0
   depends_on                     = [module.vpc-transit-gateway.tgw_id]
   aws_region                     = var.aws_region
