@@ -196,6 +196,34 @@ variable "vpc_cidr_east" {
 variable "vpc_cidr_west" {
   description = "CIDR for the whole west VPC"
 }
+#
+# Distributed egress lab VPCs (dual-egress feature testing)
+#
+variable "enable_build_distributed_egress_vpcs" {
+  description = "Boolean to build two lab distributed-egress VPCs for testing CIDR overlap behavior with the autoscale group's shared GWLB. Test-only scaffolding, not a production pattern."
+  type        = bool
+  default     = false
+}
+variable "vpc_cidr_distributed_1" {
+  description = "CIDR for lab distributed-egress VPC #1. Must not overlap vpc_cidr_distributed_2 while testing the non-overlapping-CIDR baseline."
+  type        = string
+  default     = "10.100.0.0/24"
+}
+variable "vpc_cidr_distributed_2" {
+  description = "CIDR for lab distributed-egress VPC #2. Must not overlap vpc_cidr_distributed_1 while testing the non-overlapping-CIDR baseline. Actual overlap check (range-based, not just network-address equality) lives in vpc_distributed_egress.tf as a check block, since a correct check needs locals a variable validation block can't reference."
+  type        = string
+  default     = "10.101.0.0/24"
+}
+variable "distributed_subnet_bits" {
+  description = "Number of bits in the network portion of the subnet CIDR for distributed-egress VPCs (mirrors spoke_subnet_bits sizing since these are /24 VPCs, unlike the /16 inspection VPC)"
+  type        = number
+  default     = 4
+}
+variable "allow_distributed_cidr_overlap" {
+  description = "Phase 2 of dual-egress testing: explicit opt-in to let vpc_cidr_distributed_1/_2 overlap, bypassing the non-overlap check in vpc_distributed_egress.tf. Only meaningful once the FortiGate ASG is actually running a build that can disambiguate traffic by GWLBe ID instead of by CIDR (e.g. the Sony GWLBe-keyed GENEVE test build) -- with standard FortiOS, overlapping CIDRs across these VPCs will be genuinely ambiguous to the inspecting FortiGate, not just a Terraform-level convenience toggle."
+  type        = bool
+  default     = false
+}
 variable "acl" {
   description = "The acl for linux instances"
 }

@@ -129,6 +129,11 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   }
   existing_tgw = {
   }
+
+  # Distributed egress (dual-egress) -- attaches a GWLB Endpoint per discovered distributed VPC
+  # to the same shared GWLB Endpoint Service used above. See vpc_distributed_egress.tf.
+  spk_vpc = local.distributed_spk_vpc
+
   existing_subnets = merge(
     {
       fgt_login_az1 = {
