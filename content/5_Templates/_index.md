@@ -23,6 +23,12 @@ Deploy the core FortiGate autoscale infrastructure including inspection VPC, Gat
 ### [Three Availability Zone Deployment](5_4_three_az_deployment/)
 Extend either template to a third Availability Zone by setting a single variable. Covers CIDR planning, Fortinet-Role tags, and upgrading existing 2-AZ deployments.
 
+### [FortiGate Bootstrap Configuration](5_5_bootstrap_configuration/)
+How the `.tftpl` bootstrap templates auto-generate each FortiGate's GENEVE zones, static routes, and policies based on your deployment mode — no manual config file selection required.
+
+### [Distributed Egress (Dual-Egress) VPCs](5_6_distributed_egress/)
+Test scaffolding for inspecting a workload VPC's traffic locally through the shared GWLB instead of hairpinning through the Transit Gateway, including overlapping-CIDR testing against GWLBe-ID-aware FortiOS builds.
+
 ---
 
 ## Quick Start Paths
