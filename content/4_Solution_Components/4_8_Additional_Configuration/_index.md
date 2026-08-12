@@ -141,22 +141,29 @@ chmod 400 my-fortigate-keypair.pem
 
 ## Resource Tagging
 
+Both templates support an `additional_tags` map in `terraform.tfvars`:
+
 ```hcl
-resource_tags = {
-  Environment = "Production"
-  Project     = "FortiGate-Autoscale"
-  Owner       = "security-team@example.com"
-  CostCenter  = "CC-12345"
+additional_tags = {
+  CostCenter = "12345"
+  Owner      = "network-team"
+  Project    = "fortigate-inspection"
 }
 ```
 
+Tags set here are merged with the template's base tags (`Environment`, `Prefix`) via the AWS provider's `default_tags` block in `provider.tf`, which propagates them to every AWS resource created by the template **and** by the upstream autoscale module — you only edit `terraform.tfvars`, `provider.tf` itself is never modified.
+
+{{% notice info %}}
+**Dynamically Created ENIs Don't Inherit default_tags**
+
+Resources the AWS provider creates directly (VPCs, subnets, instances, security groups, etc.) all receive `additional_tags` automatically. ENIs created dynamically outside Terraform's normal resource lifecycle — for example, the Lambda function's VPC ENIs — do **not** inherit provider `default_tags`, since AWS itself creates them on the provider's behalf rather than Terraform managing them directly.
+{{% /notice %}}
+
 **Common tags to include**:
-- **Environment**: Production, Development, Staging, Test
-- **Project**: Project or application name
-- **Owner**: Team or individual responsible for resources
 - **CostCenter**: For cost allocation and chargeback
-- **ManagedBy**: Terraform, CloudFormation, etc.
-- **CreatedDate**: When resources were initially deployed
+- **Owner**: Team or individual responsible for resources
+- **Project**: Project or application name
+- **AccessLevel**: Public/private classification for compliance tooling
 
 **Benefits of comprehensive tagging**:
 - Cost allocation and reporting
