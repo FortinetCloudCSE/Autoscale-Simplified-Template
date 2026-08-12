@@ -34,8 +34,8 @@ locals {
 
 check "distributed_cidrs_no_overlap" {
   assert {
-    condition     = !var.enable_build_distributed_egress_vpcs || !local.distributed_cidrs_overlap
-    error_message = "vpc_cidr_distributed_1 (${var.vpc_cidr_distributed_1}) and vpc_cidr_distributed_2 (${var.vpc_cidr_distributed_2}) overlap. This first phase of dual-egress testing requires non-overlapping CIDRs -- overlap is the later, more complicated scenario to test once this baseline passes."
+    condition     = !var.enable_build_distributed_egress_vpcs || var.allow_distributed_cidr_overlap || !local.distributed_cidrs_overlap
+    error_message = "vpc_cidr_distributed_1 (${var.vpc_cidr_distributed_1}) and vpc_cidr_distributed_2 (${var.vpc_cidr_distributed_2}) overlap. Phase 1 of dual-egress testing requires non-overlapping CIDRs. If you're intentionally testing phase 2 (overlap, e.g. against the Sony GWLBe-keyed GENEVE build), set allow_distributed_cidr_overlap = true to bypass this check."
   }
 }
 

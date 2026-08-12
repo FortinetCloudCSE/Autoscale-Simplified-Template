@@ -219,6 +219,11 @@ variable "distributed_subnet_bits" {
   type        = number
   default     = 4
 }
+variable "allow_distributed_cidr_overlap" {
+  description = "Phase 2 of dual-egress testing: explicit opt-in to let vpc_cidr_distributed_1/_2 overlap, bypassing the non-overlap check in vpc_distributed_egress.tf. Only meaningful once the FortiGate ASG is actually running a build that can disambiguate traffic by GWLBe ID instead of by CIDR (e.g. the Sony GWLBe-keyed GENEVE test build) -- with standard FortiOS, overlapping CIDRs across these VPCs will be genuinely ambiguous to the inspecting FortiGate, not just a Terraform-level convenience toggle."
+  type        = bool
+  default     = false
+}
 variable "acl" {
   description = "The acl for linux instances"
 }
