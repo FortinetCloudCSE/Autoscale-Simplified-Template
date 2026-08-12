@@ -86,6 +86,36 @@ spoke_subnet_bits = 4
 subnet_bits = 8
 
 #====================================================================================================
+# DISTRIBUTED EGRESS LAB VPCS (dual-egress feature testing)
+#====================================================================================================
+# Test scaffolding for the dual-egress (centralized + distributed) feature -- NOT a production
+# pattern. Builds two lab VPCs, each with its own IGW + GWLBe subnet; autoscale_template attaches
+# a GWLB Endpoint to each (sharing the same GWLB Endpoint Service used by the Inspection VPC path)
+# and redirects the private subnet's default route to it.
+#
+enable_build_distributed_egress_vpcs = false
+
+# CIDRs for the two lab distributed VPCs. Phase 1 (default): non-overlapping, verifies the
+# baseline works. Phase 2: set both to the same CIDR (with allow_distributed_cidr_overlap = true)
+# to test whether a build that disambiguates by GWLBe ID instead of by CIDR removes the
+# non-overlap requirement.
+#
+vpc_cidr_distributed_1 = "10.100.0.0/24"
+vpc_cidr_distributed_2 = "10.101.0.0/24"
+
+# Subnet CIDR bits for the distributed VPCs -- mirrors spoke_subnet_bits sizing since these are
+# /24 VPCs, unlike the /16 inspection VPC.
+#
+distributed_subnet_bits = 4
+
+# Phase 2 opt-in: bypasses the non-overlap check so vpc_cidr_distributed_1/_2 can intentionally
+# overlap. Only meaningful once the FortiGate ASG is running a build that can disambiguate
+# traffic by GWLBe ID -- with standard FortiOS, overlapping CIDRs are genuinely ambiguous to the
+# inspecting FortiGate.
+#
+allow_distributed_cidr_overlap = false
+
+#====================================================================================================
 # INSPECTION VPC CONFIGURATION
 #====================================================================================================
 # Enable creation of the inspection VPC for FortiGate autoscale group
