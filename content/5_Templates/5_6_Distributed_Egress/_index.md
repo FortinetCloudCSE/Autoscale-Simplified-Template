@@ -47,23 +47,17 @@ For a customer's pre-existing distributed VPC, set `distributed_egress_endpoint_
 
 ---
 
-## Non-Overlapping vs. Overlapping CIDRs
+## How the FortiGate Classifies Distributed Traffic
 
-The two lab VPCs can be deployed in either of two configurations:
+Distributed VPC traffic arrives on the **same shared `geneve-az1`/`geneve-az2` tunnels** the centralized/Inspection VPC path already uses — there's no new zone, tunnel, or firewall policy involved. The existing `private_to_internet`/`private_to_private` policies in the `*-fgt-conf.cfg.tftpl` templates are already `srcaddr`/`dstaddr "all"`, so once traffic lands in `private-zone` it's already handled.
 
-### Phase 1 — Non-Overlapping (Default)
-
-`vpc_cidr_distributed_1` and `vpc_cidr_distributed_2` are distinct, non-overlapping CIDRs. A `check` block validates this at plan time using real start/end IP range math (not just string comparison) — a plan fails immediately with a clear error if they overlap and `allow_distributed_cidr_overlap` isn't set.
-
-### Phase 2 — Overlapping (Opt-In)
+The one piece that has to be correct is routing: the FortiGate needs a `config router static` entry per distributed VPC CIDR so it knows to route traffic destined for it back out the right geneve device. `autoscale_template` handles this automatically — every discovered distributed VPC's CIDR (tag-discovered lab VPCs, plus any `distributed_egress_endpoint_subnet_ids` VPCs) is merged into the FortiGate's `spoke_cidrs` list behind the scenes. You don't need to add these CIDRs to `spoke_cidrs` yourself.
 
 {{% notice warning %}}
-**Standard FortiOS Cannot Disambiguate Overlapping CIDRs**
+**Requires Non-Overlapping CIDRs**
 
-Setting both distributed VPCs to the same or overlapping CIDR is only meaningful if the FortiGate ASG is running a build capable of identifying which GWLB Endpoint (and therefore which VPC) a flow arrived from — standard FortiOS classifies traffic by source/destination CIDR alone, which becomes genuinely ambiguous once two VPCs share address space. This is a real architectural limitation being tested, not a Terraform toggle you can casually flip on a production-equivalent build.
+Classification here is CIDR-based, so `vpc_cidr_distributed_1` and `vpc_cidr_distributed_2` must be distinct, non-overlapping CIDRs — otherwise the FortiGate can't tell which VPC a flow belongs to. A `check` block validates this at plan time using real start/end IP range math (not just string comparison), and fails the plan immediately if they overlap and `allow_distributed_cidr_overlap` isn't set. Leave `allow_distributed_cidr_overlap` at its default (`false`).
 {{% /notice %}}
-
-Setting `allow_distributed_cidr_overlap = true` bypasses the check so `vpc_cidr_distributed_1`/`_2` can intentionally overlap — for example, both set to the same `/24` — to test whether a GWLBe-ID-aware FortiOS build removes the standard non-overlap requirement.
 
 ---
 
@@ -76,7 +70,7 @@ enable_build_distributed_egress_vpcs = true
 vpc_cidr_distributed_1               = "10.100.0.0/24"
 vpc_cidr_distributed_2               = "10.101.0.0/24"
 distributed_subnet_bits              = 4
-allow_distributed_cidr_overlap       = false   # true only when testing phase 2
+allow_distributed_cidr_overlap       = false   # leave false
 ```
 
 ### autoscale_template
@@ -140,6 +134,17 @@ aws ec2 describe-vpc-endpoint-services   # confirm only one Endpoint Service exi
 
 Re-check each distributed VPC's private subnet route table — it should now show `0.0.0.0/0 → vpce-xxxxxxxx`, pointing at the AZ-matched endpoint in that same VPC.
 
+### Step 5: Verify the FortiGate's static routes
+
+On a primary FortiGate instance:
+
+```
+config router static
+    show
+```
+
+You should see an entry per distributed VPC CIDR (in addition to the east/west spoke entries), each pointing at a `geneve-azN` device. If a distributed VPC's CIDR is missing, double-check it was actually discovered — either by Fortinet-Role tag (Step 2) or via `distributed_egress_endpoint_subnet_ids`.
+
 ---
 
 ## Summary
@@ -147,7 +152,6 @@ Re-check each distributed VPC's private subnet route table — it should now sho
 | What to change | Where |
 |-----------------|-------|
 | Build the two lab VPCs | `existing_vpc_resources/terraform.tfvars`: `enable_build_distributed_egress_vpcs` |
-| Set the CIDRs (phase 1 or 2) | `vpc_cidr_distributed_1`/`_2`, `allow_distributed_cidr_overlap` |
+| Set the CIDRs (must be non-overlapping) | `vpc_cidr_distributed_1`/`_2` |
 | Attach the GWLB Endpoints | `autoscale_template/terraform.tfvars`: `enable_distributed_egress` |
 | Attach a real customer VPC | `distributed_egress_endpoint_subnet_ids` — endpoint only, route table left to the customer |
-| Test overlapping CIDRs | Requires both `allow_distributed_cidr_overlap = true` and a FortiOS build that disambiguates by GWLBe ID |

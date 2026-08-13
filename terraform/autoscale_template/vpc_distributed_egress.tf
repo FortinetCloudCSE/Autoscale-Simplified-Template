@@ -152,6 +152,30 @@ locals {
 }
 
 #
+# Mode A (CIDR-based classification, standard FortiOS): the distributed VPCs' traffic arrives on
+# the SAME shared geneve-azN tunnels the centralized/Inspection VPC path already uses, so no new
+# zones/tunnels/policies are needed -- the existing "private_to_internet"/"private_to_private"
+# firewall policies in the *-fgt-conf.cfg.tftpl templates are already srcaddr/dstaddr "all" and
+# apply to anything in "private-zone". The one real gap is `config router static`, which is built
+# from spoke_cidrs and needs an entry per distributed VPC CIDR so the FortiGate knows to route
+# traffic destined for it back out the correct geneve device. Requires non-overlapping CIDRs
+# (enforced by the `check` block in existing_vpc_resources/vpc_distributed_egress.tf) -- this is
+# Mode A only. Mode B (overlapping CIDRs via endpoint-id-keyed tunnels) is a separate, on-hold
+# design -- see project_dual_egress_design memory.
+#
+data "aws_vpc" "explicit_distributed_egress" {
+  for_each = toset([for s in data.aws_subnet.explicit_distributed_egress : s.vpc_id])
+  id       = each.key
+}
+
+locals {
+  distributed_egress_cidrs = var.enable_distributed_egress ? distinct(concat(
+    [data.aws_vpc.distributed_1[0].cidr_block, data.aws_vpc.distributed_2[0].cidr_block],
+    [for v in data.aws_vpc.explicit_distributed_egress : v.cidr_block],
+  )) : []
+}
+
+#
 # Default route for each tag-discovered private subnet -- redirect to this VPC's own AZ-matched
 # GWLB Endpoint. Key format ("${spk_vpc key}-${subnet_id}") matches the upstream module's own
 # gwlb_endps merge (modules/aws/gwlb -- examples/.../main.tf ~line 516). Only for tag-discovered

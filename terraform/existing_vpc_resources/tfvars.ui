@@ -700,6 +700,63 @@ linux_instance_type = "t2.micro"
 # @ui-help: Full IPs will be: <vpc_cidr_east_base>.<host_ip> and <vpc_cidr_west_base>.<host_ip>. Example: 192.168.0.11
 linux_host_ip = 11
 
+#====================================================================================================
+# DISTRIBUTED EGRESS (TEST ONLY)
+#====================================================================================================
+# @ui-group: Distributed Egress (Test Only)
+# @ui-order: 13
+# @ui-description: Lab-only VPCs for testing the dual-egress (centralized + distributed) GWLB pattern. Not a production pattern.
+# @ui-show-if: enable_build_existing_subnets == true
+
+# @ui-type: checkbox
+# @ui-label: Build Distributed Egress Lab VPCs
+# @ui-description: Create two lab VPCs, each with its own GWLB Endpoint sharing the autoscale group's GWLB
+# @ui-required: false
+# @ui-width: full
+# @ui-default: false
+# @ui-show-if: enable_build_existing_subnets == true
+# @ui-help: Test scaffolding for the dual-egress feature -- NOT a production pattern. autoscale_template attaches a GWLB Endpoint to each VPC and redirects its private subnet's default route to it.
+enable_build_distributed_egress_vpcs = false
+
+# @ui-type: text
+# @ui-label: Distributed VPC #1 CIDR
+# @ui-description: CIDR for lab distributed-egress VPC #1
+# @ui-required: false
+# @ui-width: half
+# @ui-default: 10.100.0.0/24
+# @ui-placeholder: 10.100.0.0/24
+# @ui-show-if: enable_build_distributed_egress_vpcs == true
+vpc_cidr_distributed_1 = "10.100.0.0/24"
+
+# @ui-type: text
+# @ui-label: Distributed VPC #2 CIDR
+# @ui-description: CIDR for lab distributed-egress VPC #2. Must not overlap VPC #1 unless overlap testing is enabled below.
+# @ui-required: false
+# @ui-width: half
+# @ui-default: 10.101.0.0/24
+# @ui-placeholder: 10.101.0.0/24
+# @ui-show-if: enable_build_distributed_egress_vpcs == true
+vpc_cidr_distributed_2 = "10.101.0.0/24"
+
+# @ui-type: number
+# @ui-label: Distributed Subnet Bits
+# @ui-description: Number of bits for distributed VPC subnets (VPCs are /24, unlike the /16 inspection VPC)
+# @ui-required: false
+# @ui-width: full
+# @ui-default: 4
+# @ui-show-if: enable_build_distributed_egress_vpcs == true
+distributed_subnet_bits = 4
+
+# @ui-type: checkbox
+# @ui-label: Allow Overlapping Distributed CIDRs
+# @ui-description: Phase 2 testing only -- bypasses the non-overlap check between the two distributed VPC CIDRs
+# @ui-required: false
+# @ui-width: full
+# @ui-default: false
+# @ui-show-if: enable_build_distributed_egress_vpcs == true
+# @ui-help: Only meaningful with a FortiOS build that disambiguates traffic by GWLB Endpoint ID instead of CIDR. With standard FortiOS, overlapping CIDRs across these VPCs are genuinely ambiguous to the inspecting FortiGate -- leave unchecked.
+allow_distributed_cidr_overlap = false
+
 # Hidden field - network access type (instances are behind TGW, no public access)
 acl = "private"
 

@@ -7,8 +7,14 @@ locals {
 locals {
   # All spoke CIDRs south of the TGW that need a FortiGate east-west inspection
   # route. Defaults to the demo east/west VPCs; override var.spoke_cidrs with
-  # the real production spoke list if it differs.
-  spoke_cidrs = length(var.spoke_cidrs) > 0 ? var.spoke_cidrs : [var.vpc_cidr_east, var.vpc_cidr_west]
+  # the real production spoke list if it differs. Distributed egress VPC CIDRs
+  # (Mode A -- see vpc_distributed_egress.tf) are always appended when enabled,
+  # since they route through the same shared geneve tunnels but aren't part of
+  # the TGW-attached spoke list.
+  spoke_cidrs = distinct(concat(
+    length(var.spoke_cidrs) > 0 ? var.spoke_cidrs : [var.vpc_cidr_east, var.vpc_cidr_west],
+    local.distributed_egress_cidrs,
+  ))
 }
 locals {
   fgt_config_template = "${path.module}/${var.firewall_policy_mode}${local.dedicated_mgmt}-fgt-conf.cfg.tftpl"
