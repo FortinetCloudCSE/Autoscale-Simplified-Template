@@ -295,6 +295,20 @@ gwlb_healthy_threshold = 5
 # @ui-help: Must exceed instance boot time + config sync time. Prevents premature termination of launching instances.
 asg_health_check_grace_period = 700
 
+# @ui-type: checkbox
+# @ui-label: Enable Distributed Egress (Test Only)
+# @ui-description: Attach a GWLB Endpoint to each distributed-egress VPC (tag-discovered lab VPCs from existing_vpc_resources), sharing this ASG's GWLB Endpoint Service with the centralized/Inspection VPC path
+# @ui-width: full
+# @ui-default: false
+# @ui-help: Requires the lab distributed VPCs to be built in existing_vpc_resources first (Build Distributed Egress Lab VPCs). Test scaffolding for the dual-egress feature -- not a production pattern.
+enable_distributed_egress = false
+
+# NOTE: distributed_egress_endpoint_subnet_ids (list(string)) is not exposed here. It's an
+# advanced override for attaching a GWLB Endpoint to customer-owned distributed VPCs this
+# template can't discover via Fortinet-Role tags -- a GWLB Endpoint is created in each listed
+# subnet, but unlike tag-discovered subnets, their route tables are never modified. Hand-edit
+# the generated tfvars to add it if needed.
+
 #====================================================================================================
 # NETWORK CIDR CONFIGURATION
 #====================================================================================================

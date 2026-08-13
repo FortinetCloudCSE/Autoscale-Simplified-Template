@@ -23,10 +23,19 @@ Both distributed VPCs are built by reusing the existing Inspection VPC module (`
 
 - Its **own Internet Gateway**
 - A **GWLBe subnet**, tagged for discovery, where `autoscale_template` attaches a GWLB Endpoint
-- A **private (workload) subnet** — no default route until `autoscale_template` redirects it to the local GWLB Endpoint
-- A **public subnet** hosting a traffic-generator Linux instance with an Elastic IP
+- A **private (workload) subnet** — no default route until `autoscale_template` redirects it to the local GWLB Endpoint. This is also where the traffic-generator Linux instance lives, with a real Elastic IP.
+- An unused public subnet (created by the reused module regardless; nothing is deployed into it)
 
-The public subnet is intentionally kept out of the inspection path. Redirecting a subnet's default route to a GWLB Endpoint requires symmetric flow return — GWLB needs to see both directions of a connection through the same appliance. An inbound SSH session and its reply following different paths would violate that, so the reachable test instance lives in the subnet that's never redirected, while the private subnet models the actual traffic under test.
+### Both Directions Through the FortiGate
+
+The traffic-generator instance's EIP lives on an ENI in the **private** subnet, not a separate public subnet — that matters for getting both directions inspected:
+
+- **Outbound**: the private subnet's own default route sends traffic to the AZ-matched GWLBe (`autoscale_template` wires this once the endpoint exists).
+- **Inbound**: traffic to the EIP arrives at the VPC's IGW, which does its standard 1:1 EIP↔private-IP NAT — that's normal AWS behavior and happens regardless of anything else. What normally happens next (plain destination-based routing straight to the instance) is intercepted by an **Ingress Routing table** (an AWS "Edge Association" — a route table attached to the gateway itself, not a subnet). The reused `aws_inspection_vpc` module already creates and associates one of these per VPC (the same mechanism the Inspection VPC itself relies on) — AWS allows only one such association per Internet Gateway, so `autoscale_template` discovers that existing table (by its gateway association, not a new one) and adds one route per AZ to it: that AZ's private-subnet CIDR → the matching GWLB Endpoint. So the post-NAT packet gets redirected to the FortiGate before it ever reaches the instance.
+
+Both legs land on the FortiGate's `private-zone` and get hairpinned straight back out the same geneve tunnel they arrived on (no NAT at the FortiGate — the IGW already did the only translation needed), and GWLB's own routing continues delivery from there: inbound continues on to the instance, outbound continues on to the internet via the same IGW.
+
+An earlier version of this design deployed the test instance into a separate, unredirected public subnet specifically to avoid this — inbound and outbound looked like they had to take different paths, which would have broken GWLB's symmetric-flow requirement. That reasoning doesn't hold once both directions go through Ingress Routing and the private subnet's default route respectively — they're both symmetric through the same AZ's GWLBe, so keeping the instance out of the inspection path was unnecessary (and meant the instance was never actually being inspected at all).
 
 ### Shared GWLB Endpoint Service
 
@@ -47,23 +56,35 @@ For a customer's pre-existing distributed VPC, set `distributed_egress_endpoint_
 
 ---
 
-## Non-Overlapping vs. Overlapping CIDRs
+## How the FortiGate Classifies Distributed Traffic
 
-The two lab VPCs can be deployed in either of two configurations:
-
-### Phase 1 — Non-Overlapping (Default)
-
-`vpc_cidr_distributed_1` and `vpc_cidr_distributed_2` are distinct, non-overlapping CIDRs. A `check` block validates this at plan time using real start/end IP range math (not just string comparison) — a plan fails immediately with a clear error if they overlap and `allow_distributed_cidr_overlap` isn't set.
-
-### Phase 2 — Overlapping (Opt-In)
+Distributed VPC traffic arrives on the **same shared `geneve-az1`/`geneve-az2` tunnels** the centralized/Inspection VPC path already uses — there's no new zone, tunnel, or firewall policy involved. The existing `private_to_internet`/`private_to_private` policies in the `*-fgt-conf.cfg.tftpl` templates are already `srcaddr`/`dstaddr "all"`, so once traffic lands in `private-zone` it's already handled by policy. Getting it there correctly, and getting it back out correctly, is a routing problem with two distinct pieces.
 
 {{% notice warning %}}
-**Standard FortiOS Cannot Disambiguate Overlapping CIDRs**
+**Requires Non-Overlapping CIDRs**
 
-Setting both distributed VPCs to the same or overlapping CIDR is only meaningful if the FortiGate ASG is running a build capable of identifying which GWLB Endpoint (and therefore which VPC) a flow arrived from — standard FortiOS classifies traffic by source/destination CIDR alone, which becomes genuinely ambiguous once two VPCs share address space. This is a real architectural limitation being tested, not a Terraform toggle you can casually flip on a production-equivalent build.
+Classification here is CIDR-based, so `vpc_cidr_distributed_1` and `vpc_cidr_distributed_2` must be distinct, non-overlapping CIDRs — otherwise the FortiGate can't tell which VPC a flow belongs to. A `check` block validates this at plan time using real start/end IP range math (not just string comparison), and fails the plan immediately if they overlap and `allow_distributed_cidr_overlap` isn't set. Leave `allow_distributed_cidr_overlap` at its default (`false`).
 {{% /notice %}}
 
-Setting `allow_distributed_cidr_overlap = true` bypasses the check so `vpc_cidr_distributed_1`/`_2` can intentionally overlap — for example, both set to the same `/24` — to test whether a GWLBe-ID-aware FortiOS build removes the standard non-overlap requirement.
+### Static Routes
+
+The FortiGate needs a `config router static` entry per distributed VPC CIDR so it knows to route traffic destined for it back out the right geneve device. `autoscale_template` handles this automatically — every discovered distributed VPC's CIDR (tag-discovered lab VPCs, plus any `distributed_egress_endpoint_subnet_ids` VPCs) is merged into the FortiGate's `spoke_cidrs` list behind the scenes. You don't need to add these CIDRs to `spoke_cidrs` yourself.
+
+When `enable_distributed_egress` is true, two more static routes are added: an `0.0.0.0/0` default route via each geneve device (`distance 5` — the same distance as the real default route on `port1`/`port2`/`port3` — but `priority 100`, which loses every normal-forwarding tie-break against the real default route's implicit `priority 0`). These exist purely to satisfy FortiOS's reverse-path check on inbound traffic from an EIP'd instance in a distributed VPC: that check validates a packet's *source* address against the routing table independent of any firewall policy, and an arbitrary internet client's IP has no route back out a geneve tunnel unless one exists. The real default route still wins every actual forwarding decision on priority — this route only needs to be *present*, not chosen.
+
+### Policy Routes
+
+`config router policy` forces traffic back out the same geneve device it arrived on, so GWLB's AZ affinity is preserved regardless of what the static routing table's ECMP would otherwise pick. Centralized-only deployments use a single unconditional rule per AZ (`input-device` only, no other match criteria) — safe there, because without the default-route addition above, that rule has nothing to route arbitrary internet destinations through and silently falls through to normal routing.
+
+Once the default route exists, that same unconditional rule would also match centralized egress (a spoke VPC's traffic to the internet) — it arrives via the same tunnels — and forcibly hairpin it back out geneve instead of letting it exit via `port1`/`port2`/`port3`, breaking centralized egress. So when `enable_distributed_egress` is true, the single rule is replaced with three narrower ones per AZ instead:
+
+| Rule | Match | Covers |
+|------|-------|--------|
+| Distributed forward | `dst` = distributed VPC CIDRs | Inbound-from-internet traffic to an EIP'd instance |
+| Distributed reply | `src` = distributed VPC CIDRs | That instance's replies heading back out |
+| Centralized east-west | `src` **and** `dst` = centralized spoke CIDRs (not the merged list) | Spoke-to-spoke traffic, unchanged from today |
+
+Centralized egress (spoke `src`, internet `dst`) matches none of the three — its destination isn't a distributed CIDR, and its source/destination pair isn't a centralized-spoke-to-centralized-spoke pair — so it falls through to normal routing and correctly exits via the real default route, exactly as it did before distributed egress existed.
 
 ---
 
@@ -76,7 +97,7 @@ enable_build_distributed_egress_vpcs = true
 vpc_cidr_distributed_1               = "10.100.0.0/24"
 vpc_cidr_distributed_2               = "10.101.0.0/24"
 distributed_subnet_bits              = 4
-allow_distributed_cidr_overlap       = false   # true only when testing phase 2
+allow_distributed_cidr_overlap       = false   # leave false
 ```
 
 ### autoscale_template
@@ -140,6 +161,36 @@ aws ec2 describe-vpc-endpoint-services   # confirm only one Endpoint Service exi
 
 Re-check each distributed VPC's private subnet route table — it should now show `0.0.0.0/0 → vpce-xxxxxxxx`, pointing at the AZ-matched endpoint in that same VPC.
 
+Also check the Ingress Routing table associated with each VPC's IGW:
+
+```bash
+aws ec2 describe-route-tables --filters "Name=vpc-id,Values=<distributed-vpc-id>"
+```
+
+Look for a route table associated to the IGW itself (not a subnet — `Associations[].GatewayId` will be set instead of `SubnetId`), with one route per AZ: that AZ's private-subnet CIDR → `vpce-xxxxxxxx`.
+
+### Step 5: Verify the FortiGate's static routes
+
+On a primary FortiGate instance:
+
+```
+config router static
+    show
+```
+
+You should see an entry per distributed VPC CIDR (in addition to the east/west spoke entries), each pointing at a `geneve-azN` device, plus two `0.0.0.0/0` entries via each geneve device at `distance 5`/`priority 100`. If a distributed VPC's CIDR is missing, double-check it was actually discovered — either by Fortinet-Role tag (Step 2) or via `distributed_egress_endpoint_subnet_ids`.
+
+### Step 6: Verify the FortiGate's policy routes
+
+```
+config router policy
+    show
+```
+
+You should see six entries (per AZ, ×3): a `dst`-matched pair for the distributed VPC CIDRs, a `src`-matched pair for the same CIDRs, and a `src`+`dst`-matched pair for the centralized spoke CIDRs. If you only see the original two unconditional `input-device`/`output-device` entries with no `src`/`dst` fields, `enable_distributed_egress` isn't actually reaching the rendered config — double check the variable is set before re-applying.
+
+Confirm centralized egress still works (e.g. a ping from an east/west spoke instance out to the internet) — it should exit via the real default route (`port1`/`port2`/`port3` depending on your `firewall_policy_mode`), not hairpin back out a geneve device.
+
 ---
 
 ## Summary
@@ -147,7 +198,6 @@ Re-check each distributed VPC's private subnet route table — it should now sho
 | What to change | Where |
 |-----------------|-------|
 | Build the two lab VPCs | `existing_vpc_resources/terraform.tfvars`: `enable_build_distributed_egress_vpcs` |
-| Set the CIDRs (phase 1 or 2) | `vpc_cidr_distributed_1`/`_2`, `allow_distributed_cidr_overlap` |
+| Set the CIDRs (must be non-overlapping) | `vpc_cidr_distributed_1`/`_2` |
 | Attach the GWLB Endpoints | `autoscale_template/terraform.tfvars`: `enable_distributed_egress` |
 | Attach a real customer VPC | `distributed_egress_endpoint_subnet_ids` — endpoint only, route table left to the customer |
-| Test overlapping CIDRs | Requires both `allow_distributed_cidr_overlap = true` and a FortiOS build that disambiguates by GWLBe ID |

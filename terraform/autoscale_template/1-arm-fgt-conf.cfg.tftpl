@@ -14,14 +14,59 @@ config router static
     next
 %{ endfor ~}
 %{ endfor ~}
+%{ if enable_distributed_egress ~}
+# Distributed egress: equal-distance (5), worse-priority (100 vs the real default route's
+# implicit 0) default route via each geneve device. The real default route still wins every
+# normal forwarding decision on priority -- this route exists only so FortiOS's reverse-path
+# check has a legitimate candidate via the geneve devices for arbitrary inbound-from-internet
+# sources hairpinned through a distributed VPC's Ingress Routing table.
+%{ for az in az_list ~}
+    edit 0
+        set dst 0.0.0.0 0.0.0.0
+        set distance 5
+        set priority 100
+        set device "geneve-${az}"
+    next
+%{ endfor ~}
+%{ endif ~}
 end
 config router policy
+%{ if enable_distributed_egress ~}
+# Distributed egress: three scoped rules per AZ instead of one unconditional rule, so
+# centralized egress (spoke -> internet) is never matched and falls through to the real
+# default route instead of getting hairpinned back out geneve. Distributed forward/reply are
+# matched by dst/src against the distributed VPC CIDRs specifically; centralized east-west is
+# matched by src+dst both against the centralized spoke CIDRs (not the merged list).
+%{ for az in az_list ~}
+    edit 0
+        set input-device "geneve-${az}"
+        set dst ${join(" ", [for cidr in distributed_egress_cidrs : "\"${cidr}\""])}
+        set output-device "geneve-${az}"
+    next
+%{ endfor ~}
+%{ for az in az_list ~}
+    edit 0
+        set input-device "geneve-${az}"
+        set src ${join(" ", [for cidr in distributed_egress_cidrs : "\"${cidr}\""])}
+        set output-device "geneve-${az}"
+    next
+%{ endfor ~}
+%{ for az in az_list ~}
+    edit 0
+        set input-device "geneve-${az}"
+        set src ${join(" ", [for cidr in centralized_spoke_cidrs : "\"${cidr}\""])}
+        set dst ${join(" ", [for cidr in centralized_spoke_cidrs : "\"${cidr}\""])}
+        set output-device "geneve-${az}"
+    next
+%{ endfor ~}
+%{ else ~}
 %{ for az in az_list ~}
     edit 0
         set input-device "geneve-${az}"
         set output-device "geneve-${az}"
     next
 %{ endfor ~}
+%{ endif ~}
 end
 config firewall policy
     edit 0

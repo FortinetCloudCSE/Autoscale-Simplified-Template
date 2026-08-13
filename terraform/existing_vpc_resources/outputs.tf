@@ -105,4 +105,12 @@ output "inspection_tgw_attachment_id" {
   value       = (var.enable_build_inspection_vpc && var.enable_build_existing_subnets) ? module.vpc-inspection[0].inspection_tgw_attachment_id : null
   description = "The transit gateway attachment id for the inspection VPC."
 }
+output "distributed_1_instance_public_ip" {
+  value       = var.enable_build_distributed_egress_vpcs ? one(module.distributed_1_instance[0].public_eip) : null
+  description = "The public (EIP) address of the distributed-1 traffic-generator Linux instance."
+}
+output "distributed_2_instance_public_ip" {
+  value       = var.enable_build_distributed_egress_vpcs ? one(module.distributed_2_instance[0].public_eip) : null
+  description = "The public (EIP) address of the distributed-2 traffic-generator Linux instance."
+}
 
