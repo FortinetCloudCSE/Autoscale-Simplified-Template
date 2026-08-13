@@ -17,6 +17,15 @@ locals {
   ))
 }
 locals {
+  # The east/west-only subset of spoke_cidrs, kept separate from the merged list above.
+  # Distributed egress (Mode A) needs this distinction for policy routing: centralized
+  # east-west traffic and distributed-VPC traffic both arrive on the same shared geneve
+  # tunnels, and only a src+dst-scoped policy route (using this list, not the merged one)
+  # can tell them apart from centralized egress-to-internet traffic. See vpc_distributed_egress.tf
+  # and the *-fgt-conf.cfg.tftpl config router policy block.
+  centralized_spoke_cidrs = length(var.spoke_cidrs) > 0 ? var.spoke_cidrs : [var.vpc_cidr_east, var.vpc_cidr_west]
+}
+locals {
   fgt_config_template = "${path.module}/${var.firewall_policy_mode}${local.dedicated_mgmt}-fgt-conf.cfg.tftpl"
 }
 locals {
@@ -305,7 +314,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         internal_port = "secgrp1"
       }
 
-      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs })
+      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress })
       asg_max_size          = var.asg_byol_asg_max_size
       asg_min_size          = var.asg_byol_asg_min_size
       asg_desired_capacity  = var.asg_byol_asg_desired_size
@@ -364,7 +373,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         login_port    = "secgrp1"
         internal_port = "secgrp1"
       }
-      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs })
+      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress })
       asg_max_size         = var.asg_ondemand_asg_max_size
       asg_min_size         = var.asg_ondemand_asg_min_size
       asg_desired_capacity = var.asg_ondemand_asg_desired_size

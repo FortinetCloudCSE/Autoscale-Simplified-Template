@@ -58,15 +58,33 @@ For a customer's pre-existing distributed VPC, set `distributed_egress_endpoint_
 
 ## How the FortiGate Classifies Distributed Traffic
 
-Distributed VPC traffic arrives on the **same shared `geneve-az1`/`geneve-az2` tunnels** the centralized/Inspection VPC path already uses — there's no new zone, tunnel, or firewall policy involved. The existing `private_to_internet`/`private_to_private` policies in the `*-fgt-conf.cfg.tftpl` templates are already `srcaddr`/`dstaddr "all"`, so once traffic lands in `private-zone` it's already handled.
-
-The one piece that has to be correct is routing: the FortiGate needs a `config router static` entry per distributed VPC CIDR so it knows to route traffic destined for it back out the right geneve device. `autoscale_template` handles this automatically — every discovered distributed VPC's CIDR (tag-discovered lab VPCs, plus any `distributed_egress_endpoint_subnet_ids` VPCs) is merged into the FortiGate's `spoke_cidrs` list behind the scenes. You don't need to add these CIDRs to `spoke_cidrs` yourself.
+Distributed VPC traffic arrives on the **same shared `geneve-az1`/`geneve-az2` tunnels** the centralized/Inspection VPC path already uses — there's no new zone, tunnel, or firewall policy involved. The existing `private_to_internet`/`private_to_private` policies in the `*-fgt-conf.cfg.tftpl` templates are already `srcaddr`/`dstaddr "all"`, so once traffic lands in `private-zone` it's already handled by policy. Getting it there correctly, and getting it back out correctly, is a routing problem with two distinct pieces.
 
 {{% notice warning %}}
 **Requires Non-Overlapping CIDRs**
 
 Classification here is CIDR-based, so `vpc_cidr_distributed_1` and `vpc_cidr_distributed_2` must be distinct, non-overlapping CIDRs — otherwise the FortiGate can't tell which VPC a flow belongs to. A `check` block validates this at plan time using real start/end IP range math (not just string comparison), and fails the plan immediately if they overlap and `allow_distributed_cidr_overlap` isn't set. Leave `allow_distributed_cidr_overlap` at its default (`false`).
 {{% /notice %}}
+
+### Static Routes
+
+The FortiGate needs a `config router static` entry per distributed VPC CIDR so it knows to route traffic destined for it back out the right geneve device. `autoscale_template` handles this automatically — every discovered distributed VPC's CIDR (tag-discovered lab VPCs, plus any `distributed_egress_endpoint_subnet_ids` VPCs) is merged into the FortiGate's `spoke_cidrs` list behind the scenes. You don't need to add these CIDRs to `spoke_cidrs` yourself.
+
+When `enable_distributed_egress` is true, two more static routes are added: an `0.0.0.0/0` default route via each geneve device (`distance 5` — the same distance as the real default route on `port1`/`port2`/`port3` — but `priority 100`, which loses every normal-forwarding tie-break against the real default route's implicit `priority 0`). These exist purely to satisfy FortiOS's reverse-path check on inbound traffic from an EIP'd instance in a distributed VPC: that check validates a packet's *source* address against the routing table independent of any firewall policy, and an arbitrary internet client's IP has no route back out a geneve tunnel unless one exists. The real default route still wins every actual forwarding decision on priority — this route only needs to be *present*, not chosen.
+
+### Policy Routes
+
+`config router policy` forces traffic back out the same geneve device it arrived on, so GWLB's AZ affinity is preserved regardless of what the static routing table's ECMP would otherwise pick. Centralized-only deployments use a single unconditional rule per AZ (`input-device` only, no other match criteria) — safe there, because without the default-route addition above, that rule has nothing to route arbitrary internet destinations through and silently falls through to normal routing.
+
+Once the default route exists, that same unconditional rule would also match centralized egress (a spoke VPC's traffic to the internet) — it arrives via the same tunnels — and forcibly hairpin it back out geneve instead of letting it exit via `port1`/`port2`/`port3`, breaking centralized egress. So when `enable_distributed_egress` is true, the single rule is replaced with three narrower ones per AZ instead:
+
+| Rule | Match | Covers |
+|------|-------|--------|
+| Distributed forward | `dst` = distributed VPC CIDRs | Inbound-from-internet traffic to an EIP'd instance |
+| Distributed reply | `src` = distributed VPC CIDRs | That instance's replies heading back out |
+| Centralized east-west | `src` **and** `dst` = centralized spoke CIDRs (not the merged list) | Spoke-to-spoke traffic, unchanged from today |
+
+Centralized egress (spoke `src`, internet `dst`) matches none of the three — its destination isn't a distributed CIDR, and its source/destination pair isn't a centralized-spoke-to-centralized-spoke pair — so it falls through to normal routing and correctly exits via the real default route, exactly as it did before distributed egress existed.
 
 ---
 
@@ -160,7 +178,18 @@ config router static
     show
 ```
 
-You should see an entry per distributed VPC CIDR (in addition to the east/west spoke entries), each pointing at a `geneve-azN` device. If a distributed VPC's CIDR is missing, double-check it was actually discovered — either by Fortinet-Role tag (Step 2) or via `distributed_egress_endpoint_subnet_ids`.
+You should see an entry per distributed VPC CIDR (in addition to the east/west spoke entries), each pointing at a `geneve-azN` device, plus two `0.0.0.0/0` entries via each geneve device at `distance 5`/`priority 100`. If a distributed VPC's CIDR is missing, double-check it was actually discovered — either by Fortinet-Role tag (Step 2) or via `distributed_egress_endpoint_subnet_ids`.
+
+### Step 6: Verify the FortiGate's policy routes
+
+```
+config router policy
+    show
+```
+
+You should see six entries (per AZ, ×3): a `dst`-matched pair for the distributed VPC CIDRs, a `src`-matched pair for the same CIDRs, and a `src`+`dst`-matched pair for the centralized spoke CIDRs. If you only see the original two unconditional `input-device`/`output-device` entries with no `src`/`dst` fields, `enable_distributed_egress` isn't actually reaching the rendered config — double check the variable is set before re-applying.
+
+Confirm centralized egress still works (e.g. a ping from an east/west spoke instance out to the internet) — it should exit via the real default route (`port1`/`port2`/`port3` depending on your `firewall_policy_mode`), not hairpin back out a geneve device.
 
 ---
 
