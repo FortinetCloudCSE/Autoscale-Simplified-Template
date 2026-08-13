@@ -27,7 +27,7 @@ Extend either template to a third Availability Zone by setting a single variable
 How the `.tftpl` bootstrap templates auto-generate each FortiGate's GENEVE zones, static routes, and policies based on your deployment mode — no manual config file selection required.
 
 ### [Distributed Egress (Dual-Egress) VPCs](5_6_distributed_egress/)
-Test scaffolding for inspecting a workload VPC's traffic locally through the shared GWLB instead of hairpinning through the Transit Gateway, including overlapping-CIDR testing against GWLBe-ID-aware FortiOS builds.
+Test scaffolding for inspecting a workload VPC's traffic locally through the shared GWLB instead of hairpinning through the Transit Gateway.
 
 ---
 
