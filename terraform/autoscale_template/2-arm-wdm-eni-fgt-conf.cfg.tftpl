@@ -30,6 +30,21 @@ config router static
     next
 %{ endfor ~}
 %{ endfor ~}
+%{ if enable_distributed_egress ~}
+# Distributed egress (Mode A): equal-distance default route via each geneve device, priority
+# worse than the real default route's implicit 0 -- port2 still wins every normal forwarding
+# decision, but this route's mere presence at matching distance is what satisfies FortiOS's
+# reverse-path/asymmetric-route validation for inbound-from-internet traffic hairpinned through
+# a distributed VPC's Ingress Routing table (see 5_6_Distributed_Egress docs).
+%{ for az in az_list ~}
+    edit 0
+        set dst 0.0.0.0 0.0.0.0
+        set distance 5
+        set priority 100
+        set device "geneve-${az}"
+    next
+%{ endfor ~}
+%{ endif ~}
 end
 config router policy
 %{ for az in az_list ~}

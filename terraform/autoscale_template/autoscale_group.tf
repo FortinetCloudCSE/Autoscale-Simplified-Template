@@ -305,7 +305,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         internal_port = "secgrp1"
       }
 
-      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs })
+      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, enable_distributed_egress = var.enable_distributed_egress })
       asg_max_size          = var.asg_byol_asg_max_size
       asg_min_size          = var.asg_byol_asg_min_size
       asg_desired_capacity  = var.asg_byol_asg_desired_size
@@ -364,7 +364,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         login_port    = "secgrp1"
         internal_port = "secgrp1"
       }
-      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs })
+      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, enable_distributed_egress = var.enable_distributed_egress })
       asg_max_size         = var.asg_ondemand_asg_max_size
       asg_min_size         = var.asg_ondemand_asg_min_size
       asg_desired_capacity = var.asg_ondemand_asg_desired_size
