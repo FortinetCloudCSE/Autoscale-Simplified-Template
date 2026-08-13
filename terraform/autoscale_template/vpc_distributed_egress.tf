@@ -262,47 +262,46 @@ data "aws_subnet" "distributed_2_private_az2" {
   }
 }
 
-resource "aws_route_table" "distributed_1_ingress" {
-  count  = var.enable_distributed_egress ? 1 : 0
-  vpc_id = data.aws_vpc.distributed_1[0].id
+# The reused aws_inspection_vpc module already creates and Edge-Associates its own "<vpc>-igw-rt"
+# route table with this VPC's IGW (same pattern the Inspection VPC itself relies on) -- AWS only
+# allows ONE route-table-to-gateway association per IGW, so we can't create a second one. Discover
+# the existing table by its association instead of creating a new one.
+data "aws_route_table" "distributed_1_ingress" {
+  count = var.enable_distributed_egress ? 1 : 0
+  filter {
+    name   = "association.gateway-id"
+    values = [data.aws_internet_gateway.distributed_1[0].id]
+  }
 }
-resource "aws_route_table" "distributed_2_ingress" {
-  count  = var.enable_distributed_egress ? 1 : 0
-  vpc_id = data.aws_vpc.distributed_2[0].id
-}
-
-resource "aws_route_table_association" "distributed_1_ingress" {
-  count          = var.enable_distributed_egress ? 1 : 0
-  gateway_id     = data.aws_internet_gateway.distributed_1[0].id
-  route_table_id = aws_route_table.distributed_1_ingress[0].id
-}
-resource "aws_route_table_association" "distributed_2_ingress" {
-  count          = var.enable_distributed_egress ? 1 : 0
-  gateway_id     = data.aws_internet_gateway.distributed_2[0].id
-  route_table_id = aws_route_table.distributed_2_ingress[0].id
+data "aws_route_table" "distributed_2_ingress" {
+  count = var.enable_distributed_egress ? 1 : 0
+  filter {
+    name   = "association.gateway-id"
+    values = [data.aws_internet_gateway.distributed_2[0].id]
+  }
 }
 
 resource "aws_route" "distributed_1_ingress_to_gwlbe_az1" {
   count                  = var.enable_distributed_egress ? 1 : 0
-  route_table_id         = aws_route_table.distributed_1_ingress[0].id
+  route_table_id         = data.aws_route_table.distributed_1_ingress[0].id
   destination_cidr_block = data.aws_subnet.distributed_1_private_az1[0].cidr_block
   vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az1[0].id}"]
 }
 resource "aws_route" "distributed_1_ingress_to_gwlbe_az2" {
   count                  = var.enable_distributed_egress ? 1 : 0
-  route_table_id         = aws_route_table.distributed_1_ingress[0].id
+  route_table_id         = data.aws_route_table.distributed_1_ingress[0].id
   destination_cidr_block = data.aws_subnet.distributed_1_private_az2[0].cidr_block
   vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az2[0].id}"]
 }
 resource "aws_route" "distributed_2_ingress_to_gwlbe_az1" {
   count                  = var.enable_distributed_egress ? 1 : 0
-  route_table_id         = aws_route_table.distributed_2_ingress[0].id
+  route_table_id         = data.aws_route_table.distributed_2_ingress[0].id
   destination_cidr_block = data.aws_subnet.distributed_2_private_az1[0].cidr_block
   vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az1[0].id}"]
 }
 resource "aws_route" "distributed_2_ingress_to_gwlbe_az2" {
   count                  = var.enable_distributed_egress ? 1 : 0
-  route_table_id         = aws_route_table.distributed_2_ingress[0].id
+  route_table_id         = data.aws_route_table.distributed_2_ingress[0].id
   destination_cidr_block = data.aws_subnet.distributed_2_private_az2[0].cidr_block
   vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az2[0].id}"]
 }

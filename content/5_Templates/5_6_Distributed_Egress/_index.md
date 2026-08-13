@@ -31,7 +31,7 @@ Both distributed VPCs are built by reusing the existing Inspection VPC module (`
 The traffic-generator instance's EIP lives on an ENI in the **private** subnet, not a separate public subnet — that matters for getting both directions inspected:
 
 - **Outbound**: the private subnet's own default route sends traffic to the AZ-matched GWLBe (`autoscale_template` wires this once the endpoint exists).
-- **Inbound**: traffic to the EIP arrives at the VPC's IGW, which does its standard 1:1 EIP↔private-IP NAT — that's normal AWS behavior and happens regardless of anything else. What normally happens next (plain destination-based routing straight to the instance) is intercepted by an **Ingress Routing table** `autoscale_template` associates directly with the IGW itself (an AWS "Edge Association" — a route table attached to the gateway, not a subnet). It has one route per AZ: that AZ's private-subnet CIDR → the matching GWLB Endpoint. So the post-NAT packet gets redirected to the FortiGate before it ever reaches the instance.
+- **Inbound**: traffic to the EIP arrives at the VPC's IGW, which does its standard 1:1 EIP↔private-IP NAT — that's normal AWS behavior and happens regardless of anything else. What normally happens next (plain destination-based routing straight to the instance) is intercepted by an **Ingress Routing table** (an AWS "Edge Association" — a route table attached to the gateway itself, not a subnet). The reused `aws_inspection_vpc` module already creates and associates one of these per VPC (the same mechanism the Inspection VPC itself relies on) — AWS allows only one such association per Internet Gateway, so `autoscale_template` discovers that existing table (by its gateway association, not a new one) and adds one route per AZ to it: that AZ's private-subnet CIDR → the matching GWLB Endpoint. So the post-NAT packet gets redirected to the FortiGate before it ever reaches the instance.
 
 Both legs land on the FortiGate's `private-zone` and get hairpinned straight back out the same geneve tunnel they arrived on (no NAT at the FortiGate — the IGW already did the only translation needed), and GWLB's own routing continues delivery from there: inbound continues on to the instance, outbound continues on to the internet via the same IGW.
 
@@ -143,7 +143,7 @@ aws ec2 describe-vpc-endpoint-services   # confirm only one Endpoint Service exi
 
 Re-check each distributed VPC's private subnet route table — it should now show `0.0.0.0/0 → vpce-xxxxxxxx`, pointing at the AZ-matched endpoint in that same VPC.
 
-Also check the new Ingress Routing table associated with each VPC's IGW:
+Also check the Ingress Routing table associated with each VPC's IGW:
 
 ```bash
 aws ec2 describe-route-tables --filters "Name=vpc-id,Values=<distributed-vpc-id>"
