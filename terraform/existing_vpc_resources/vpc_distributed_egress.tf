@@ -257,18 +257,24 @@ resource "aws_route" "distributed_2_public_default_route_igw_az2" {
 }
 
 #
-# Traffic-generator Linux instance -- one per distributed VPC, in the public subnet, with a real
-# EIP. Reachable directly for SSH; scoped to management_cidr_sg rather than the east/west
-# spoke pattern's "allow all 0.0.0.0/0" since this instance is genuinely internet-facing.
+# Traffic-generator Linux instance -- one per distributed VPC, in the PRIVATE subnet, with a real
+# EIP. Deliberately NOT in the public subnet: an instance there would route straight to/from this
+# VPC's own IGW, bypassing the FortiGate entirely in both directions. Living in the private
+# subnet instead means both directions are inspected -- outbound via the private subnet's own
+# default route (autoscale_template redirects it to the AZ-matched GWLBe), and inbound via the
+# Ingress Routing table autoscale_template attaches to this VPC's IGW (see below), which redirects
+# the EIP's post-NAT traffic to the same GWLBe before it ever reaches the instance. Scoped to
+# management_cidr_sg rather than the east/west spoke pattern's "allow all 0.0.0.0/0" since this
+# instance is genuinely internet-facing.
 #
 
-data "aws_subnet" "distributed_1_public_az1" {
+data "aws_subnet" "distributed_1_private_az1" {
   count = var.enable_build_distributed_egress_vpcs ? 1 : 0
-  id    = module.vpc-distributed-1[0].subnet_public_az1_id
+  id    = module.vpc-distributed-1[0].subnet_private_az1_id
 }
-data "aws_subnet" "distributed_2_public_az1" {
+data "aws_subnet" "distributed_2_private_az1" {
   count = var.enable_build_distributed_egress_vpcs ? 1 : 0
-  id    = module.vpc-distributed-2[0].subnet_public_az1_id
+  id    = module.vpc-distributed-2[0].subnet_private_az1_id
 }
 
 data "aws_ami" "ubuntu_distributed" {
@@ -378,14 +384,18 @@ resource "aws_security_group" "distributed_2_linux_sg" {
 }
 
 module "distributed_1_instance" {
-  count                    = var.enable_build_distributed_egress_vpcs ? 1 : 0
-  depends_on               = [module.vpc-distributed-1, aws_route.distributed_1_public_default_route_igw_az1]
+  count = var.enable_build_distributed_egress_vpcs ? 1 : 0
+  # Note: no dependency on the GWLBe/Ingress Routing wiring here -- that lives in
+  # autoscale_template's state, applied separately. The instance is reachable only once both
+  # stacks are applied (same bootstrapping order already documented for the private subnet's
+  # outbound default route).
+  depends_on               = [module.vpc-distributed-1]
   source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name    = "${var.cp}-${var.env}-distributed-1-instance"
   enable_public_ips        = true
   availability_zone        = local.availability_zone_1
-  public_subnet_id         = module.vpc-distributed-1[0].subnet_public_az1_id
-  public_ip_address        = cidrhost(data.aws_subnet.distributed_1_public_az1[0].cidr_block, 11)
+  public_subnet_id         = module.vpc-distributed-1[0].subnet_private_az1_id
+  public_ip_address        = cidrhost(data.aws_subnet.distributed_1_private_az1[0].cidr_block, 11)
   aws_ami                  = data.aws_ami.ubuntu_distributed[0].id
   keypair                  = var.keypair
   instance_type            = var.linux_instance_type
@@ -396,13 +406,13 @@ module "distributed_1_instance" {
 }
 module "distributed_2_instance" {
   count                    = var.enable_build_distributed_egress_vpcs ? 1 : 0
-  depends_on               = [module.vpc-distributed-2, aws_route.distributed_2_public_default_route_igw_az1]
+  depends_on               = [module.vpc-distributed-2]
   source                   = "git::https://github.com/40netse/terraform-modules.git//aws_ec2_instance"
   aws_ec2_instance_name    = "${var.cp}-${var.env}-distributed-2-instance"
   enable_public_ips        = true
   availability_zone        = local.availability_zone_1
-  public_subnet_id         = module.vpc-distributed-2[0].subnet_public_az1_id
-  public_ip_address        = cidrhost(data.aws_subnet.distributed_2_public_az1[0].cidr_block, 11)
+  public_subnet_id         = module.vpc-distributed-2[0].subnet_private_az1_id
+  public_ip_address        = cidrhost(data.aws_subnet.distributed_2_private_az1[0].cidr_block, 11)
   aws_ami                  = data.aws_ami.ubuntu_distributed[0].id
   keypair                  = var.keypair
   instance_type            = var.linux_instance_type

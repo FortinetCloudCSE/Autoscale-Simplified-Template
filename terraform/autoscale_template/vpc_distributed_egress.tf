@@ -205,3 +205,104 @@ resource "aws_route" "distributed_2_private_default_route_gwlbe_az2" {
   destination_cidr_block = "0.0.0.0/0"
   vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az2[0].id}"]
 }
+
+#
+# Ingress Routing (IGW Edge Association) -- without this, traffic to the private subnet's EIP'd
+# instance(s) goes straight from the IGW to the instance and back, never touching the FortiGate.
+# One route table per VPC, associated with that VPC's IGW itself (not a subnet), holding one route
+# per AZ: the AZ's private-subnet CIDR -> that AZ's GWLB Endpoint. The IGW's own post-NAT delivery
+# (public IP -> private IP) is unaffected; this only intercepts where that post-NAT packet goes
+# next, redirecting it to the FortiGate for inspection before it reaches the instance. Symmetric
+# with the private subnet's own default route (above), which already sends the reply back out the
+# same AZ's GWLBe -- both directions now hit the FortiGate. Tag-discovered (lab) VPCs only, same
+# as the private-subnet route above -- customer-owned VPCs from distributed_egress_endpoint_subnet_ids
+# never get their routing touched.
+#
+data "aws_internet_gateway" "distributed_1" {
+  count = var.enable_distributed_egress ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-distributed-1-igw"]
+  }
+}
+data "aws_internet_gateway" "distributed_2" {
+  count = var.enable_distributed_egress ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-distributed-2-igw"]
+  }
+}
+
+data "aws_subnet" "distributed_1_private_az1" {
+  count = var.enable_distributed_egress ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-distributed-1-private-az1"]
+  }
+}
+data "aws_subnet" "distributed_1_private_az2" {
+  count = var.enable_distributed_egress ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-distributed-1-private-az2"]
+  }
+}
+data "aws_subnet" "distributed_2_private_az1" {
+  count = var.enable_distributed_egress ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-distributed-2-private-az1"]
+  }
+}
+data "aws_subnet" "distributed_2_private_az2" {
+  count = var.enable_distributed_egress ? 1 : 0
+  filter {
+    name   = "tag:Fortinet-Role"
+    values = ["${var.cp}-${var.env}-distributed-2-private-az2"]
+  }
+}
+
+resource "aws_route_table" "distributed_1_ingress" {
+  count  = var.enable_distributed_egress ? 1 : 0
+  vpc_id = data.aws_vpc.distributed_1[0].id
+}
+resource "aws_route_table" "distributed_2_ingress" {
+  count  = var.enable_distributed_egress ? 1 : 0
+  vpc_id = data.aws_vpc.distributed_2[0].id
+}
+
+resource "aws_route_table_association" "distributed_1_ingress" {
+  count          = var.enable_distributed_egress ? 1 : 0
+  gateway_id     = data.aws_internet_gateway.distributed_1[0].id
+  route_table_id = aws_route_table.distributed_1_ingress[0].id
+}
+resource "aws_route_table_association" "distributed_2_ingress" {
+  count          = var.enable_distributed_egress ? 1 : 0
+  gateway_id     = data.aws_internet_gateway.distributed_2[0].id
+  route_table_id = aws_route_table.distributed_2_ingress[0].id
+}
+
+resource "aws_route" "distributed_1_ingress_to_gwlbe_az1" {
+  count                  = var.enable_distributed_egress ? 1 : 0
+  route_table_id         = aws_route_table.distributed_1_ingress[0].id
+  destination_cidr_block = data.aws_subnet.distributed_1_private_az1[0].cidr_block
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az1[0].id}"]
+}
+resource "aws_route" "distributed_1_ingress_to_gwlbe_az2" {
+  count                  = var.enable_distributed_egress ? 1 : 0
+  route_table_id         = aws_route_table.distributed_1_ingress[0].id
+  destination_cidr_block = data.aws_subnet.distributed_1_private_az2[0].cidr_block
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az2[0].id}"]
+}
+resource "aws_route" "distributed_2_ingress_to_gwlbe_az1" {
+  count                  = var.enable_distributed_egress ? 1 : 0
+  route_table_id         = aws_route_table.distributed_2_ingress[0].id
+  destination_cidr_block = data.aws_subnet.distributed_2_private_az1[0].cidr_block
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az1[0].id}"]
+}
+resource "aws_route" "distributed_2_ingress_to_gwlbe_az2" {
+  count                  = var.enable_distributed_egress ? 1 : 0
+  route_table_id         = aws_route_table.distributed_2_ingress[0].id
+  destination_cidr_block = data.aws_subnet.distributed_2_private_az2[0].cidr_block
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az2[0].id}"]
+}
