@@ -108,13 +108,21 @@ resource "aws_security_group" "management-vpc-sg" {
 }
 
 module "spk_tgw_gwlb_asg_fgt_igw" {
-  source = "git::https://github.com/fortinetdev/terraform-aws-cloud-modules.git//examples/spk_tgw_gwlb_asg_fgt_igw"
+  # Pinned to the published registry version (verified identical to origin/main as of 2026-08-13:
+  # `git merge-base --is-ancestor 1.1.5 origin/main` true, zero commits/diff between them). Was
+  # previously tracking main directly (unpinned) since Nov 2025, to pick up fmg_integration
+  # support before it was released -- that's landed in every release since, no reason to still
+  # float on main. See the local-source override below for testing unreleased upstream changes
+  # the same way (e.g. distributed-egress GENEVE tunnel support) without re-floating this pin.
+  source  = "fortinetdev/cloud-modules/aws//examples/spk_tgw_gwlb_asg_fgt_igw"
+  version = "1.1.5"
 
   #
-  # Used for testing development test builds. Never use this in production.
+  # Used for testing development/unreleased upstream changes against a local clone. Never use in
+  # production -- comment out `source`/`version` above and uncomment this instead.
   #
 
- #source = "/Users/mwooten/github/40netse/AWSTerraformModules//examples/spk_tgw_gwlb_asg_fgt_igw"
+  #source = "/Users/mwooten/github/40netse/terraform-aws-cloud-modules//examples/spk_tgw_gwlb_asg_fgt_igw"
 
   ## Root config
   region        = var.aws_region
