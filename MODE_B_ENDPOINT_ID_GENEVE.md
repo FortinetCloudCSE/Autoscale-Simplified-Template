@@ -29,15 +29,27 @@ distributed VPCs into their own VRFs and compared the two approaches.
 ## Status
 
 - **Not proven on a generally-available FortiOS build.** Everything below
-  was validated on the STS build only. Do not templatize into
-  `terraform/autoscale_template`'s `.cfg.tftpl` files or merge this branch
-  until `endpoint-id` (or an equivalent mechanism) ships in a normal
-  release.
+  was validated on the STS build only. Do not merge this branch until
+  `endpoint-id` (or an equivalent mechanism) ships in a normal release.
+- **Templatization is done**, on this branch — `terraform/autoscale_template`
+  now has `enable_distributed_egress_endpoint_id`,
+  `distributed_egress_routing_mode` (`"flat"`/`"vrf"`), and
+  `distributed_1_vrf`/`distributed_2_vrf`, plus the rendered CLI in
+  `2-arm-wdm-fgt-conf.cfg.tftpl` for both routing modes. Validated with
+  `terraform validate` and `terraform plan` against real live
+  infrastructure — the rendered config is byte-identical to the
+  live-tested CLI below, including real vpce-ids and GWLB IPs. See
+  [Terraform Implementation Notes](#terraform-implementation-notes).
 - Real bugs/quirks found on this specific build are documented below so
   they aren't rediscovered from scratch next time, and so they can be
   reported back to Fortinet.
 - A full write-up (this same content, PDF-exported) was prepared for
   submission to the STS build's developer contact.
+- Three findings from integrating the vendored `terraform-aws-cloud-modules`
+  dependency (one real bug, two documentation gaps) were written up
+  separately for that project's maintainer — see
+  `~/Downloads/terraform-aws-cloud-modules_findings.pdf` (not checked into
+  this repo, it's about a different project).
 
 ## The four real fixes (flat/policy-route approach)
 
@@ -448,15 +460,59 @@ All `router static` entries for `d1-geneve-*`/`d2-geneve-*` devices get a
 matching `set vrf 100`/`set vrf 200` line added. Zones, firewall policy,
 and router-policy content are otherwise identical to the flat model above.
 
+## Terraform Implementation Notes
+
+**Endpoint creation is correctly ordered before the FortiGate boots — verified,
+not assumed.** A natural question: the distributed VPCs' GWLB Endpoints
+(source of the vpce-ids baked into `endpoint-id`) are created by the *same*
+`terraform apply` as the FortiGate ASG itself — does the FortiGate's launch
+template actually end up with the real vpce-ids, or could it boot before
+they exist? Checked directly via `terraform graph`, not just reasoned about:
+`aws_launch_template.fgt` (the real launch-template resource, not the
+`data.aws_launch_template` AMI-lookup source) has a transitive dependency on
+`aws_vpc_endpoint.gwlb_endps` (which includes the `distributed_1-*`/
+`distributed_2-*` instances). This isn't something that had to be manually
+wired up — it falls out naturally because `local.distributed_egress_endpoint_id_devices`
+(in `vpc_distributed_egress_endpoint_id.tf`) references
+`module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps[...]`, and that local feeds the
+same `templatefile()` call that produces `user_conf_content`, which is an
+input to that same module call.
+
+This is *not* circular, even though it looks at first glance like a module
+input depending on that module's own output: Terraform's dependency graph is
+resource-level, not module-opaque. `aws_vpc_endpoint.gwlb_endps` and
+`aws_launch_template`/`aws_autoscaling_group` are independent sibling
+resources inside the module with no dependency on each other directly — our
+root-level indirection through `gwlb_endps` only adds one valid, acyclic
+edge (launch template → endpoint), never the reverse. Confirmed by
+`terraform validate`/`terraform plan` succeeding with no cycle error, and by
+directly walking the parsed `terraform graph` output to confirm the edge
+exists. Holds on a true from-scratch `apply`, not just against
+already-existing infrastructure — the edge is structural, not a property of
+current state.
+
+**Caveat, not unique to Mode B:** if a distributed VPC's endpoint is ever
+*replaced* after initial deploy (e.g. a CIDR change forces recreation, new
+vpce-id), already-running FortiGate instances will not pick up the new
+`endpoint-id` automatically — only new instances launching after the launch
+template is updated get it. This is the same characteristic Mode A already
+has today (e.g. a `spoke_cidrs` change doesn't retroactively update
+already-booted instances either); it isn't something Mode B introduces.
+
 ## Next steps (blocked)
 
 1. Wait for `endpoint-id` (or equivalent) to ship in a non-STS FortiOS
    build.
-2. Decide flat vs. VRF approach for the real implementation (VRF looks
-   like the better default given the analysis above, but hasn't been
-   pressure-tested beyond this one comparison pass).
-3. Templatize into `terraform/autoscale_template`'s `.cfg.tftpl` files,
-   gated behind a new variable (working name: a Mode B toggle, TBD).
-4. Only then update `content/5_Templates/5_6_Distributed_Egress/_index.md`
-   and `content/5_Templates/_index.md` to mention overlapping CIDRs — they
-   currently intentionally say nothing about it.
+2. Decide flat vs. VRF approach for the real implementation — VRF is the
+   current default (`distributed_egress_routing_mode = "vrf"`) given the
+   analysis above, but hasn't been pressure-tested beyond this one
+   comparison pass.
+3. ~~Templatize into `terraform/autoscale_template`'s `.cfg.tftpl` files~~ —
+   done, see [Status](#status) and
+   [Terraform Implementation Notes](#terraform-implementation-notes) above.
+4. Only once `endpoint-id` ships generally: update
+   `content/5_Templates/5_6_Distributed_Egress/_index.md` and
+   `content/5_Templates/_index.md` to mention overlapping CIDRs as a
+   generally-available option — they currently intentionally still frame
+   it as experimental/STS-only, matching
+   `content/5_Templates/5_7_Overlapping_CIDR_Egress/_index.md`.
