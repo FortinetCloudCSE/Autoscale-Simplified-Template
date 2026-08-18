@@ -12,7 +12,13 @@ weight: 57
 {{% notice warning %}}
 **Requires a Special FortiOS Build — Not Available Today**
 
-The `endpoint-id` field on `config system geneve` that this page depends on only exists in a Fortinet STS/test build (`build_tag_7121` as of this writing), not any generally-available FortiOS release. Everything below is hand-applied CLI, validated with real traffic on that test build — it is **not** wired into this repo's Terraform templates, and there is no `terraform.tfvars` variable for it yet. Do not attempt this against a production FortiGate. If you need this capability today, contact your Fortinet account team about the STS build's availability.
+The `endpoint-id` field on `config system geneve` that this page depends on only exists in a Fortinet STS/test build (`build_tag_7121` as of this writing), not any generally-available FortiOS release. Everything below is hand-applied CLI, validated with real traffic on that test build. Do not attempt this against a production FortiGate. If you need this capability today, contact your Fortinet account team about the STS build's availability.
+{{% /notice %}}
+
+{{% notice note %}}
+**2-arm (`wdm`) Only**
+
+Terraform templatization of this feature, where it exists, targets only the `2-arm-wdm` bootstrap config — the same variant that was actually live-tested when [Distributed Egress](../5_6_distributed_egress/) (Mode A) shipped. The other five `.cfg.tftpl` variants (1-arm, non-`wdm`, `eni`) do not have this feature and are not planned to until 2-arm-`wdm` is proven out further.
 {{% /notice %}}
 
 ---

@@ -314,7 +314,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         internal_port = "secgrp1"
       }
 
-      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress })
+      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress, enable_distributed_egress_endpoint_id = var.enable_distributed_egress_endpoint_id, distributed_egress_routing_mode = var.distributed_egress_routing_mode, distributed_az_list = local.distributed_az_list, shared_gwlb_ip_by_az = local.shared_gwlb_ip_by_az, distributed_egress_endpoint_id_devices = local.distributed_egress_endpoint_id_devices })
       asg_max_size          = var.asg_byol_asg_max_size
       asg_min_size          = var.asg_byol_asg_min_size
       asg_desired_capacity  = var.asg_byol_asg_desired_size
@@ -373,7 +373,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
         login_port    = "secgrp1"
         internal_port = "secgrp1"
       }
-      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress })
+      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress, enable_distributed_egress_endpoint_id = var.enable_distributed_egress_endpoint_id, distributed_egress_routing_mode = var.distributed_egress_routing_mode, distributed_az_list = local.distributed_az_list, shared_gwlb_ip_by_az = local.shared_gwlb_ip_by_az, distributed_egress_endpoint_id_devices = local.distributed_egress_endpoint_id_devices })
       asg_max_size         = var.asg_ondemand_asg_max_size
       asg_min_size         = var.asg_ondemand_asg_min_size
       asg_desired_capacity = var.asg_ondemand_asg_desired_size

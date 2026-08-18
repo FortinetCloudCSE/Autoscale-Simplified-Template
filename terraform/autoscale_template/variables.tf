@@ -153,6 +153,45 @@ variable "endpoint_name_az3" {
   type        = string
   default     = ""
 }
+#
+# Mode B: overlapping-CIDR distributed egress via GENEVE endpoint-id (EXPERIMENTAL)
+#
+# Requires an STS/test FortiOS build with `endpoint-id` support on `config system geneve` --
+# not available on any generally-available FortiOS release as of this writing. See
+# MODE_B_ENDPOINT_ID_GENEVE.md at the repo root and
+# content/5_Templates/5_7_Overlapping_CIDR_Egress for full detail. Reuses the same
+# distributed_1/distributed_2 VPCs as Mode A (enable_distributed_egress) -- this only changes
+# HOW the FortiGate classifies their traffic (GENEVE tunnel identity instead of CIDR address),
+# which is what allows vpc_cidr_distributed_1/vpc_cidr_distributed_2 to overlap.
+#
+variable "enable_distributed_egress_endpoint_id" {
+  description = "Classify distributed_1/distributed_2 traffic by GENEVE endpoint-id (dedicated per-VPC tunnels) instead of CIDR address, removing the non-overlapping-CIDR requirement. Requires enable_distributed_egress = true and an STS FortiOS build with endpoint-id support. EXPERIMENTAL."
+  type        = bool
+  default     = false
+  validation {
+    condition     = !var.enable_distributed_egress_endpoint_id || var.enable_distributed_egress
+    error_message = "enable_distributed_egress_endpoint_id requires enable_distributed_egress = true -- Mode B reuses Mode A's distributed VPC discovery and GWLB Endpoint attachment, it only changes how the FortiGate classifies the resulting traffic."
+  }
+}
+variable "distributed_egress_routing_mode" {
+  description = "Only used when enable_distributed_egress_endpoint_id is true. \"flat\": all distributed devices share the default routing table, disambiguated by router-policy pinning. \"vrf\": distributed_1/distributed_2 each get their own VRF (distributed_1_vrf/distributed_2_vrf), structurally eliminating cross-VPC RPF/routing ambiguity. \"vrf\" is the validated recommendation -- see the Flat vs. VRF comparison in content/5_Templates/5_7_Overlapping_CIDR_Egress."
+  type        = string
+  default     = "vrf"
+  validation {
+    condition     = contains(["flat", "vrf"], var.distributed_egress_routing_mode)
+    error_message = "distributed_egress_routing_mode must be \"flat\" or \"vrf\"."
+  }
+}
+variable "distributed_1_vrf" {
+  description = "VRF ID for distributed_1's GENEVE tunnels. Only used when distributed_egress_routing_mode = \"vrf\". Must differ from distributed_2_vrf and from VRF 1 (already used by the dedicated management interface, port3)."
+  type        = number
+  default     = 100
+}
+variable "distributed_2_vrf" {
+  description = "VRF ID for distributed_2's GENEVE tunnels. Only used when distributed_egress_routing_mode = \"vrf\". Must differ from distributed_1_vrf and from VRF 1 (already used by the dedicated management interface, port3)."
+  type        = number
+  default     = 200
+}
 variable "fgt_instance_type" {
   description = "Instance type for all of the Fortigates in the ASG's"
   type        = string
