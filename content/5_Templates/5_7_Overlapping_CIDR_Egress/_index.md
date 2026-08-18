@@ -283,4 +283,4 @@ These were found through `diagnose debug flow`, `diagnose firewall proute list`,
 
 ## Status
 
-Not yet available outside the STS test build referenced above. Once `endpoint-id` (or an equivalent mechanism) ships in a generally-available FortiOS release, the next step is templatizing the configuration above into this repo's `.cfg.tftpl` bootstrap files, gated behind a new variable, the same way [Distributed Egress](../5_6_distributed_egress/) is gated behind `enable_distributed_egress` today.
+Not yet available outside the STS test build referenced above. The configuration above **is** templatized — on an unmerged branch (`feat/mode-b-endpoint-id-geneve`), not `main` — behind `enable_distributed_egress_endpoint_id` (requires `enable_distributed_egress = true`), `distributed_egress_routing_mode` (`"flat"`/`"vrf"`, default `"vrf"`), and `distributed_1_vrf`/`distributed_2_vrf`. It stays on that branch, not merged, until `endpoint-id` (or an equivalent mechanism) ships in a generally-available FortiOS release — see `MODE_B_ENDPOINT_ID_GENEVE.md` at the repo root for full implementation detail.
