@@ -29,6 +29,9 @@ How the `.tftpl` bootstrap templates auto-generate each FortiGate's GENEVE zones
 ### [Distributed Egress (Dual-Egress) VPCs](5_6_distributed_egress/)
 Test scaffolding for inspecting a workload VPC's traffic locally through the shared GWLB instead of hairpinning through the Transit Gateway.
 
+### [Overlapping-CIDR Distributed Egress (Experimental)](5_7_overlapping_cidr_egress/)
+GENEVE endpoint-ID-based classification that removes Distributed Egress's non-overlapping-CIDR requirement — flat and VRF configuration approaches, compared. Requires a special FortiOS test build, not yet available on a shipped release.
+
 ---
 
 ## Quick Start Paths

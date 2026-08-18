@@ -64,6 +64,8 @@ Distributed VPC traffic arrives on the **same shared `geneve-az1`/`geneve-az2` t
 **Requires Non-Overlapping CIDRs**
 
 Classification here is CIDR-based, so `vpc_cidr_distributed_1` and `vpc_cidr_distributed_2` must be distinct, non-overlapping CIDRs — otherwise the FortiGate can't tell which VPC a flow belongs to. A `check` block validates this at plan time using real start/end IP range math (not just string comparison), and fails the plan immediately if they overlap and `allow_distributed_cidr_overlap` isn't set. Leave `allow_distributed_cidr_overlap` at its default (`false`).
+
+An experimental alternative that removes this requirement entirely — [Overlapping-CIDR Distributed Egress](../5_7_overlapping_cidr_egress/) — classifies traffic by GENEVE tunnel identity instead of CIDR, but currently depends on a FortiOS test build not yet generally available.
 {{% /notice %}}
 
 ### Static Routes
