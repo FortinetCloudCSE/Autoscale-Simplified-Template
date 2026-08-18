@@ -499,6 +499,26 @@ template is updated get it. This is the same characteristic Mode A already
 has today (e.g. a `spoke_cidrs` change doesn't retroactively update
 already-booted instances either); it isn't something Mode B introduces.
 
+## Open discrepancy: does the specific-`/24` static route (fix #2) actually matter?
+
+**2026-08-18, later — a colleague (Louie) independently tested the same overlapping-CIDR scenario on the identical firmware build and reports success with a simpler config than ours.** His config (`terraform/autoscale_template/haberra.conf` in this repo, untracked/gitignored — his raw CLI dump, kept for reference) diverges from ours in two specific ways that map directly onto fixes #2 and #3 above:
+
+- **No specific-CIDR static route at all** — only the worse-priority `0.0.0.0/0` defaults per device (an 8-way tie across 3 distributed spokes × 2 AZs + centralized × 2 AZs, wider than our original 6-way tie that failed RPF 100% of the time).
+- **Bare `input-device`→`output-device` policy-route rules** for the distributed spokes — no `dst`/`src` pairing at all (the exact shape we found unreliable for fix #3).
+
+His own words (relayed, referencing Mantis 1093177): *"I was able to configure a distributed VPC setup with multiple overlapping IPs (3 VPCs same cidr, 1 host in each VPC with 10.1.1.11). This all worked without the need for specific CIDR static or policy routes. I just used hairpin all policy routes for those geneve interfaces and default routes with high priority. I also tested this all combined with a centralized VPC w/ tgw, all policies match as expected."*
+
+**This is backed by real evidence, not just a claim** — he provided `get router info routing-table all` (confirming only the default-route ties, no specific CIDR route exists) and a `diagnose sniffer` capture showing **clean, complete TCP sessions** (full SYN→FIN, no drops) from three different spokes (`gss-dspoke1-az1`, `gss-dspoke2-az1`, `gss-dspoke3-az1`) all sourcing the identical `10.1.1.11` to the same external destination, plus a fourth session via `gwlb1-az2` (centralized/TGW path) with a different address (`10.1.3.11`) — i.e. the actual overlapping-CIDR scenario, working, on the identical firmware build (`v7.6.7,build7121,260817`).
+
+**Since the firmware is identical, this has to be a config or methodology difference, not a build difference.** Candidate explanations, not yet distinguished:
+1. Our original RPF failures were intermittent/order-of-operations-dependent rather than a hard requirement, and got fixed incidentally by something else (e.g. the router-policy CIDR-pairing fix, #3) rather than by the specific-CIDR route itself.
+2. Louie's testing didn't happen to hit the same intermittent failure window ours did (recall: our own bare-policy-route failure was itself intermittent — worked twice, failed the third attempt).
+3. Something else not yet identified.
+
+**Further evidence, session-list data (stronger than the sniffer capture):** `diagnose sys session list` filtered on each overlapping host IP shows real, complete, high-throughput HTTPS sessions (tens of KB transferred, live tx/rx speed, no drops) on all three dspokes simultaneously — `dev=14->14`/`16->16`/`18->18` (same-device symmetric), each with an explicit **`route_policy_id`** (`3`, `5`, `7` respectively) confirming the bare policy-route rules genuinely matched and pinned correctly, not just got lucky on the static table. The centralized/TGW session (src `10.1.3.11`) notably shows **no `route_policy_id` field at all** for its public-internet-destined traffic (NTP, HTTPS to Google) — meaning his broad RFC1918-catch-all `dst` policy-route rule correctly does *not* match public destinations, letting them fall through to normal routing via `port1` — the same "don't hairpin internet-bound traffic" goal our per-VPC-specific `dst` matching solves, just via one broad rule instead. This rules out "he just got lucky on one ping" as an explanation — this is sustained, real, multi-session traffic across all three overlapping VPCs at once.
+
+**Planned next step (not yet run):** on our own box, remove the specific `/24` static routes (currently entries for `d1`/`d2`, distance 10) — keep only the worse-priority `0.0.0.0/0` defaults — with everything else (fixes #1, #3, #4) still in place, and retest RPF (flow debug + a real session) to see if it still passes. If it does, fix #2 as documented above is over-engineering and should be simplified out of both this doc and the Terraform templatization (`vpc_distributed_egress_endpoint_id.tf` currently adds 4 static-route entries per distributed-VPC-pair specifically for this). Deferred to next session — see [[project_sony_geneve_gwlbe_overlap_build]] memory note for continuity.
+
 ## Next steps (blocked)
 
 1. Wait for `endpoint-id` (or equivalent) to ship in a non-STS FortiOS
