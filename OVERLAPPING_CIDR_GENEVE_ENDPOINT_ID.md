@@ -177,45 +177,16 @@ config firewall policy
 end
 
 # ============================================================
-# 4. Router static — GWLB host routes + centralized spoke CIDRs
-#    unchanged. Worse-priority 0.0.0.0/0 defaults per device are
-#    the only entries needed for the distributed devices.
+# 4. Router static — worse-priority 0.0.0.0/0 defaults per device
+#    are the only entries needed, centralized and distributed
+#    alike. No host route to the GWLB's own IP (it's already
+#    directly reachable within port1's own connected subnet) and
+#    no specific spoke-CIDR routes (real forwarding is controlled
+#    by router policy below, not this table -- these entries only
+#    ever existed to satisfy RPF, which the generic default routes
+#    already cover for any source/destination).
 # ============================================================
 config router static
-    edit 1
-        set dst 10.0.2.204 255.255.255.255
-        set device "port1"
-        set dynamic-gateway enable
-    next
-    edit 2
-        set dst 10.0.7.81 255.255.255.255
-        set device "port1"
-        set dynamic-gateway enable
-    next
-    edit 3
-        set dst 192.168.0.0 255.255.255.0
-        set distance 5
-        set priority 100
-        set device "geneve-az1"
-    next
-    edit 4
-        set dst 192.168.1.0 255.255.255.0
-        set distance 5
-        set priority 100
-        set device "geneve-az1"
-    next
-    edit 6
-        set dst 192.168.0.0 255.255.255.0
-        set distance 5
-        set priority 100
-        set device "geneve-az2"
-    next
-    edit 7
-        set dst 192.168.1.0 255.255.255.0
-        set distance 5
-        set priority 100
-        set device "geneve-az2"
-    next
     edit 9
         set distance 5
         set priority 100
