@@ -76,24 +76,23 @@ locals {
   } : {}
 
   # One entry per distributed VPC, shaped for a single loop in the .cfg.tftpl instead of
-  # duplicating a block per VPC. distance_10_dst is the specific-CIDR RPF-satisfying static route
-  # (see MODE_B_ENDPOINT_ID_GENEVE.md fix #2); policy_dst/policy_src are the router-policy dst/src
-  # match values in FortiOS's dotted-netmask form ("x.x.x.x/y.y.y.y"), which is the form validated
-  # live for these new rules -- distinct from config router static's separate "ip mask" pair format
-  # used a few lines below in the .cfg.tftpl.
+  # duplicating a block per VPC. No CIDR field here on purpose -- confirmed via direct retest
+  # (2026-08-19, see MODE_B_ENDPOINT_ID_GENEVE.md "Resolved" section) that neither a specific-CIDR
+  # static route nor CIDR-paired router-policy entries are needed for the distributed devices; a
+  # bare input-device-only policy route plus the generic worse-priority default static route is
+  # sufficient. GWLB's own bump-in-the-wire model means AWS's routing underneath does the real
+  # steering once a packet is handed back to it, regardless of which device FortiOS used.
   distributed_egress_endpoint_id_devices = var.enable_distributed_egress_endpoint_id ? [
     {
       key        = "d1"
       zone       = "d1-zone"
       vrf        = var.distributed_1_vrf
-      cidr       = data.aws_vpc.distributed_1[0].cidr_block
       vpce_by_az = local.distributed_1_vpce_by_az
     },
     {
       key        = "d2"
       zone       = "d2-zone"
       vrf        = var.distributed_2_vrf
-      cidr       = data.aws_vpc.distributed_2[0].cidr_block
       vpce_by_az = local.distributed_2_vpce_by_az
     },
   ] : []

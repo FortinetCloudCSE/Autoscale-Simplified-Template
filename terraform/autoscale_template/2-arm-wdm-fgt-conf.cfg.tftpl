@@ -183,28 +183,18 @@ config router static
         set priority 100
         set device "${d.key}-geneve-${az}"
     next
-    edit 0
-%{ if distributed_egress_routing_mode == "vrf" ~}
-        set vrf ${d.vrf}
-%{ endif ~}
-        set dst ${split("/", d.cidr)[0]} ${cidrnetmask(d.cidr)}
-        set distance 10
-        set device "${d.key}-geneve-${az}"
-    next
 %{ endfor ~}
 %{ endfor ~}
 end
+# Confirmed via direct retest (2026-08-19, see MODE_B_ENDPOINT_ID_GENEVE.md "Resolved" section)
+# that a bare input-device-only policy route is sufficient for the distributed devices -- no
+# dst/src CIDR matching needed. GWLB is bump-in-the-wire; AWS's own routing underneath does the
+# real steering once a packet is handed back to it, regardless of which device FortiOS used.
 config router policy
 %{ for d in distributed_egress_endpoint_id_devices ~}
 %{ for az in distributed_az_list ~}
     edit 0
         set input-device "${d.key}-geneve-${az}"
-        set dst "${split("/", d.cidr)[0]}/${cidrnetmask(d.cidr)}"
-        set output-device "${d.key}-geneve-${az}"
-    next
-    edit 0
-        set input-device "${d.key}-geneve-${az}"
-        set src "${split("/", d.cidr)[0]}/${cidrnetmask(d.cidr)}"
         set output-device "${d.key}-geneve-${az}"
     next
 %{ endfor ~}
