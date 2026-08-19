@@ -51,7 +51,16 @@ distributed VPCs into their own VRFs and compared the two approaches.
   `~/Downloads/terraform-aws-cloud-modules_findings.pdf` (not checked into
   this repo, it's about a different project).
 
-## The four real fixes (flat/policy-route approach)
+## The real fixes (flat/policy-route approach) — as currently understood
+
+Two fixes originally documented here (specific-`/24` static routes, and
+CIDR-paired policy-route entries for the *distributed* devices) turned out,
+after further testing, to be unnecessary. See
+[Resolved: the specific-CIDR static route and CIDR-paired distributed policy
+routes are unnecessary](#resolved-the-specific-cidr-static-route-and-cidr-paired-distributed-policy-routes-are-unnecessary)
+below for the full story — kept as history there rather than deleted,
+because the *reasoning* about why they seemed necessary (and why they
+actually weren't) is worth understanding, not just the final answer.
 
 1. **`set type ppp` is required on every new GENEVE tunnel — not optional.**
    The developer's example syntax omitted it. Without it, FortiOS treats
@@ -62,39 +71,16 @@ distributed VPCs into their own VRFs and compared the two approaches.
    `edit`ed to add `endpoint-id`, never recreated) kept `type ppp` from the
    original Lambda bootstrap and were unaffected.
 
-2. **RPF (`reverse path check fail, drop`) needs a specific, per-device
-   `/24` static route — not `src-check disable`.** Deleting the old
-   ambiguous shared `10.100.0.0/24` route (correct — one route can't
-   represent two different VPCs) left RPF nothing to match except the
-   generic `0.0.0.0/0` default routes — a 6-way tie instead of Mode A's
-   original 2, which failed RPF 100% of the time. Fix: one specific `/24`
-   route **per real device** (four total), all tied at a moderately
-   elevated distance. RPF just needs *a* candidate whose interface matches
-   the arrival interface, not a single globally-resolved one — this isn't
-   the same ambiguity as the deleted shared route.
-   **Pitfall found by trial:** `distance 250` (near FortiOS's 255 max)
-   caused the real `port2` default route to win instead — apparently too
-   extreme to be treated as a live candidate. `distance 10` worked.
-
-3. **Router policy needs CIDR-paired entries, not bare `input-device`-only
-   rules.** Four unconditional `input-device`→`output-device` entries were
-   inconsistent — `proute list` showed real hits, but `diagnose debug flow`
-   still sometimes resolved forwarding via the static table's ECMP tie
-   across all 4 devices instead of policy-route's pinning (occasionally
-   cross-VPC, though the zone split correctly caught and denied those).
-   Fix: 8 entries — a `dst`-matched (forward leg) and `src`-matched (reply
-   leg) pair per device, still keyed on `input-device` (doesn't reintroduce
-   the CIDR ambiguity — `input-device` alone already disambiguates d1 vs
-   d2).
-
-4. **Router-policy rules combining `src` AND `dst` in the same entry appear
+2. **Router-policy rules combining `src` AND `dst` in the same entry appear
    to never match.** Found on the *pre-existing* centralized rules — both
    `src` and `dst` set simultaneously, `hit_count=0` in `diagnose firewall
    proute list`, never matched, despite repeated matching east-west
    traffic. Caused intermittent failures (worked twice, failed the third
    attempt) — forwarding fell through to the static table's ECMP tie,
-   occasionally picking the "wrong" AZ. Fix: split into 4 single-clause
-   entries (dst + src pair per AZ), same pattern as #3.
+   occasionally picking the "wrong" AZ. Fix: split into single-clause
+   entries — one `dst`-matched rule per AZ for centralized (never a
+   `src`-matched one — see the note below on why that specifically breaks
+   internet egress).
 
 **Design decision:** 3 zones, not 1. Retrofitting all 6 tunnels into one
 shared zone would have required deleting/editing the existing
@@ -103,6 +89,13 @@ it). Going additive — new `d1-zone`/`d2-zone`, existing `private-zone`
 untouched — avoided that dependency chain and gives a real structural
 guarantee (no `d1↔d2` or `d1/d2→internet` firewall policy exists at all)
 rather than relying purely on router-policy correctness.
+
+**Also found, applies regardless of the simplification below:** a
+`src`-matched centralized router-policy rule with no `dst` restriction
+incorrectly captures a spoke's legitimate internet-bound traffic and
+hairpins it back through `geneve` instead of letting it exit normally.
+Distributed VPCs are *supposed* to hairpin their own egress this way;
+centralized is not. Centralized should only ever get `dst`-matched entries.
 
 **A fifth issue, found during the VRF comparison but applicable to the flat
 model too:** the centralized `src`-matched router-policy entries
@@ -229,10 +222,11 @@ end
 
 # ============================================================
 # 4. Router static — GWLB host routes + centralized spoke CIDRs
-#    untouched. Specific /24 routes (distance 10) fix RPF for
-#    the overlapping CIDR itself. Do NOT collapse these into a
-#    single shared /24 route across both VPCs — that reintroduces
-#    the exact ambiguity this design exists to eliminate.
+#    unchanged. Worse-priority 0.0.0.0/0 defaults per device are
+#    the only entries needed for the distributed devices -- no
+#    specific-CIDR route per device (confirmed unnecessary, see
+#    "Resolved" section below; GWLB's own bump-in-the-wire model
+#    means AWS routing underneath does the real steering).
 # ============================================================
 config router static
     edit 1
@@ -299,73 +293,30 @@ config router static
         set priority 100
         set device "d2-geneve-az2"
     next
-    edit 15
-        set dst 10.100.0.0 255.255.255.0
-        set distance 10
-        set device "d1-geneve-az1"
-    next
-    edit 16
-        set dst 10.100.0.0 255.255.255.0
-        set distance 10
-        set device "d1-geneve-az2"
-    next
-    edit 17
-        set dst 10.100.0.0 255.255.255.0
-        set distance 10
-        set device "d2-geneve-az1"
-    next
-    edit 18
-        set dst 10.100.0.0 255.255.255.0
-        set distance 10
-        set device "d2-geneve-az2"
-    next
 end
 
 # ============================================================
-# 5. Router policy — d1/d2 need dst+src pairs (fix #3).
-#    Centralized needs ONLY the dst-matched entries (fix #5) —
-#    a src-matched centralized entry incorrectly hairpins
-#    spoke->internet traffic that should egress via port2.
+# 5. Router policy — distributed devices get a single bare
+#    input-device->output-device entry each (confirmed
+#    sufficient, no dst/src needed). Centralized keeps its
+#    dst-only entries -- never src-matched, that specifically
+#    breaks internet egress (see the fixes section above).
 # ============================================================
 config router policy
     edit 3
         set input-device "d1-geneve-az1"
-        set dst "10.100.0.0/255.255.255.0"
-        set output-device "d1-geneve-az1"
-    next
-    edit 4
-        set input-device "d1-geneve-az1"
-        set src "10.100.0.0/255.255.255.0"
         set output-device "d1-geneve-az1"
     next
     edit 7
         set input-device "d1-geneve-az2"
-        set dst "10.100.0.0/255.255.255.0"
-        set output-device "d1-geneve-az2"
-    next
-    edit 8
-        set input-device "d1-geneve-az2"
-        set src "10.100.0.0/255.255.255.0"
         set output-device "d1-geneve-az2"
     next
     edit 9
         set input-device "d2-geneve-az1"
-        set dst "10.100.0.0/255.255.255.0"
-        set output-device "d2-geneve-az1"
-    next
-    edit 10
-        set input-device "d2-geneve-az1"
-        set src "10.100.0.0/255.255.255.0"
         set output-device "d2-geneve-az1"
     next
     edit 11
         set input-device "d2-geneve-az2"
-        set dst "10.100.0.0/255.255.255.0"
-        set output-device "d2-geneve-az2"
-    next
-    edit 12
-        set input-device "d2-geneve-az2"
-        set src "10.100.0.0/255.255.255.0"
         set output-device "d2-geneve-az2"
     next
     edit 13
@@ -499,7 +450,7 @@ template is updated get it. This is the same characteristic Mode A already
 has today (e.g. a `spoke_cidrs` change doesn't retroactively update
 already-booted instances either); it isn't something Mode B introduces.
 
-## Open discrepancy: does the specific-`/24` static route (fix #2) actually matter?
+## Resolved: the specific-CIDR static route and CIDR-paired distributed policy routes are unnecessary
 
 **2026-08-18, later — a colleague (Louie) independently tested the same overlapping-CIDR scenario on the identical firmware build and reports success with a simpler config than ours.** His config (`terraform/autoscale_template/haberra.conf` in this repo, untracked/gitignored — his raw CLI dump, kept for reference) diverges from ours in two specific ways that map directly onto fixes #2 and #3 above:
 
@@ -517,7 +468,18 @@ His own words (relayed, referencing Mantis 1093177): *"I was able to configure a
 
 **Further evidence, session-list data (stronger than the sniffer capture):** `diagnose sys session list` filtered on each overlapping host IP shows real, complete, high-throughput HTTPS sessions (tens of KB transferred, live tx/rx speed, no drops) on all three dspokes simultaneously — `dev=14->14`/`16->16`/`18->18` (same-device symmetric), each with an explicit **`route_policy_id`** (`3`, `5`, `7` respectively) confirming the bare policy-route rules genuinely matched and pinned correctly, not just got lucky on the static table. The centralized/TGW session (src `10.1.3.11`) notably shows **no `route_policy_id` field at all** for its public-internet-destined traffic (NTP, HTTPS to Google) — meaning his broad RFC1918-catch-all `dst` policy-route rule correctly does *not* match public destinations, letting them fall through to normal routing via `port1` — the same "don't hairpin internet-bound traffic" goal our per-VPC-specific `dst` matching solves, just via one broad rule instead. This rules out "he just got lucky on one ping" as an explanation — this is sustained, real, multi-session traffic across all three overlapping VPCs at once.
 
-**Planned next step (not yet run):** on our own box, remove the specific `/24` static routes (currently entries for `d1`/`d2`, distance 10) — keep only the worse-priority `0.0.0.0/0` defaults — with everything else (fixes #1, #3, #4) still in place, and retest RPF (flow debug + a real session) to see if it still passes. If it does, fix #2 as documented above is over-engineering and should be simplified out of both this doc and the Terraform templatization (`vpc_distributed_egress_endpoint_id.tf` currently adds 4 static-route entries per distributed-VPC-pair specifically for this). Deferred to next session — see [[project_sony_geneve_gwlbe_overlap_build]] memory note for continuity.
+**2026-08-19 — confirmed via direct retest on our own box.** Restored a modified pre-VRF backup with the specific-`/24` static routes removed and the distributed router-policy pairs collapsed down to bare `input-device`→`output-device` (matching Louie's config exactly), everything else (fixes #1, the centralized `dst`-only fix) left in place. Retested — worked. **Both simplifications are confirmed unnecessary in our own environment, not just Louie's.**
+
+**Why this holds, and why it isn't a coincidence:** GWLB is a bump-in-the-wire, not a router. Once the FortiGate hands a packet back to GWLB (regardless of which specific device it used), AWS delivers it back to the *originating* context and continues forwarding via whatever route table governs that context — not something FortiOS's own classification controls. For the centralized case specifically, this repo's own Inspection VPC `gwlbe` subnet route table already implements the exact RFC1918-vs-internet distinction the FortiOS-side policy route was trying to make (confirmed directly against this project's real route table: broad RFC1918 ranges → TGW, `0.0.0.0/0` → IGW) — so the FortiGate's own classification mostly matters for satisfying FortiOS's *own* RPF/policy-route bookkeeping to accept and re-send the packet, not for correctly steering where it ends up; AWS's routing underneath does the real steering. This explains why a much simpler config produces equivalent behavior.
+
+**One place this reasoning does *not* extend:** `endpoint-id` is a different mechanism (GWLB using it to pick which *originating VPC's* endpoint gets return traffic when multiple VPCs share a CIDR), not a downstream route table doing cleanup — so care about which distributed device gets used is still real, it just doesn't require the specific-CIDR route or CIDR-paired policy rules to get right; the bare `input-device`-only rule is apparently sufficient for that.
+
+**Net result — the validated config is simpler than originally documented:**
+- `router static`: drop the specific `/24` distance-10 entries per distributed device. Keep the worse-priority `0.0.0.0/0` defaults only.
+- `router policy` for distributed devices: drop the `dst`/`src`-paired form, use one bare `input-device`→`output-device` entry per device instead.
+- `router policy` for centralized: unchanged — still `dst`-only, never `src`-matched (that specific fix is unrelated to this simplification and still real).
+
+The CLI and Terraform templatization below have been updated to match. Credit: Louie (Fortinet), who found this independently and provided the config, routing table, and session-list evidence that led to this being verified rather than just assumed.
 
 ## Next steps (blocked)
 
