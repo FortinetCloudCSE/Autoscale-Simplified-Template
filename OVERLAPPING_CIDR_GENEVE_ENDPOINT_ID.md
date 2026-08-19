@@ -35,8 +35,11 @@ sessions, ICMP/TCP east-west traffic, and internet egress — not just clean
   and new distributed (`d1-geneve-*`/`d2-geneve-*`) alike — requires
   `set type ppp`.
 - Centralized router-policy entries (`geneve-az1`/`geneve-az2`): one
-  `dst`-matched rule per AZ, matching the centralized spoke CIDRs. Never
-  combine `src` and `dst` in the same entry, and never use a
+  `dst`-matched rule per AZ, matching a broad RFC1918 summary
+  (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) rather than the
+  specific spoke CIDRs — this rule doesn't need to know what's actually
+  south of the TGW, and stays correct automatically as spokes are added.
+  Never combine `src` and `dst` in the same entry, and never use a
   `src`-matched-only entry — either form incorrectly hairpins a spoke's
   legitimate internet-bound traffic back through `geneve` instead of
   letting it egress normally via `port2`.
@@ -248,7 +251,9 @@ end
 # ============================================================
 # 5. Router policy — distributed devices get a single bare
 #    input-device->output-device entry each. Centralized keeps
-#    its dst-only entries -- never src-matched.
+#    its dst-only entries -- never src-matched -- but matches a
+#    broad RFC1918 summary instead of the specific spoke CIDRs,
+#    so this rule doesn't need to know what's south of the TGW.
 # ============================================================
 config router policy
     edit 3
@@ -269,12 +274,12 @@ config router policy
     next
     edit 13
         set input-device "geneve-az1"
-        set dst "192.168.0.0/255.255.255.0" "192.168.1.0/255.255.255.0"
+        set dst "10.0.0.0/255.0.0.0" "172.16.0.0/255.240.0.0" "192.168.0.0/255.255.0.0"
         set output-device "geneve-az1"
     next
     edit 15
         set input-device "geneve-az2"
-        set dst "192.168.0.0/255.255.255.0" "192.168.1.0/255.255.255.0"
+        set dst "10.0.0.0/255.0.0.0" "172.16.0.0/255.240.0.0" "192.168.0.0/255.255.0.0"
         set output-device "geneve-az2"
     next
 end

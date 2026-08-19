@@ -191,7 +191,7 @@ end
 If you're also retagging the *centralized* `geneve-az1`/`geneve-az2` rules while doing this, they need different treatment than the distributed devices:
 
 {{% notice warning %}}
-**Centralized router-policy rules must be `dst`-matched only — never bare, and never `src`-matched.** A bare or `src`-matched-only centralized rule (with no `dst` restriction) captures a spoke's legitimate internet-bound traffic and incorrectly hairpins it back through `geneve` instead of letting it exit normally via `port2` — distributed VPCs are *supposed* to hairpin their own egress this way, centralized is not. Also, on this specific STS build, combining both `src` and `dst` in the same centralized entry doesn't reliably match — use a single-clause `dst`-matched rule per AZ (see [Distributed Egress](../5_6_distributed_egress/#policy-routes) for the pattern).
+**Centralized router-policy rules must be `dst`-matched only — never bare, and never `src`-matched.** A bare or `src`-matched-only centralized rule (with no `dst` restriction) captures a spoke's legitimate internet-bound traffic and incorrectly hairpins it back through `geneve` instead of letting it exit normally via `port2` — distributed VPCs are *supposed* to hairpin their own egress this way, centralized is not. Also, on this specific STS build, combining both `src` and `dst` in the same centralized entry doesn't reliably match — use a single-clause `dst`-matched rule per AZ (see [Distributed Egress](../5_6_distributed_egress/#policy-routes) for the pattern). A broad RFC1918 summary (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) works as the `dst` match just as well as the specific spoke CIDRs — and means this rule doesn't need to know what's actually south of the TGW.
 {{% /notice %}}
 
 ---
