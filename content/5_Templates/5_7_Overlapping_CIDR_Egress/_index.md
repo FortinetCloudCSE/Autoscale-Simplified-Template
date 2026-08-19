@@ -12,13 +12,13 @@ weight: 57
 {{% notice warning %}}
 **Requires a Special FortiOS Build — Not Available Today**
 
-The `endpoint-id` field on `config system geneve` that this page depends on only exists in a Fortinet STS/test build (`build_tag_7121` as of this writing), not any generally-available FortiOS release. Everything below is hand-applied CLI, validated with real traffic on that test build. Do not attempt this against a production FortiGate. If you need this capability today, contact your Fortinet account team about the STS build's availability.
+The `endpoint-id` field on `config system geneve` that this page depends on only exists in a Fortinet STS/test build (`build_tag_7121` as of this writing), not any generally-available FortiOS release. Do not attempt this against a production FortiGate. If you need this capability today, contact your Fortinet account team about the STS build's availability.
 {{% /notice %}}
 
 {{% notice note %}}
 **All 6 `.cfg.tftpl` Variants, Different Levels of Testing**
 
-Terraform templatization of this feature is in all six bootstrap config variants (1-arm/2-arm × plain/`wdm`/`wdm-eni`) — there's nothing arm-mode- or management-mode-specific about the Mode B block itself (it only ever references `port1`, which is the geneve-hosting interface in every variant, plus its own new zone/device names). Testing coverage differs, though: `2-arm-wdm`, `1-arm-wdm`, and plain `1-arm` have been `terraform plan`-validated against real live infrastructure; `1-arm-wdm-eni` and `2-arm-wdm-eni` currently only have `terraform validate` (syntax/semantics), not a live plan — same asymmetry Mode A already has (only `2-arm-wdm` was ever actually live-tested for that feature).
+Terraform templatization of this feature is in all six bootstrap config variants (1-arm/2-arm × plain/`wdm`/`wdm-eni`) — the block only ever references `port1`, the geneve-hosting interface in every variant, plus its own new zone/device names, so there's nothing arm-mode- or management-mode-specific about it. Testing coverage differs: `2-arm-wdm`, `1-arm-wdm`, and plain `1-arm` have been `terraform plan`-validated against real live infrastructure; `1-arm-wdm-eni` and `2-arm-wdm-eni` currently only have `terraform validate` (syntax/semantics), not a live plan.
 {{% /notice %}}
 
 ---
@@ -29,7 +29,7 @@ The mechanism is additive on top of the existing [Distributed Egress](../5_6_dis
 
 - Instead of two shared `geneve-az1`/`geneve-az2` tunnels carrying centralized *and* every distributed VPC's traffic together, **each distributed VPC gets its own pair of tunnels** (one per AZ), each bound with `set endpoint-id "vpce-xxxxxxxx"` to that VPC's specific GWLB Endpoint.
 - Because classification now happens by tunnel identity, each distributed VPC also gets **its own firewall zone** — real structural isolation (no firewall policy exists permitting traffic between two distributed VPCs, or from a distributed VPC out through the centralized internet-egress policy) instead of relying on CIDR-address correctness.
-- Two ways to keep routing/RPF unambiguous once tunnels are split this way — a **flat** approach (everything in the default routing table, disambiguated by policy routing) and a **VRF** approach (each distributed VPC gets its own routing table). Both are documented below, with a comparison at the end.
+- Two ways to keep routing unambiguous once tunnels are split this way — a **flat** approach (everything in the default routing table, disambiguated by policy routing) and a **VRF** approach (each distributed VPC gets its own routing table). Both are documented below, with a comparison at the end.
 
 ---
 
@@ -39,7 +39,7 @@ Everything lives in the default routing table (`VRF=0`) alongside centralized tr
 
 ### GENEVE Tunnels
 
-Every tunnel — including the pre-existing centralized ones, if you're retagging them — needs `set type ppp`. Without it, FortiOS expects L2/ARP resolution over the tunnel, which GWLB's GENEVE channel can't answer, and nothing forwards:
+Every tunnel — including the pre-existing centralized ones, if you're retagging them — needs `set type ppp`:
 
 ```
 config system geneve
@@ -132,7 +132,7 @@ end
 
 ### Static Routes
 
-Just the same worse-priority `0.0.0.0/0` default route per device that centralized-only deployments already use, extended to the new devices — this satisfies the reverse-path check for arbitrary internet-sourced traffic (e.g. port scans hitting an EIP) the way it always has for centralized:
+Just the worse-priority `0.0.0.0/0` default route per device that centralized-only deployments already use, extended to the new devices — no CIDR-specific route is needed:
 
 ```
 config router static
@@ -160,7 +160,7 @@ end
 ```
 
 {{% notice note %}}
-**No specific-CIDR route needed — confirmed by direct retest, not just a simplification for its own sake.** An earlier version of this page recommended an additional specific `/24` route per device (at an elevated distance, to give RPF an unambiguous candidate). That turned out to be unnecessary: GWLB is a bump-in-the-wire, not a router — once the FortiGate hands a packet back to GWLB, AWS's own routing underneath (e.g. this project's Inspection VPC `gwlbe` subnet route table) does the real forwarding, regardless of which specific device FortiOS used. The generic default route above is enough to satisfy FortiOS's own RPF bookkeeping. See the "Resolved" section of `MODE_B_ENDPOINT_ID_GENEVE.md` at the repo root for the full story, including the colleague (Louie, Fortinet) who found this independently.
+**Why no CIDR-specific route is needed:** GWLB is a bump-in-the-wire, not a router — once the FortiGate hands a packet back to GWLB, AWS's own routing underneath (e.g. this project's Inspection VPC `gwlbe` subnet route table) does the real forwarding, regardless of which specific device FortiOS used. The generic default route above is enough to satisfy FortiOS's own reverse-path-check bookkeeping.
 {{% /notice %}}
 
 ### Policy Routes
@@ -188,17 +188,17 @@ config router policy
 end
 ```
 
-{{% notice note %}}
-**Also confirmed unnecessary by direct retest.** An earlier version of this page recommended pairing every rule with a `dst`-matched and `src`-matched CIDR clause, based on inconsistent behavior seen with the bare form during initial testing. Retested (2026-08-19) with the specific-CIDR static route above also removed, and the bare form held up reliably — same conclusion Louie reached independently, backed by session-list evidence (`route_policy_id` correctly recorded per session, sustained multi-session traffic, no cross-VPC bleed).
-{{% /notice %}}
+If you're also retagging the *centralized* `geneve-az1`/`geneve-az2` rules while doing this, they need different treatment than the distributed devices:
 
-If you're also retagging the *centralized* `geneve-az1`/`geneve-az2` rules while doing this: keep those `dst`-matched (not bare, not `src`-matched). A `src`-matched centralized rule with no `dst` restriction captures a spoke's legitimate internet-bound traffic and incorrectly hairpins it back through `geneve` instead of letting it exit normally — distributed VPCs are *supposed* to hairpin their own egress this way, centralized is not. This one is unrelated to the simplification above and still applies.
+{{% notice warning %}}
+**Centralized router-policy rules must be `dst`-matched only — never bare, and never `src`-matched.** A bare or `src`-matched-only centralized rule (with no `dst` restriction) captures a spoke's legitimate internet-bound traffic and incorrectly hairpins it back through `geneve` instead of letting it exit normally via `port2` — distributed VPCs are *supposed* to hairpin their own egress this way, centralized is not. Also, on this specific STS build, combining both `src` and `dst` in the same centralized entry doesn't reliably match — use a single-clause `dst`-matched rule per AZ (see [Distributed Egress](../5_6_distributed_egress/#policy-routes) for the pattern).
+{{% /notice %}}
 
 ---
 
 ## Configuration — VRF Approach
 
-Instead of disambiguating shared-table ambiguity with policy routing, give each distributed VPC its own routing table (VRF). GENEVE tunnels, zones, and firewall policy are identical to the flat approach above — only interface VRF assignment and route scoping differ.
+Instead of disambiguating shared-table ambiguity with policy routing, give each distributed VPC its own routing table (VRF). GENEVE tunnels, zones, firewall policy, and policy routes are identical to the flat approach above — only interface VRF assignment and route scoping differ.
 
 ### VRF Assignment
 
@@ -249,40 +249,21 @@ config router static
 end
 ```
 
-### Policy Routes
-
-Same bare `input-device`→`output-device` form as the flat approach, unchanged — VRF doesn't change what's needed here.
-
-### What Actually Improves Under VRF
-
-Confirmed via `get router info routing-table all`: each VRF shows *only* its own VPC's `10.100.0.0/24` (as a directly-connected route, from the interface itself — no static route needed for it at all), with zero visibility into the sibling VPC's identical CIDR. **This matters less than it first appeared to.** The original case for VRF was that it eliminates a fragile, hand-tuned specific-CIDR static route needed for RPF — but direct retest (see the note above) showed that route isn't needed at all, under either approach. GWLB's bump-in-the-wire model means the real forwarding decision happens in AWS's own routing once a packet is handed back to it, not in FortiOS's static/policy-route tables — so the structural isolation VRF provides isn't compensating for a real fragility the way it seemed to be.
+Each VRF's own `10.100.0.0/24` (or whatever the overlapping CIDR is) shows up as a directly-connected route from the interface itself — no static route needed for it at all, and no visibility into the sibling VPC's identical CIDR.
 
 ---
 
 ## Flat vs. VRF — Comparison
 
-Both approaches are now confirmed equally reliable — the specific-CIDR static route and CIDR-paired policy routes that originally motivated preferring VRF turned out to be unnecessary under either approach (see the notes above). The comparison is now mostly about structural properties, not reliability:
-
 | | Flat (single table) | VRF |
 |---|---|---|
-| Reliability | Confirmed working, same as VRF | Confirmed working, same as flat |
+| Reliability | Confirmed working | Confirmed working, equivalent |
 | Config footprint | Smaller (no `set vrf` lines) | One extra `set vrf` line per interface and per VRF-scoped route |
 | Cross-VPC isolation | Enforced by zone/firewall-policy only | Also structurally separated at the routing-table level |
 | Future controlled cross-VPC traffic | Just add a firewall policy | Requires explicit VRF route-leaking |
 | Precedent on this platform | — | This repo's management interface (`port3`) already uses a non-default VRF |
 
-Given the reliability case for VRF no longer holds, **`distributed_egress_routing_mode` now defaults to `"flat"`** — smaller diff, one less concept to explain. VRF (`"vrf"`) is still available and still a legitimate choice on structural grounds (routing-table-level isolation is a stronger guarantee than zone/policy alone, in the same spirit as the zone-per-VPC design decision above), but it's an opt-in trade-off now rather than the recommended default.
-
----
-
-## Known Issues Found on the STS Build
-
-These were found through `diagnose debug flow`, `diagnose firewall proute list`, and `diagnose sys session list` while validating this feature — worth knowing about if you hit something that looks similar, and distinct from anything in shipped [Distributed Egress](../5_6_distributed_egress/):
-
-1. **`set type ppp` is required on every new GENEVE tunnel.** Omitting it causes the tunnel to expect ARP resolution it can never get, and nothing forwards.
-2. **Router-policy rules combining both `src` and `dst` in the same entry never matched, on this build specifically.** Note this is *not* a general FortiOS limitation — the shipped [Distributed Egress](../5_6_distributed_egress/#policy-routes) centralized east-west rule uses exactly this combined form successfully on generally-available FortiOS. It only failed on this specific STS test build; treat it as a build quirk to watch for if you're testing against this same STS build, not a pattern to avoid on production firmware. Applies to the *centralized* rules only — always keep those `dst`-only regardless, as noted above.
-
-Two earlier entries in this list — a specific per-device RPF static route, and CIDR-paired distributed policy-route rules — were retracted after further testing showed they weren't actually necessary. See the notes in the Static Routes and Policy Routes sections above.
+`distributed_egress_routing_mode` defaults to `"flat"` — smaller footprint, equivalent reliability. VRF (`"vrf"`) remains available and is a legitimate choice for its stronger structural-isolation guarantee, in the same spirit as the zone-per-VPC design above.
 
 ---
 

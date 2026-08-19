@@ -1,119 +1,67 @@
 # Mode B: Overlapping-CIDR Distributed Egress via GENEVE Endpoint-ID
 
 > **Status: NOT MERGED. Do not merge this branch until a non-STS FortiOS
-> build ships `endpoint-id` support.** This is saved here purely to preserve
-> validated, traffic-tested work — it depends on a special/test FortiOS build
-> (`build_tag_7121`, contact Aaron Jones, Fortinet Cloud PM) that is not
-> generally available. See [Status](#status) below.
+> build ships `endpoint-id` support.** This depends on a special/test
+> FortiOS build (`build_tag_7121`, contact Aaron Jones, Fortinet Cloud PM)
+> that is not generally available. See [Status](#status) below.
 
-## TL;DR
+## Overview
 
 Fortinet's STS/test FortiOS build `build_tag_7121`
 (`FGVMA6-7.6.7-FW-build3704-260817`) exposes a new `endpoint-id` field on
 `config system geneve`, letting a GENEVE tunnel be keyed to a specific AWS
 GWLB Endpoint (`vpce-id`) instead of only `remote-ip`. This removes the
-[Mode A](content/5_Templates/5_6_Distributed_Egress/_index.md) hard
-requirement that distributed VPCs must not share overlapping CIDRs — with
-`remote-ip`-only keying, FortiOS has no way to tell which VPC a packet came
-from when two VPCs use an identical CIDR; with `endpoint-id`, it does.
+[Mode A](content/5_Templates/5_6_Distributed_Egress/_index.md) requirement
+that distributed VPCs must not share overlapping CIDRs — classification
+happens by tunnel identity instead of by address, so two distributed VPCs
+can use the identical CIDR and still be told apart.
 
-Two intentionally-overlapping distributed VPCs (`10.100.0.0/24` on both
-sides), plus the pre-existing centralized path, were built against this
-build and traffic-verified end to end (real SSH sessions, real ICMP/TCP
-east-west and internet-egress traffic — not just clean `show`/config
-application). Getting there required four real fixes beyond the initial
-draft config, all found via `diagnose debug flow`, `diagnose firewall
-proute list`, and `diagnose sys session list`. A second full pass moved the
-distributed VPCs into their own VRFs and compared the two approaches.
+Traffic-verified end to end: two distributed VPCs on an identical CIDR
+(`10.100.0.0/24`), plus the pre-existing centralized path, with real SSH
+sessions, ICMP/TCP east-west traffic, and internet egress — not just clean
+`show`/config application.
 
-## Status
+## Requirements
 
-- **Not proven on a generally-available FortiOS build.** Everything below
-  was validated on the STS build only. Do not merge this branch until
-  `endpoint-id` (or an equivalent mechanism) ships in a normal release.
-- **Templatization is done**, on this branch — `terraform/autoscale_template`
-  now has `enable_distributed_egress_endpoint_id`,
-  `distributed_egress_routing_mode` (`"flat"`/`"vrf"`, default `"flat"`), and
-  `distributed_1_vrf`/`distributed_2_vrf`, rendered into **all 6**
-  `.cfg.tftpl` variants (1-arm/2-arm × plain/`wdm`/`wdm-eni`) — the Mode B
-  block itself has nothing arm-mode-specific in it (only `port1`, correct
-  in every variant, plus its own new zone/device names). Testing coverage
-  differs: `2-arm-wdm`, `1-arm-wdm`, and plain `1-arm` are `terraform
-  plan`-validated against real infra; `1-arm-wdm-eni`/`2-arm-wdm-eni` are
-  `terraform validate`-only (same asymmetry Mode A already has). The
-  rendered config for the tested variants is byte-identical to the
-  live-tested CLI below, including real vpce-ids and GWLB IPs. See
-  [Terraform Implementation Notes](#terraform-implementation-notes).
-- Real bugs/quirks found on this specific build are documented below so
-  they aren't rediscovered from scratch next time, and so they can be
-  reported back to Fortinet.
-- A full write-up (this same content, PDF-exported) was prepared for
-  submission to the STS build's developer contact.
-- Three findings from integrating the vendored `terraform-aws-cloud-modules`
-  dependency (one real bug, two documentation gaps) were written up
-  separately for that project's maintainer — see
-  `~/Downloads/terraform-aws-cloud-modules_findings.pdf` (not checked into
-  this repo, it's about a different project).
+- STS FortiOS build with `endpoint-id` support on `config system geneve`
+  (`build_tag_7121` or later).
+- `enable_distributed_egress` already enabled (Mode B reuses Mode A's
+  distributed VPC discovery and GWLB Endpoint attachment).
 
-## The real fixes (flat/policy-route approach) — as currently understood
+## Configuration Rules
 
-Two fixes originally documented here (specific-`/24` static routes, and
-CIDR-paired policy-route entries for the *distributed* devices) turned out,
-after further testing, to be unnecessary. See
-[Resolved: the specific-CIDR static route and CIDR-paired distributed policy
-routes are unnecessary](#resolved-the-specific-cidr-static-route-and-cidr-paired-distributed-policy-routes-are-unnecessary)
-below for the full story — kept as history there rather than deleted,
-because the *reasoning* about why they seemed necessary (and why they
-actually weren't) is worth understanding, not just the final answer.
+- Every GENEVE tunnel — existing centralized (`geneve-az1`/`geneve-az2`)
+  and new distributed (`d1-geneve-*`/`d2-geneve-*`) alike — requires
+  `set type ppp`.
+- Centralized router-policy entries (`geneve-az1`/`geneve-az2`): one
+  `dst`-matched rule per AZ, matching the centralized spoke CIDRs. Never
+  combine `src` and `dst` in the same entry, and never use a
+  `src`-matched-only entry — either form incorrectly hairpins a spoke's
+  legitimate internet-bound traffic back through `geneve` instead of
+  letting it egress normally via `port2`.
+- Distributed devices (`d1`/`d2`, both AZs): a single
+  `input-device`→`output-device` router-policy entry each — no `dst`/`src`
+  matching needed. Only the generic worse-priority `0.0.0.0/0` default
+  static route (the same pattern centralized already uses) — no
+  CIDR-specific static route needed.
+- Zones: one per distributed VPC (`d1-zone`, `d2-zone`), added alongside
+  the existing centralized `private-zone` — never merge them into one
+  shared zone. This gives structural isolation: no firewall policy exists
+  permitting `d1`↔`d2` traffic, or `d1`/`d2`→internet traffic, at all.
 
-1. **`set type ppp` is required on every new GENEVE tunnel — not optional.**
-   The developer's example syntax omitted it. Without it, FortiOS treats
-   the tunnel as needing L2/ARP resolution instead of point-to-point, and
-   it endlessly ARPs for the destination with no reply (AWS's GWLB GENEVE
-   channel has no real L2 domain to answer it) — nothing forwards. The
-   pre-existing centralized tunnels (`geneve-az1`/`geneve-az2`, only
-   `edit`ed to add `endpoint-id`, never recreated) kept `type ppp` from the
-   original Lambda bootstrap and were unaffected.
+**Why the distributed devices don't need CIDR-specific routing:** GWLB is
+a bump-in-the-wire, not a router. Once the FortiGate hands a packet back
+to GWLB, AWS's own routing (e.g. this project's Inspection VPC `gwlbe`
+subnet route table, which sends RFC1918 destinations to the TGW and
+everything else to the IGW) does the real forwarding, regardless of which
+specific device FortiOS used. The generic default route is enough to
+satisfy FortiOS's own reverse-path-check bookkeeping — it doesn't need to
+correctly steer final delivery, AWS's routing underneath already does
+that. This doesn't extend to `endpoint-id` itself, though — that's a
+different mechanism (which *originating VPC's* endpoint gets return
+traffic when multiple VPCs share a CIDR), and does matter.
 
-2. **Router-policy rules combining `src` AND `dst` in the same entry appear
-   to never match.** Found on the *pre-existing* centralized rules — both
-   `src` and `dst` set simultaneously, `hit_count=0` in `diagnose firewall
-   proute list`, never matched, despite repeated matching east-west
-   traffic. Caused intermittent failures (worked twice, failed the third
-   attempt) — forwarding fell through to the static table's ECMP tie,
-   occasionally picking the "wrong" AZ. Fix: split into single-clause
-   entries — one `dst`-matched rule per AZ for centralized (never a
-   `src`-matched one — see the note below on why that specifically breaks
-   internet egress).
-
-**Design decision:** 3 zones, not 1. Retrofitting all 6 tunnels into one
-shared zone would have required deleting/editing the existing
-`private-zone` (blocked by FortiOS while firewall policy still references
-it). Going additive — new `d1-zone`/`d2-zone`, existing `private-zone`
-untouched — avoided that dependency chain and gives a real structural
-guarantee (no `d1↔d2` or `d1/d2→internet` firewall policy exists at all)
-rather than relying purely on router-policy correctness.
-
-**Also found, applies regardless of the simplification below:** a
-`src`-matched centralized router-policy rule with no `dst` restriction
-incorrectly captures a spoke's legitimate internet-bound traffic and
-hairpins it back through `geneve` instead of letting it exit normally.
-Distributed VPCs are *supposed* to hairpin their own egress this way;
-centralized is not. Centralized should only ever get `dst`-matched entries.
-
-**A fifth issue, found during the VRF comparison but applicable to the flat
-model too:** the centralized `src`-matched router-policy entries
-(mechanically copied from the d1/d2 pattern) have no `dst` restriction, so
-they also capture legitimate spoke→internet traffic and incorrectly
-hairpin it back through `geneve` instead of letting it fall through to
-`port2`. This is a design distinction, not a build bug — distributed VPCs'
-own internet-bound traffic is *supposed* to hairpin back through their own
-tunnel (that's the point of distributed egress), but centralized traffic
-is supposed to egress via `port2`. **Fix: centralized only needs the
-`dst`-matched entries — the `src`-matched pair should not exist for
-`geneve-az1`/`geneve-az2`.**
-
-## Complete validated CLI (flat / policy-route approach)
+## Complete Validated CLI (flat approach)
 
 ```
 # ============================================================
@@ -227,10 +175,7 @@ end
 # ============================================================
 # 4. Router static — GWLB host routes + centralized spoke CIDRs
 #    unchanged. Worse-priority 0.0.0.0/0 defaults per device are
-#    the only entries needed for the distributed devices -- no
-#    specific-CIDR route per device (confirmed unnecessary, see
-#    "Resolved" section below; GWLB's own bump-in-the-wire model
-#    means AWS routing underneath does the real steering).
+#    the only entries needed for the distributed devices.
 # ============================================================
 config router static
     edit 1
@@ -301,10 +246,8 @@ end
 
 # ============================================================
 # 5. Router policy — distributed devices get a single bare
-#    input-device->output-device entry each (confirmed
-#    sufficient, no dst/src needed). Centralized keeps its
-#    dst-only entries -- never src-matched, that specifically
-#    breaks internet egress (see the fixes section above).
+#    input-device->output-device entry each. Centralized keeps
+#    its dst-only entries -- never src-matched.
 # ============================================================
 config router policy
     edit 3
@@ -340,47 +283,23 @@ end
 literal from-scratch script — for templatizing, use `edit 0` and let
 FortiOS auto-assign.
 
-## Traffic verification performed
+## Traffic Verification
 
-| Path | Test | Evidence |
+| Path | Test | Result |
 |---|---|---|
-| distributed_1 | SSH from a real client IP to d1's EIP → `10.100.0.43:22` | Real bidirectional session bytes, correct `route_policy_id`/`policy_id` |
-| distributed_2 | SSH from the same client to d2's own (different) EIP → same internal `10.100.0.43:22` | Real bidirectional session bytes — correctly separated despite identical internal address |
-| Centralized (east↔internet) | `curl`/`ping 8.8.8.8` from an east spoke instance | Sniffer confirmed traffic on `geneve-az1`/`geneve-az2` and the `port2` SNAT leg (filtered on the real destination, not the pre-NAT source, since SNAT changes the visible address) |
-| Centralized (east↔west) | `ping` between east and west spoke instances, both AZs | Initially intermittent (fix #4) — reliable after the router-policy split |
+| distributed_1 | SSH from a real client IP to d1's EIP → `10.100.0.43:22` | Real bidirectional session, correct `route_policy_id`/`policy_id` |
+| distributed_2 | SSH from the same client to d2's own (different) EIP → same internal `10.100.0.43:22` | Real bidirectional session — correctly separated despite identical internal address |
+| Centralized (east↔internet) | `curl`/`ping 8.8.8.8` from an east spoke instance | Confirmed on `geneve-az1`/`geneve-az2` and the `port2` SNAT leg |
+| Centralized (east↔west) | `ping` between east and west spoke instances, both AZs | Confirmed reliable across repeated tests |
 
-## VRF-based alternative (comparison)
+## VRF Approach (Optional)
 
-A second full pass moved `d1`/`d2`'s tunnels into their own VRFs (100 and
-200) instead of relying purely on policy-route pinning in a single shared
-table, to see whether it would have avoided the harder-won fixes above.
-
-**What VRFs avoided:** the RPF ambiguity (fix #2) and the ECMP-tie
-forwarding non-determinism (fix #3) are both consequences of one shared
-routing table having no interface-awareness in its lookup. With `d1`'s
-tunnels in `VRF=100` and `d2`'s in `VRF=200`, `get router info
-routing-table all` showed each VRF with *only its own* `10.100.0.0/24` —
-zero visibility into the sibling VPC's identical CIDR, a clean 2-way tie
-(the VPC's own two AZs) instead of a 6-way tie across the whole box.
-
-**What VRFs did NOT avoid:** `type ppp` (fix #1, interface-level, orthogonal
-to VRF) and the combined-`src`+`dst`-never-matches bug (fix #4, a general
-router-policy engine quirk found on the *centralized* rules, unrelated to
-the overlapping-CIDR problem). Router-policy entry *count* for `d1`/`d2`
-stayed the same under VRF (8 entries) — AZ-level flow symmetry is a
-separate problem from cross-VPC CIDR ambiguity and doesn't go away just
-because the VPCs are in different VRFs.
-
-**Net assessment:** for a design with a hard "no cross-VPC traffic, ever"
-requirement (which this one has), VRFs trade a small amount of upfront
-structural setup (`set vrf <N>` on each interface and each VRF-scoped
-static route) for eliminating the fragile, trial-and-error parts of the
-flat approach (the `distance 250` pitfall, the 6-way ECMP non-determinism)
-in favor of a structural guarantee. This box already uses VRFs elsewhere
-(the management interface, `port3`, sits in `VRF=1`), so it wouldn't be a
-novel operational pattern here.
-
-### VRF-specific CLI diff (on top of everything above)
+Instead of relying on policy-route pinning in the shared default routing
+table, each distributed VPC can get its own VRF (`distributed_1_vrf`,
+`distributed_2_vrf`) for routing-table-level isolation. GENEVE tunnels,
+zones, firewall policy, and router-policy content are identical to the
+flat approach above — only interface VRF assignment and route scoping
+differ.
 
 ```
 # Interface VRF assignment — the only structurally new piece
@@ -411,93 +330,65 @@ config system interface
     next
 end
 ```
+
 All `router static` entries for `d1-geneve-*`/`d2-geneve-*` devices get a
-matching `set vrf 100`/`set vrf 200` line added. Zones, firewall policy,
-and router-policy content are otherwise identical to the flat model above.
+matching `set vrf 100`/`set vrf 200` line added.
 
-## Terraform Implementation Notes
+### Flat vs. VRF
 
-**Endpoint creation is correctly ordered before the FortiGate boots — verified,
-not assumed.** A natural question: the distributed VPCs' GWLB Endpoints
-(source of the vpce-ids baked into `endpoint-id`) are created by the *same*
-`terraform apply` as the FortiGate ASG itself — does the FortiGate's launch
-template actually end up with the real vpce-ids, or could it boot before
-they exist? Checked directly via `terraform graph`, not just reasoned about:
-`aws_launch_template.fgt` (the real launch-template resource, not the
-`data.aws_launch_template` AMI-lookup source) has a transitive dependency on
-`aws_vpc_endpoint.gwlb_endps` (which includes the `distributed_1-*`/
-`distributed_2-*` instances). This isn't something that had to be manually
-wired up — it falls out naturally because `local.distributed_egress_endpoint_id_devices`
-(in `vpc_distributed_egress_endpoint_id.tf`) references
-`module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps[...]`, and that local feeds the
-same `templatefile()` call that produces `user_conf_content`, which is an
-input to that same module call.
+| | Flat (single table) | VRF |
+|---|---|---|
+| Reliability | Confirmed working | Confirmed working, equivalent |
+| Config footprint | Smaller (no `set vrf` lines) | One extra `set vrf` line per interface and per VRF-scoped route |
+| Cross-VPC isolation | Enforced by zone/firewall-policy only | Also structurally separated at the routing-table level |
+| Future controlled cross-VPC traffic | Just add a firewall policy | Requires explicit VRF route-leaking |
+| Precedent on this platform | — | This repo's management interface (`port3`) already uses a non-default VRF |
 
-This is *not* circular, even though it looks at first glance like a module
-input depending on that module's own output: Terraform's dependency graph is
-resource-level, not module-opaque. `aws_vpc_endpoint.gwlb_endps` and
-`aws_launch_template`/`aws_autoscaling_group` are independent sibling
-resources inside the module with no dependency on each other directly — our
-root-level indirection through `gwlb_endps` only adds one valid, acyclic
-edge (launch template → endpoint), never the reverse. Confirmed by
-`terraform validate`/`terraform plan` succeeding with no cycle error, and by
-directly walking the parsed `terraform graph` output to confirm the edge
-exists. Holds on a true from-scratch `apply`, not just against
-already-existing infrastructure — the edge is structural, not a property of
-current state.
+**Flat is the default** — smaller footprint, equivalent reliability. VRF
+remains available for its stronger structural-isolation guarantee.
 
-**Caveat, not unique to Mode B:** if a distributed VPC's endpoint is ever
-*replaced* after initial deploy (e.g. a CIDR change forces recreation, new
-vpce-id), already-running FortiGate instances will not pick up the new
-`endpoint-id` automatically — only new instances launching after the launch
-template is updated get it. This is the same characteristic Mode A already
-has today (e.g. a `spoke_cidrs` change doesn't retroactively update
-already-booted instances either); it isn't something Mode B introduces.
+## Terraform Implementation
 
-## Resolved: the specific-CIDR static route and CIDR-paired distributed policy routes are unnecessary
+Templatized in `terraform/autoscale_template`:
 
-**2026-08-18, later — a colleague (Louie) independently tested the same overlapping-CIDR scenario on the identical firmware build and reports success with a simpler config than ours.** His config (`terraform/autoscale_template/haberra.conf` in this repo, untracked/gitignored — his raw CLI dump, kept for reference) diverges from ours in two specific ways that map directly onto fixes #2 and #3 above:
+- `enable_distributed_egress_endpoint_id` (bool, requires
+  `enable_distributed_egress = true`)
+- `distributed_egress_routing_mode` (`"flat"`, default, or `"vrf"`)
+- `distributed_1_vrf`/`distributed_2_vrf` (used only in `"vrf"` mode)
 
-- **No specific-CIDR static route at all** — only the worse-priority `0.0.0.0/0` defaults per device (an 8-way tie across 3 distributed spokes × 2 AZs + centralized × 2 AZs, wider than our original 6-way tie that failed RPF 100% of the time).
-- **Bare `input-device`→`output-device` policy-route rules** for the distributed spokes — no `dst`/`src` pairing at all (the exact shape we found unreliable for fix #3).
+`vpc_distributed_egress_endpoint_id.tf` computes each distributed VPC's
+per-AZ GWLB Endpoint `vpce-id` and the shared GWLB's own per-AZ IP, feeding
+the `.cfg.tftpl` bootstrap templates.
 
-His own words (relayed, referencing Mantis 1093177): *"I was able to configure a distributed VPC setup with multiple overlapping IPs (3 VPCs same cidr, 1 host in each VPC with 10.1.1.11). This all worked without the need for specific CIDR static or policy routes. I just used hairpin all policy routes for those geneve interfaces and default routes with high priority. I also tested this all combined with a centralized VPC w/ tgw, all policies match as expected."*
+Rendered into all 6 `.cfg.tftpl` variants (1-arm/2-arm ×
+plain/`wdm`/`wdm-eni`) — the block only ever references `port1` (the
+geneve-hosting interface in every variant) plus its own new zone/device
+names, nothing arm-mode-specific.
 
-**This is backed by real evidence, not just a claim** — he provided `get router info routing-table all` (confirming only the default-route ties, no specific CIDR route exists) and a `diagnose sniffer` capture showing **clean, complete TCP sessions** (full SYN→FIN, no drops) from three different spokes (`gss-dspoke1-az1`, `gss-dspoke2-az1`, `gss-dspoke3-az1`) all sourcing the identical `10.1.1.11` to the same external destination, plus a fourth session via `gwlb1-az2` (centralized/TGW path) with a different address (`10.1.3.11`) — i.e. the actual overlapping-CIDR scenario, working, on the identical firmware build (`v7.6.7,build7121,260817`).
+Endpoint creation is guaranteed to complete before the FortiGate boots — a
+structural property of the Terraform dependency graph (`aws_launch_template`
+transitively depends on the `aws_vpc_endpoint` resources that produce the
+vpce-ids), not something that needs manual sequencing.
 
-**Since the firmware is identical, this has to be a config or methodology difference, not a build difference.** Candidate explanations, not yet distinguished:
-1. Our original RPF failures were intermittent/order-of-operations-dependent rather than a hard requirement, and got fixed incidentally by something else (e.g. the router-policy CIDR-pairing fix, #3) rather than by the specific-CIDR route itself.
-2. Louie's testing didn't happen to hit the same intermittent failure window ours did (recall: our own bare-policy-route failure was itself intermittent — worked twice, failed the third attempt).
-3. Something else not yet identified.
+**Operational note:** if a distributed VPC's endpoint is ever replaced
+after initial deploy (e.g. a CIDR change forces recreation, new vpce-id),
+already-running FortiGate instances won't pick up the new `endpoint-id`
+automatically — only new instances launching after the launch template
+updates will. Same characteristic Mode A already has for `spoke_cidrs`
+changes.
 
-**Further evidence, session-list data (stronger than the sniffer capture):** `diagnose sys session list` filtered on each overlapping host IP shows real, complete, high-throughput HTTPS sessions (tens of KB transferred, live tx/rx speed, no drops) on all three dspokes simultaneously — `dev=14->14`/`16->16`/`18->18` (same-device symmetric), each with an explicit **`route_policy_id`** (`3`, `5`, `7` respectively) confirming the bare policy-route rules genuinely matched and pinned correctly, not just got lucky on the static table. The centralized/TGW session (src `10.1.3.11`) notably shows **no `route_policy_id` field at all** for its public-internet-destined traffic (NTP, HTTPS to Google) — meaning his broad RFC1918-catch-all `dst` policy-route rule correctly does *not* match public destinations, letting them fall through to normal routing via `port1` — the same "don't hairpin internet-bound traffic" goal our per-VPC-specific `dst` matching solves, just via one broad rule instead. This rules out "he just got lucky on one ping" as an explanation — this is sustained, real, multi-session traffic across all three overlapping VPCs at once.
+## Status
 
-**2026-08-19 — confirmed via direct retest on our own box.** Restored a modified pre-VRF backup with the specific-`/24` static routes removed and the distributed router-policy pairs collapsed down to bare `input-device`→`output-device` (matching Louie's config exactly), everything else (fixes #1, the centralized `dst`-only fix) left in place. Retested — worked. **Both simplifications are confirmed unnecessary in our own environment, not just Louie's.**
+Not available outside the STS test build referenced above. Fully
+templatized on this branch (`feat/mode-b-endpoint-id-geneve`), not merged
+to `main`, until `endpoint-id` (or an equivalent mechanism) ships in a
+generally-available FortiOS release.
 
-**Why this holds, and why it isn't a coincidence:** GWLB is a bump-in-the-wire, not a router. Once the FortiGate hands a packet back to GWLB (regardless of which specific device it used), AWS delivers it back to the *originating* context and continues forwarding via whatever route table governs that context — not something FortiOS's own classification controls. For the centralized case specifically, this repo's own Inspection VPC `gwlbe` subnet route table already implements the exact RFC1918-vs-internet distinction the FortiOS-side policy route was trying to make (confirmed directly against this project's real route table: broad RFC1918 ranges → TGW, `0.0.0.0/0` → IGW) — so the FortiGate's own classification mostly matters for satisfying FortiOS's *own* RPF/policy-route bookkeeping to accept and re-send the packet, not for correctly steering where it ends up; AWS's routing underneath does the real steering. This explains why a much simpler config produces equivalent behavior.
-
-**One place this reasoning does *not* extend:** `endpoint-id` is a different mechanism (GWLB using it to pick which *originating VPC's* endpoint gets return traffic when multiple VPCs share a CIDR), not a downstream route table doing cleanup — so care about which distributed device gets used is still real, it just doesn't require the specific-CIDR route or CIDR-paired policy rules to get right; the bare `input-device`-only rule is apparently sufficient for that.
-
-**Net result — the validated config is simpler than originally documented:**
-- `router static`: drop the specific `/24` distance-10 entries per distributed device. Keep the worse-priority `0.0.0.0/0` defaults only.
-- `router policy` for distributed devices: drop the `dst`/`src`-paired form, use one bare `input-device`→`output-device` entry per device instead.
-- `router policy` for centralized: unchanged — still `dst`-only, never `src`-matched (that specific fix is unrelated to this simplification and still real).
-
-The CLI and Terraform templatization below have been updated to match. Credit: Louie (Fortinet), who found this independently and provided the config, routing table, and session-list evidence that led to this being verified rather than just assumed.
-
-## Next steps (blocked)
+## Next Steps (Blocked)
 
 1. Wait for `endpoint-id` (or equivalent) to ship in a non-STS FortiOS
    build.
-2. ~~Decide flat vs. VRF approach for the real implementation~~ — done.
-   `distributed_egress_routing_mode` now defaults to `"flat"` (changed
-   2026-08-19) since the reliability gap that originally favored VRF turned
-   out not to exist (see the "Resolved" section above). VRF remains
-   available as an opt-in for its structural-isolation argument.
-3. ~~Templatize into `terraform/autoscale_template`'s `.cfg.tftpl` files~~ —
-   done, see [Status](#status) and
-   [Terraform Implementation Notes](#terraform-implementation-notes) above.
-4. Only once `endpoint-id` ships generally: update
+2. Once available: update
    `content/5_Templates/5_6_Distributed_Egress/_index.md` and
    `content/5_Templates/_index.md` to mention overlapping CIDRs as a
    generally-available option — they currently intentionally still frame
