@@ -113,13 +113,13 @@ config firewall policy
     next
 end
 %{ if enable_distributed_egress_endpoint_id ~}
-# Mode B (EXPERIMENTAL): overlapping-CIDR distributed egress via GENEVE endpoint-id. Requires an
+# EXPERIMENTAL: overlapping-CIDR distributed egress via GENEVE endpoint-id. Requires an
 # STS/test FortiOS build -- not available on any generally-available FortiOS release as of this
-# writing. See MODE_B_ENDPOINT_ID_GENEVE.md at the repo root and
+# writing. See OVERLAPPING_CIDR_GENEVE_ENDPOINT_ID.md at the repo root and
 # content/5_Templates/5_7_Overlapping_CIDR_Egress for the full design writeup and CLI reference
 # this block is templatized from. Centralized (private-zone / geneve-${az_list[0]}, etc. above) is
 # entirely untouched by this block -- those tunnels are created post-boot by the vendored autoscale
-# Lambda, not this bootstrap config, and Mode B never needed to retag them (the two spoke CIDRs
+# Lambda, not this bootstrap config, and this feature never needed to retag them (the two spoke CIDRs
 # were never ambiguous to begin with). Every device below is new and self-contained.
 config system geneve
 %{ for d in distributed_egress_endpoint_id_devices ~}
@@ -135,9 +135,9 @@ config system geneve
 end
 %{ if distributed_egress_routing_mode == "vrf" ~}
 # VRF mode: each distributed VPC's tunnels get their own routing table, structurally eliminating
-# cross-VPC RPF/routing ambiguity for the overlapping CIDR (see fix #2 in
-# MODE_B_ENDPOINT_ID_GENEVE.md). Router-policy AZ-symmetry pinning below is still required either
-# way -- VRF doesn't remove that, it's a separate concern from cross-VPC ambiguity.
+# cross-VPC routing ambiguity for the overlapping CIDR. Router-policy AZ-symmetry pinning below is
+# still required either way -- VRF doesn't remove that, it's a separate concern from cross-VPC
+# ambiguity.
 config system interface
 %{ for d in distributed_egress_endpoint_id_devices ~}
 %{ for az in distributed_az_list ~}
@@ -160,7 +160,7 @@ config system zone
 end
 # No zone-to-zone or zone-to-internet policy exists between distributed VPCs, or from a distributed
 # VPC out to port1/port2/port3 -- isolation here is structural (no permitting policy exists at all),
-# not dependent on CIDR-address correctness the way Mode A's shared private-zone is.
+# not dependent on CIDR-address correctness the way the non-overlapping-CIDR shared private-zone is.
 config firewall policy
 %{ for d in distributed_egress_endpoint_id_devices ~}
     edit 0
@@ -190,10 +190,9 @@ config router static
 %{ endfor ~}
 %{ endfor ~}
 end
-# Confirmed via direct retest (2026-08-19, see MODE_B_ENDPOINT_ID_GENEVE.md "Resolved" section)
-# that a bare input-device-only policy route is sufficient for the distributed devices -- no
-# dst/src CIDR matching needed. GWLB is bump-in-the-wire; AWS's own routing underneath does the
-# real steering once a packet is handed back to it, regardless of which device FortiOS used.
+# A bare input-device-only policy route is sufficient for the distributed devices -- no dst/src
+# CIDR matching needed. GWLB is bump-in-the-wire; AWS's own routing underneath does the real
+# steering once a packet is handed back to it, regardless of which device FortiOS used.
 config router policy
 %{ for d in distributed_egress_endpoint_id_devices ~}
 %{ for az in distributed_az_list ~}

@@ -1,4 +1,4 @@
-# Mode B: Overlapping-CIDR Distributed Egress via GENEVE Endpoint-ID
+# Overlapping-CIDR Distributed Egress via GENEVE Endpoint-ID
 
 > **Status: NOT MERGED. Do not merge this branch until a non-STS FortiOS
 > build ships `endpoint-id` support.** This depends on a special/test
@@ -11,8 +11,8 @@ Fortinet's STS/test FortiOS build `build_tag_7121`
 (`FGVMA6-7.6.7-FW-build3704-260817`) exposes a new `endpoint-id` field on
 `config system geneve`, letting a GENEVE tunnel be keyed to a specific AWS
 GWLB Endpoint (`vpce-id`) instead of only `remote-ip`. This removes the
-[Mode A](content/5_Templates/5_6_Distributed_Egress/_index.md) requirement
-that distributed VPCs must not share overlapping CIDRs — classification
+[Distributed Egress](content/5_Templates/5_6_Distributed_Egress/_index.md)
+requirement that distributed VPCs must not share overlapping CIDRs — classification
 happens by tunnel identity instead of by address, so two distributed VPCs
 can use the identical CIDR and still be told apart.
 
@@ -25,8 +25,9 @@ sessions, ICMP/TCP east-west traffic, and internet egress — not just clean
 
 - STS FortiOS build with `endpoint-id` support on `config system geneve`
   (`build_tag_7121` or later).
-- `enable_distributed_egress` already enabled (Mode B reuses Mode A's
-  distributed VPC discovery and GWLB Endpoint attachment).
+- `enable_distributed_egress` already enabled (this feature reuses the
+  non-overlapping-CIDR distributed egress design's VPC discovery and GWLB
+  Endpoint attachment).
 
 ## Configuration Rules
 
@@ -374,8 +375,8 @@ vpce-ids), not something that needs manual sequencing.
 after initial deploy (e.g. a CIDR change forces recreation, new vpce-id),
 already-running FortiGate instances won't pick up the new `endpoint-id`
 automatically — only new instances launching after the launch template
-updates will. Same characteristic Mode A already has for `spoke_cidrs`
-changes.
+updates will. Same characteristic the non-overlapping-CIDR distributed
+egress design already has for `spoke_cidrs` changes.
 
 ## Status
 

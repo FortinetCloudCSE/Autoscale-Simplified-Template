@@ -152,16 +152,16 @@ locals {
 }
 
 #
-# Mode A (CIDR-based classification, standard FortiOS): the distributed VPCs' traffic arrives on
-# the SAME shared geneve-azN tunnels the centralized/Inspection VPC path already uses, so no new
+# CIDR-based classification, standard FortiOS: the distributed VPCs' traffic arrives on the SAME
+# shared geneve-azN tunnels the centralized/Inspection VPC path already uses, so no new
 # zones/tunnels/policies are needed -- the existing "private_to_internet"/"private_to_private"
 # firewall policies in the *-fgt-conf.cfg.tftpl templates are already srcaddr/dstaddr "all" and
 # apply to anything in "private-zone". The one real gap is `config router static`, which is built
 # from spoke_cidrs and needs an entry per distributed VPC CIDR so the FortiGate knows to route
 # traffic destined for it back out the correct geneve device. Requires non-overlapping CIDRs
-# (enforced by the `check` block in existing_vpc_resources/vpc_distributed_egress.tf) -- this is
-# Mode A only. Mode B (overlapping CIDRs via endpoint-id-keyed tunnels) is a separate, on-hold
-# design -- see project_dual_egress_design memory.
+# (enforced by the `check` block in existing_vpc_resources/vpc_distributed_egress.tf). See
+# vpc_distributed_egress_endpoint_id.tf for the overlapping-CIDR alternative
+# (endpoint-id-keyed tunnels, EXPERIMENTAL).
 #
 data "aws_vpc" "explicit_distributed_egress" {
   for_each = toset([for s in data.aws_subnet.explicit_distributed_egress : s.vpc_id])

@@ -154,15 +154,15 @@ variable "endpoint_name_az3" {
   default     = ""
 }
 #
-# Mode B: overlapping-CIDR distributed egress via GENEVE endpoint-id (EXPERIMENTAL)
+# Overlapping-CIDR distributed egress via GENEVE endpoint-id (EXPERIMENTAL)
 #
 # Requires an STS/test FortiOS build with `endpoint-id` support on `config system geneve` --
 # not available on any generally-available FortiOS release as of this writing. See
-# MODE_B_ENDPOINT_ID_GENEVE.md at the repo root and
+# OVERLAPPING_CIDR_GENEVE_ENDPOINT_ID.md at the repo root and
 # content/5_Templates/5_7_Overlapping_CIDR_Egress for full detail. Reuses the same
-# distributed_1/distributed_2 VPCs as Mode A (enable_distributed_egress) -- this only changes
-# HOW the FortiGate classifies their traffic (GENEVE tunnel identity instead of CIDR address),
-# which is what allows vpc_cidr_distributed_1/vpc_cidr_distributed_2 to overlap.
+# distributed_1/distributed_2 VPCs as the non-overlapping-CIDR design (enable_distributed_egress)
+# -- this only changes HOW the FortiGate classifies their traffic (GENEVE tunnel identity instead
+# of CIDR address), which is what allows vpc_cidr_distributed_1/vpc_cidr_distributed_2 to overlap.
 #
 variable "enable_distributed_egress_endpoint_id" {
   description = "Classify distributed_1/distributed_2 traffic by GENEVE endpoint-id (dedicated per-VPC tunnels) instead of CIDR address, removing the non-overlapping-CIDR requirement. Requires enable_distributed_egress = true and an STS FortiOS build with endpoint-id support. EXPERIMENTAL."
@@ -170,7 +170,7 @@ variable "enable_distributed_egress_endpoint_id" {
   default     = false
   validation {
     condition     = !var.enable_distributed_egress_endpoint_id || var.enable_distributed_egress
-    error_message = "enable_distributed_egress_endpoint_id requires enable_distributed_egress = true -- Mode B reuses Mode A's distributed VPC discovery and GWLB Endpoint attachment, it only changes how the FortiGate classifies the resulting traffic."
+    error_message = "enable_distributed_egress_endpoint_id requires enable_distributed_egress = true -- it reuses the non-overlapping-CIDR design's distributed VPC discovery and GWLB Endpoint attachment, it only changes how the FortiGate classifies the resulting traffic."
   }
 }
 variable "distributed_egress_routing_mode" {

@@ -1,12 +1,12 @@
 #
-# Mode B: overlapping-CIDR distributed egress via GENEVE endpoint-id (EXPERIMENTAL)
+# Overlapping-CIDR distributed egress via GENEVE endpoint-id (EXPERIMENTAL)
 #
 # See variables.tf for the enable_distributed_egress_endpoint_id / distributed_egress_routing_mode
-# variables, and MODE_B_ENDPOINT_ID_GENEVE.md / content/5_Templates/5_7_Overlapping_CIDR_Egress
-# for the full design writeup. This file only computes the extra data Mode B's *-fgt-conf.cfg.tftpl
-# block needs beyond what Mode A (vpc_distributed_egress.tf) already discovers: each distributed
-# VPC's per-AZ GWLB Endpoint id (vpce-id, to key each dedicated GENEVE tunnel) and the shared GWLB's
-# own per-AZ IP (the remote-ip every tunnel -- centralized and distributed alike -- terminates to).
+# variables, and OVERLAPPING_CIDR_GENEVE_ENDPOINT_ID.md / content/5_Templates/5_7_Overlapping_CIDR_Egress
+# for the full design writeup. This file only computes the extra data this feature's *-fgt-conf.cfg.tftpl
+# block needs beyond what the non-overlapping-CIDR design (vpc_distributed_egress.tf) already discovers:
+# each distributed VPC's per-AZ GWLB Endpoint id (vpce-id, to key each dedicated GENEVE tunnel) and the
+# shared GWLB's own per-AZ IP (the remote-ip every tunnel -- centralized and distributed alike -- terminates to).
 #
 # REQUIRES an STS/test FortiOS build with `endpoint-id` support on `config system geneve`. Not
 # available on any generally-available FortiOS release as of this writing.
@@ -53,9 +53,9 @@ data "aws_network_interface" "shared_gwlb_intf" {
 }
 
 locals {
-  # Mode B is AZ1/AZ2 only -- matches Mode A's own distributed VPC scope (vpc_distributed_egress.tf
-  # has no az3 handling for distributed VPCs today), independent of the centralized-side az_list
-  # local, which does support az3.
+  # AZ1/AZ2 only -- matches the non-overlapping-CIDR design's own distributed VPC scope
+  # (vpc_distributed_egress.tf has no az3 handling for distributed VPCs today), independent of the
+  # centralized-side az_list local, which does support az3.
   distributed_az_list = ["az1", "az2"]
 
   shared_gwlb_ip_by_az = var.enable_distributed_egress_endpoint_id ? {
@@ -64,8 +64,8 @@ locals {
   } : {}
 
   # Reuses the exact same gwlb_endps key format ("${spk_vpc key}-${subnet_id}") and subnet data
-  # sources Mode A already discovers in vpc_distributed_egress.tf -- no new AWS lookups needed for
-  # the vpce-ids themselves, only the shared GWLB IP above is genuinely new.
+  # sources the non-overlapping-CIDR design already discovers in vpc_distributed_egress.tf -- no
+  # new AWS lookups needed for the vpce-ids themselves, only the shared GWLB IP above is genuinely new.
   distributed_1_vpce_by_az = var.enable_distributed_egress_endpoint_id ? {
     az1 = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az1[0].id}"]
     az2 = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az2[0].id}"]
@@ -76,12 +76,12 @@ locals {
   } : {}
 
   # One entry per distributed VPC, shaped for a single loop in the .cfg.tftpl instead of
-  # duplicating a block per VPC. No CIDR field here on purpose -- confirmed via direct retest
-  # (2026-08-19, see MODE_B_ENDPOINT_ID_GENEVE.md "Resolved" section) that neither a specific-CIDR
-  # static route nor CIDR-paired router-policy entries are needed for the distributed devices; a
-  # bare input-device-only policy route plus the generic worse-priority default static route is
+  # duplicating a block per VPC. No CIDR field here on purpose -- neither a specific-CIDR static
+  # route nor CIDR-paired router-policy entries are needed for the distributed devices; a bare
+  # input-device-only policy route plus the generic worse-priority default static route is
   # sufficient. GWLB's own bump-in-the-wire model means AWS's routing underneath does the real
-  # steering once a packet is handed back to it, regardless of which device FortiOS used.
+  # steering once a packet is handed back to it, regardless of which device FortiOS used. See
+  # OVERLAPPING_CIDR_GENEVE_ENDPOINT_ID.md for full detail.
   distributed_egress_endpoint_id_devices = var.enable_distributed_egress_endpoint_id ? [
     {
       key        = "d1"

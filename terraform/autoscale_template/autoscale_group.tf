@@ -8,7 +8,7 @@ locals {
   # All spoke CIDRs south of the TGW that need a FortiGate east-west inspection
   # route. Defaults to the demo east/west VPCs; override var.spoke_cidrs with
   # the real production spoke list if it differs. Distributed egress VPC CIDRs
-  # (Mode A -- see vpc_distributed_egress.tf) are always appended when enabled,
+  # (see vpc_distributed_egress.tf) are always appended when enabled,
   # since they route through the same shared geneve tunnels but aren't part of
   # the TGW-attached spoke list.
   spoke_cidrs = distinct(concat(
@@ -18,7 +18,7 @@ locals {
 }
 locals {
   # The east/west-only subset of spoke_cidrs, kept separate from the merged list above.
-  # Distributed egress (Mode A) needs this distinction for policy routing: centralized
+  # Distributed egress needs this distinction for policy routing: centralized
   # east-west traffic and distributed-VPC traffic both arrive on the same shared geneve
   # tunnels, and only a src+dst-scoped policy route (using this list, not the merged one)
   # can tell them apart from centralized egress-to-internet traffic. See vpc_distributed_egress.tf
