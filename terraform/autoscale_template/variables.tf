@@ -174,9 +174,9 @@ variable "enable_distributed_egress_endpoint_id" {
   }
 }
 variable "distributed_egress_routing_mode" {
-  description = "Only used when enable_distributed_egress_endpoint_id is true. \"flat\": all distributed devices share the default routing table, disambiguated by router-policy pinning. \"vrf\": distributed_1/distributed_2 each get their own VRF (distributed_1_vrf/distributed_2_vrf), structurally eliminating cross-VPC RPF/routing ambiguity. \"vrf\" is the validated recommendation -- see the Flat vs. VRF comparison in content/5_Templates/5_7_Overlapping_CIDR_Egress."
+  description = "Only used when enable_distributed_egress_endpoint_id is true. \"flat\" (default): all distributed devices share the default routing table (VRF 0), disambiguated by router-policy pinning -- confirmed via direct retest to be just as reliable as \"vrf\" once the specific-CIDR static route and CIDR-paired policy routes turned out to be unnecessary under either approach, so flat is the simpler default. \"vrf\": distributed_1/distributed_2 each get their own VRF (distributed_1_vrf/distributed_2_vrf) instead, trading a larger config footprint for routing-table-level isolation on top of the existing zone/firewall-policy isolation. See the Flat vs. VRF comparison in content/5_Templates/5_7_Overlapping_CIDR_Egress."
   type        = string
-  default     = "vrf"
+  default     = "flat"
   validation {
     condition     = contains(["flat", "vrf"], var.distributed_egress_routing_mode)
     error_message = "distributed_egress_routing_mode must be \"flat\" or \"vrf\"."

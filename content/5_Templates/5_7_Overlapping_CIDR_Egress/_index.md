@@ -271,7 +271,7 @@ Both approaches are now confirmed equally reliable — the specific-CIDR static 
 | Future controlled cross-VPC traffic | Just add a firewall policy | Requires explicit VRF route-leaking |
 | Precedent on this platform | — | This repo's management interface (`port3`) already uses a non-default VRF |
 
-Given the reliability case for VRF no longer holds, **flat is arguably the simpler default now** — smaller diff, one less concept to explain. VRF still has a legitimate argument on structural grounds (routing-table-level isolation is a stronger guarantee than zone/policy alone, in the same spirit as the zone-per-VPC design decision above), but it's a genuine trade-off now rather than VRF clearly winning. Not yet revisited in the Terraform default (`distributed_egress_routing_mode` still defaults to `"vrf"`) — worth a deliberate decision rather than leaving it as a holdover from before this was known.
+Given the reliability case for VRF no longer holds, **`distributed_egress_routing_mode` now defaults to `"flat"`** — smaller diff, one less concept to explain. VRF (`"vrf"`) is still available and still a legitimate choice on structural grounds (routing-table-level isolation is a stronger guarantee than zone/policy alone, in the same spirit as the zone-per-VPC design decision above), but it's an opt-in trade-off now rather than the recommended default.
 
 ---
 
@@ -288,4 +288,4 @@ Two earlier entries in this list — a specific per-device RPF static route, and
 
 ## Status
 
-Not yet available outside the STS test build referenced above. The configuration above **is** templatized — on an unmerged branch (`feat/mode-b-endpoint-id-geneve`), not `main` — behind `enable_distributed_egress_endpoint_id` (requires `enable_distributed_egress = true`), `distributed_egress_routing_mode` (`"flat"`/`"vrf"`, default `"vrf"`), and `distributed_1_vrf`/`distributed_2_vrf`. It stays on that branch, not merged, until `endpoint-id` (or an equivalent mechanism) ships in a generally-available FortiOS release — see `MODE_B_ENDPOINT_ID_GENEVE.md` at the repo root for full implementation detail.
+Not yet available outside the STS test build referenced above. The configuration above **is** templatized — on an unmerged branch (`feat/mode-b-endpoint-id-geneve`), not `main` — behind `enable_distributed_egress_endpoint_id` (requires `enable_distributed_egress = true`), `distributed_egress_routing_mode` (`"flat"`/`"vrf"`, default `"flat"`), and `distributed_1_vrf`/`distributed_2_vrf`. It stays on that branch, not merged, until `endpoint-id` (or an equivalent mechanism) ships in a generally-available FortiOS release — see `MODE_B_ENDPOINT_ID_GENEVE.md` at the repo root for full implementation detail.

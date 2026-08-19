@@ -485,10 +485,11 @@ The CLI and Terraform templatization below have been updated to match. Credit: L
 
 1. Wait for `endpoint-id` (or equivalent) to ship in a non-STS FortiOS
    build.
-2. Decide flat vs. VRF approach for the real implementation — VRF is the
-   current default (`distributed_egress_routing_mode = "vrf"`) given the
-   analysis above, but hasn't been pressure-tested beyond this one
-   comparison pass.
+2. ~~Decide flat vs. VRF approach for the real implementation~~ — done.
+   `distributed_egress_routing_mode` now defaults to `"flat"` (changed
+   2026-08-19) since the reliability gap that originally favored VRF turned
+   out not to exist (see the "Resolved" section above). VRF remains
+   available as an opt-in for its structural-isolation argument.
 3. ~~Templatize into `terraform/autoscale_template`'s `.cfg.tftpl` files~~ —
    done, see [Status](#status) and
    [Terraform Implementation Notes](#terraform-implementation-notes) above.
