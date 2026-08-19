@@ -4,6 +4,12 @@ config system zone
     next
 end
 config router static
+# Specific spoke-CIDR routes are only needed when there's no fallback default route via
+# geneve-azN yet -- skip them under enable_distributed_egress_endpoint_id, since that always
+# implies enable_distributed_egress is also true, which already adds the worse-priority
+# 0.0.0.0/0 default below. Real east-west forwarding is controlled by router policy, not this
+# table; these routes exist only to satisfy RPF, which the default route already covers.
+%{ if !enable_distributed_egress_endpoint_id ~}
 %{ for az in az_list ~}
 %{ for cidr in spoke_cidrs ~}
     edit 0
@@ -14,6 +20,7 @@ config router static
     next
 %{ endfor ~}
 %{ endfor ~}
+%{ endif ~}
 %{ if enable_distributed_egress ~}
 # Distributed egress: equal-distance (5), worse-priority (100 vs the real default route's
 # implicit 0) default route via each geneve device. The real default route still wins every
