@@ -33,11 +33,15 @@ distributed VPCs into their own VRFs and compared the two approaches.
   `endpoint-id` (or an equivalent mechanism) ships in a normal release.
 - **Templatization is done**, on this branch — `terraform/autoscale_template`
   now has `enable_distributed_egress_endpoint_id`,
-  `distributed_egress_routing_mode` (`"flat"`/`"vrf"`), and
-  `distributed_1_vrf`/`distributed_2_vrf`, plus the rendered CLI in
-  `2-arm-wdm-fgt-conf.cfg.tftpl` for both routing modes. Validated with
-  `terraform validate` and `terraform plan` against real live
-  infrastructure — the rendered config is byte-identical to the
+  `distributed_egress_routing_mode` (`"flat"`/`"vrf"`, default `"flat"`), and
+  `distributed_1_vrf`/`distributed_2_vrf`, rendered into **all 6**
+  `.cfg.tftpl` variants (1-arm/2-arm × plain/`wdm`/`wdm-eni`) — the Mode B
+  block itself has nothing arm-mode-specific in it (only `port1`, correct
+  in every variant, plus its own new zone/device names). Testing coverage
+  differs: `2-arm-wdm`, `1-arm-wdm`, and plain `1-arm` are `terraform
+  plan`-validated against real infra; `1-arm-wdm-eni`/`2-arm-wdm-eni` are
+  `terraform validate`-only (same asymmetry Mode A already has). The
+  rendered config for the tested variants is byte-identical to the
   live-tested CLI below, including real vpce-ids and GWLB IPs. See
   [Terraform Implementation Notes](#terraform-implementation-notes).
 - Real bugs/quirks found on this specific build are documented below so

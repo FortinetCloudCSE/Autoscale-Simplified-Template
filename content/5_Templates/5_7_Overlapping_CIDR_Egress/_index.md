@@ -16,9 +16,9 @@ The `endpoint-id` field on `config system geneve` that this page depends on only
 {{% /notice %}}
 
 {{% notice note %}}
-**2-arm (`wdm`) Only**
+**All 6 `.cfg.tftpl` Variants, Different Levels of Testing**
 
-Terraform templatization of this feature, where it exists, targets only the `2-arm-wdm` bootstrap config — the same variant that was actually live-tested when [Distributed Egress](../5_6_distributed_egress/) (Mode A) shipped. The other five `.cfg.tftpl` variants (1-arm, non-`wdm`, `eni`) do not have this feature and are not planned to until 2-arm-`wdm` is proven out further.
+Terraform templatization of this feature is in all six bootstrap config variants (1-arm/2-arm × plain/`wdm`/`wdm-eni`) — there's nothing arm-mode- or management-mode-specific about the Mode B block itself (it only ever references `port1`, which is the geneve-hosting interface in every variant, plus its own new zone/device names). Testing coverage differs, though: `2-arm-wdm`, `1-arm-wdm`, and plain `1-arm` have been `terraform plan`-validated against real live infrastructure; `1-arm-wdm-eni` and `2-arm-wdm-eni` currently only have `terraform validate` (syntax/semantics), not a live plan — same asymmetry Mode A already has (only `2-arm-wdm` was ever actually live-tested for that feature).
 {{% /notice %}}
 
 ---
