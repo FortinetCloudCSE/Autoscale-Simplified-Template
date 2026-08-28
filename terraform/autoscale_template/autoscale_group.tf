@@ -326,6 +326,24 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       create_dynamodb_table         = true
       dynamodb_table_name           = "fgt_asg_track_table"
       asg_health_check_grace_period = var.asg_health_check_grace_period
+      # Only scale the BYOL ASG itself when there's no on-demand ASG to burst into --
+      # in hybrid mode (on-demand enabled) BYOL stays fixed at its provisioned size and
+      # all CPU-driven scaling happens on fgt_on_demand_asg instead. See cloudwatch_alarms
+      # below, which routes byol_cpu_above_80/below_30 to whichever ASG is elastic.
+      scale_policies = local.enable_ondemand_asg ? {} : {
+        byol_cpu_above_80 = {
+          policy_type        = "SimpleScaling"
+          adjustment_type    = "ChangeInCapacity"
+          cooldown           = 60
+          scaling_adjustment = 1
+        },
+        byol_cpu_below_30 = {
+          policy_type        = "SimpleScaling"
+          adjustment_type    = "ChangeInCapacity"
+          cooldown           = 60
+          scaling_adjustment = -1
+        }
+      }
     }
     },
     local.enable_ondemand_asg ? {
@@ -430,11 +448,15 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       }
       alarm_description   = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_byol."
       datapoints_to_alarm = 1
-      alarm_asg_policies  = local.enable_ondemand_asg ? {
-        policy_name_map = {
+      # Route to whichever ASG is elastic: on-demand's policy in hybrid mode (BYOL stays
+      # fixed), or BYOL's own policy when on-demand is disabled (BYOL is all there is).
+      alarm_asg_policies = {
+        policy_name_map = local.enable_ondemand_asg ? {
           "fgt_on_demand_asg" = ["byol_cpu_above_80"]
+        } : {
+          "fgt_byol_asg" = ["byol_cpu_above_80"]
         }
-      } : null
+      }
     },
     byol_cpu_below_30 = {
       comparison_operator = "LessThanThreshold"
@@ -449,11 +471,13 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       }
       alarm_description   = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_byol."
       datapoints_to_alarm = 1
-      alarm_asg_policies  = local.enable_ondemand_asg ? {
-        policy_name_map = {
+      alarm_asg_policies = {
+        policy_name_map = local.enable_ondemand_asg ? {
           "fgt_on_demand_asg" = ["byol_cpu_below_30"]
+        } : {
+          "fgt_byol_asg" = ["byol_cpu_below_30"]
         }
-      } : null
+      }
     }
     },
     local.enable_ondemand_asg ? {
