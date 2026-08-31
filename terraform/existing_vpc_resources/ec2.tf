@@ -15,6 +15,15 @@ locals {
 locals {
   enable_fortimanager_public_ip = var.enable_fortimanager ? var.enable_fortimanager_public_ip : false
 }
+#
+# Force every management-plane public IP off when egressing via the dedicated NAT Gateway
+# instead -- doesn't make sense to have both. See var.enable_dedicated_management_nat_gateway.
+#
+locals {
+  enable_fortimanager_public_ip_effective  = local.enable_fortimanager_public_ip && !var.enable_dedicated_management_nat_gateway
+  enable_fortianalyzer_public_ip_effective = var.enable_fortianalyzer_public_ip && !var.enable_dedicated_management_nat_gateway
+  enable_jump_box_public_ip_effective      = var.enable_jump_box_public_ip && !var.enable_dedicated_management_nat_gateway
+}
 
 locals {
   linux_east_az1_ip_address = cidrhost(local.east_public_subnet_cidr_az1, var.linux_host_ip)

@@ -45,9 +45,9 @@ module "vpc-management" {
   random_string                  = random_string.random.result
   keypair                        = var.keypair
   enable_fortianalyzer           = var.enable_fortianalyzer
-  enable_fortianalyzer_public_ip = var.enable_fortianalyzer_public_ip
+  enable_fortianalyzer_public_ip = local.enable_fortianalyzer_public_ip_effective
   enable_fortimanager            = var.enable_fortimanager
-  enable_fortimanager_public_ip  = local.enable_fortimanager_public_ip
+  enable_fortimanager_public_ip  = local.enable_fortimanager_public_ip_effective
   enable_jump_box                = false
   enable_jump_box_public_ip      = false
   fortianalyzer_host_ip          = var.fortianalyzer_host_ip
@@ -98,12 +98,23 @@ resource "aws_ec2_tag" "management_subnet_public_az3_role" {
   value       = "${var.cp}-${var.env}-management-public-az3"
 }
 
+#
+# All public-subnet default routes point either at the IGW or at the dedicated NAT Gateway --
+# never a mix. See var.enable_dedicated_management_nat_gateway and vpc_management_nat_gateway.tf.
+#
 resource "aws_route" "management-public-default-route-igw" {
   depends_on             = [module.vpc-management]
-  count                  = var.enable_build_management_vpc ? 1 : 0
+  count                  = (var.enable_build_management_vpc && !var.enable_dedicated_management_nat_gateway) ? 1 : 0
   route_table_id         = module.vpc-management[0].route_table_management_public
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = module.vpc-management[0].igw_id
+}
+resource "aws_route" "management-public-default-route-nat-gateway" {
+  depends_on             = [module.vpc-management, aws_nat_gateway.management]
+  count                  = (var.enable_build_management_vpc && var.enable_dedicated_management_nat_gateway) ? 1 : 0
+  route_table_id         = module.vpc-management[0].route_table_management_public
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.management[0].id
 }
 #
 # This is a bit bruce force. Route all the rfc-1918 space to the TGW. More specific route will handle the local traffic.
@@ -227,7 +238,7 @@ resource "aws_instance" "jump_box" {
 }
 
 resource "aws_eip" "jump_box_eip" {
-  count    = (var.enable_build_management_vpc && var.enable_jump_box && var.enable_jump_box_public_ip) ? 1 : 0
+  count    = (var.enable_build_management_vpc && var.enable_jump_box && local.enable_jump_box_public_ip_effective) ? 1 : 0
   instance = aws_instance.jump_box[0].id
   domain   = "vpc"
 
