@@ -150,6 +150,21 @@ create_management_subnet_in_inspection_vpc = false
 #
 enable_build_management_vpc = true
 
+# Egress the management VPC (FortiManager, FortiAnalyzer, jump box, and -- via the matching
+# flag in autoscale_template's tfvars -- the FortiGate dedicated management interfaces)
+# through a single dedicated NAT Gateway instead of individual public IPs (EIPs).
+# For customers who reach the management VPC privately (e.g. Direct Connect) and don't want
+# any management-plane interface exposed with a public IP, but still need outbound internet
+# for FortiGuard updates and license verification.
+# When true, forces enable_jump_box_public_ip / enable_fortimanager_public_ip /
+# enable_fortianalyzer_public_ip off below, regardless of their own settings.
+# Single NAT GW, placed in the same AZ as FortiManager/FortiAnalyzer/the jump box -- traffic
+# here is expected to be small and infrequent, so the AZ2/AZ3 cross-AZ hop for FortiGate
+# management traffic (if using multiple AZs) is an accepted tradeoff.
+# Also set enable_dedicated_management_nat_gateway in autoscale_template/terraform.tfvars to match.
+#
+enable_dedicated_management_nat_gateway = false
+
 #====================================================================================================
 # FORTIMANAGER CONFIGURATION
 #====================================================================================================
@@ -161,6 +176,7 @@ enable_fortimanager = true
 
 # Attach an Elastic IP (public IP) to FortiManager for internet access
 # Set to true for direct internet access, false if accessing via VPN/Direct Connect
+# Ignored (forced false) when enable_dedicated_management_nat_gateway = true above
 #
 enable_fortimanager_public_ip = true
 
@@ -212,6 +228,7 @@ enable_fortianalyzer = false
 
 # Attach an Elastic IP (public IP) to FortiAnalyzer for internet access
 # Set to true for direct internet access, false if accessing via VPN/Direct Connect
+# Ignored (forced false) when enable_dedicated_management_nat_gateway = true above
 #
 enable_fortianalyzer_public_ip = false
 
@@ -262,6 +279,7 @@ enable_jump_box = true
 
 # Attach an Elastic IP (public IP) to jump box for internet access
 # Set to true for direct SSH access from internet, false if accessing via VPN/Direct Connect
+# Ignored (forced false) when enable_dedicated_management_nat_gateway = true above
 #
 enable_jump_box_public_ip = true
 

@@ -34,6 +34,11 @@ locals {
 locals {
   enable_ondemand_asg = var.asg_ondemand_asg_max_size > 0
 }
+locals {
+  # Forced off regardless of enable_fgt_management_public_ip when the management VPC egresses
+  # through its dedicated NAT Gateway instead -- see var.enable_dedicated_management_nat_gateway.
+  fgt_management_public_ip_effective = var.enable_fgt_management_public_ip && !var.enable_dedicated_management_nat_gateway
+}
 # Management VPC Fortinet-Role tags - auto-constructed from cp and env
 locals {
   management_vpc = "${var.cp}-${var.env}-management-vpc"
@@ -270,7 +275,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
           device_index     = local.management_device_index
-          enable_public_ip = var.enable_fgt_management_public_ip
+          enable_public_ip = local.fgt_management_public_ip_effective
           subnet = concat(
             [
               {
@@ -336,7 +341,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
         "dedicated_port" = {
           device_index     = local.management_device_index
-          enable_public_ip = var.enable_fgt_management_public_ip
+          enable_public_ip = local.fgt_management_public_ip_effective
           subnet = concat(
             [
               {

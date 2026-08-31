@@ -73,9 +73,14 @@ variable "enable_dedicated_management_eni" {
   type        = bool
 }
 variable "enable_fgt_management_public_ip" {
-  description = "Boolean to attach a public IP to the FortiGate's dedicated management port (only relevant when enable_dedicated_management_vpc or enable_dedicated_management_eni is true)"
+  description = "Boolean to attach a public IP to the FortiGate's dedicated management port (only relevant when enable_dedicated_management_vpc or enable_dedicated_management_eni is true). Forced off regardless of this setting when enable_dedicated_management_nat_gateway is true -- see that variable."
   type        = bool
   default     = true
+}
+variable "enable_dedicated_management_nat_gateway" {
+  description = "Must match enable_dedicated_management_nat_gateway in existing_vpc_resources' tfvars. When true, the management VPC egresses through a single dedicated NAT Gateway instead of per-interface public IPs, so this forces the FortiGate's dedicated management interface to not receive a public IP either, regardless of enable_fgt_management_public_ip -- doesn't make sense to have both."
+  type        = bool
+  default     = false
 }
 variable "primary_scalein_protection" {
   description = "Boolean to set the scale-in protection for the primary instance in the autoscale group"

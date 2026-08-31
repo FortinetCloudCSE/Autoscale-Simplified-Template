@@ -103,8 +103,18 @@ enable_dedicated_management_eni = true
 # Enable public IP on FortiGate's dedicated management port
 # Set to false if managing FortiGates via VPN/Direct Connect/private path only
 # Only relevant when enable_dedicated_management_vpc or enable_dedicated_management_eni is true
+# Ignored (forced false) when enable_dedicated_management_nat_gateway = true below
 #
 enable_fgt_management_public_ip = true
+
+# Must match enable_dedicated_management_nat_gateway in existing_vpc_resources/terraform.tfvars.
+# When true, the management VPC egresses through a single dedicated NAT Gateway instead of
+# per-interface public IPs -- this forces enable_fgt_management_public_ip off above,
+# regardless of its own setting. See existing_vpc_resources/terraform.tfvars.example for the
+# full rationale (Direct Connect customers who don't want any management-plane EIP exposed,
+# but still need outbound internet for FortiGuard updates and license verification).
+#
+enable_dedicated_management_nat_gateway = false
 
 #====================================================================================================
 # TRANSIT GATEWAY INTEGRATION

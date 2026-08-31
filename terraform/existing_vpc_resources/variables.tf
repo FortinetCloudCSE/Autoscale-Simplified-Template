@@ -146,6 +146,11 @@ variable "enable_management_tgw_attachment" {
   description = "Allow Management VPC to attach to an existing TGW"
   type        = bool
 }
+variable "enable_dedicated_management_nat_gateway" {
+  description = "Egress the management VPC's public subnets (FortiManager, FortiAnalyzer, the jump box, and -- via the matching flag in autoscale_template's tfvars -- the FortiGate dedicated management interfaces) through a single NAT Gateway instead of individual public IPs. For customers who reach the management VPC privately (e.g. Direct Connect) and don't want any management-plane interface exposed with an EIP, but still need outbound internet for FortiGuard updates and license verification. The NAT Gateway is placed in the same AZ as FortiManager/FortiAnalyzer/the jump box (AZ1) to avoid cross-AZ data charges for their traffic; FortiGate management interfaces in AZ2/AZ3 will cross an AZ boundary to reach it, since this egress path is expected to carry small, infrequent traffic. When enabled, forces enable_jump_box_public_ip/enable_fortimanager_public_ip/enable_fortianalyzer_public_ip off regardless of their own settings -- doesn't make sense to have both an EIP and NAT egress on the same interface. Named spelled-out \"nat_gateway\" (not \"nat_gw\") to avoid colliding with the unrelated inspection-VPC data-plane access_internet_mode = \"nat_gw\" / natgw_subnet_index in autoscale_template -- different VPC, different purpose."
+  type        = bool
+  default     = false
+}
 variable "create_tgw_routes_for_existing" {
   description = "Populate TGW route tables with routes between Management VPC and Spoke VPCs. Recommended for test environments only."
   type        = bool
