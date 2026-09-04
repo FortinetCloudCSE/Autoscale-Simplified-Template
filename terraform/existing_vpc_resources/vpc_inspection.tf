@@ -22,8 +22,9 @@ module "vpc-inspection" {
   enable_nat_gateway              = local.inspection_enable_nat_gateway
   named_tgw                       = var.attach_to_tgw_name
   enable_tgw_attachment           = var.enable_tgw_attachment
-  enable_dedicated_management_eni = var.create_management_subnet_in_inspection_vpc
-  tags                            = local.common_tags
+  enable_dedicated_management_eni       = var.create_management_subnet_in_inspection_vpc
+  enable_dedicated_management_public_ip = var.enable_dedicated_management_public_ip
+  tags                                  = local.common_tags
 }
 
 #
