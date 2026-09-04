@@ -71,17 +71,19 @@ The interface shows the `dedicated-to: management` attribute and separate VRF as
 
 ### Important Compatibility Notes
 
-{{% notice warning %}}
-**Critical Limitation: 2-ARM + NAT Gateway + Dedicated Management ENI**
+{{% notice note %}}
+**No Public IP on the Dedicated Management Port: What Still Works, What Doesn't**
 
 When combining:
 - `firewall_policy_mode = "2-arm"`
 - `access_internet_mode = "nat_gw"`
 - `enable_dedicated_management_eni = true`
+- `enable_fgt_management_public_ip = false`
 
-Port2 will **NOT** receive an Elastic IP address. This is a valid configuration, but imposes connectivity restrictions:
+Port2 receives **no** Elastic IP address. This is the intended, low-exposure pattern for customers who reach the FortiGate over AWS Direct Connect or a VPN and don't want a public IP on the management interface at all:
 
-- ❌ **Cannot** access FortiGate management from public internet
+- ❌ **Cannot** access FortiGate management from the public internet — a NAT Gateway is outbound-only, so this is unavoidable without a public IP; use Direct Connect, VPN, or the management VPC (Option 3) for admin access instead.
+- ✅ **Can** still reach FortiGuard and validate licensing — see below.
 - ✅ **Can** access via private IP through AWS Direct Connect or VPN
 - ✅ **Can** access via management VPC (see Option 3 below)
 
@@ -93,12 +95,34 @@ If you require public internet access to the FortiGate management interface with
 
 ### Public IP on the Dedicated Management Port
 
-Independent of the above, `enable_fgt_management_public_ip` (default `true`) controls whether the dedicated management port itself is assigned a public IP at all. If you reach management exclusively through Direct Connect, VPN, or a peered/TGW-attached network, set this to `false` — a public IP on a management interface is unneeded exposure once a private path exists.
+`enable_fgt_management_public_ip` (default `true`) controls whether the dedicated management port itself is assigned a public IP at all. If you reach management exclusively through Direct Connect, VPN, or a peered/TGW-attached network, set this to `false` — a public IP on a management interface is unneeded exposure once a private path exists.
 
 ```hcl
 enable_dedicated_management_eni = true
 enable_fgt_management_public_ip = false
 ```
+
+### Egress Without a Public IP: Routing to the NAT Gateway
+
+Direct Connect customers still need *outbound* internet access from the management interface for FortiGuard updates and license validation, even with no public IP and no inbound exposure. Without a routing path, that egress silently fails — no FortiGuard signature updates, no license/entitlement checks.
+
+`enable_dedicated_management_public_ip` in `existing_vpc_resources/terraform.tfvars` controls this at the network layer, and **must be kept in sync** with `enable_fgt_management_public_ip` in `autoscale_template/terraform.tfvars`:
+
+```hcl
+# existing_vpc_resources/terraform.tfvars
+create_management_subnet_in_inspection_vpc = true
+enable_dedicated_management_public_ip      = false   # matches enable_fgt_management_public_ip below
+create_nat_gateway_subnets                 = true    # required -- see access_internet_mode below
+
+# autoscale_template/terraform.tfvars
+access_internet_mode             = "nat_gw"
+enable_dedicated_management_eni  = true
+enable_fgt_management_public_ip  = false
+```
+
+With `enable_dedicated_management_public_ip = false`, the dedicated management subnets' default route points at the inspection VPC's existing per-AZ NAT Gateway instead of the Internet Gateway — the same NAT Gateway already used for data-plane egress in `nat_gw` mode, not a separate one. When `true` (the default), the route stays on the IGW as before, which only provides real connectivity once the interface actually has a public IP (an IGW route with no public IP on the instance is not a usable egress path — AWS's Internet Gateway does 1:1 NAT to a real public IP, not many-to-one).
+
+If `access_internet_mode` isn't `"nat_gw"` (i.e. no NAT Gateway exists in the inspection VPC to route to), this setting has no NAT Gateway to fall back on and the route stays on the IGW regardless — egress from the dedicated management port with no public IP is only possible in `nat_gw` mode.
 
 ### Characteristics
 - **Clear separation of concerns**: Management traffic isolated from data plane
@@ -198,6 +222,37 @@ When `enable_dedicated_management_vpc = true`:
 - Required for administrator access to FortiGate management interfaces
 - Can be via Internet Gateway, NAT Gateway, or AWS Direct Connect
 
+### Egress Without Public IPs: Dedicated NAT Gateway
+
+The same Direct Connect scenario applies here: FortiManager, FortiAnalyzer, the jump box, and the FortiGate's own dedicated management interface all need outbound internet access for FortiGuard updates and license validation, but a customer reaching the management VPC entirely over Direct Connect doesn't want any of them carrying a public IP.
+
+`enable_dedicated_management_nat_gateway` in `existing_vpc_resources/terraform.tfvars` (default `false`) egresses the entire management VPC through a single dedicated NAT Gateway instead of per-interface Elastic IPs:
+
+```hcl
+# existing_vpc_resources/terraform.tfvars
+enable_build_management_vpc             = true
+enable_dedicated_management_nat_gateway = true
+enable_fortimanager_public_ip           = true   # ignored -- forced false, see below
+enable_fortianalyzer_public_ip          = true   # ignored -- forced false, see below
+enable_jump_box_public_ip               = true   # ignored -- forced false, see below
+
+# autoscale_template/terraform.tfvars
+enable_dedicated_management_vpc         = true
+enable_dedicated_management_nat_gateway = true   # must match the value above
+enable_fgt_management_public_ip         = true   # ignored -- forced false, see below
+```
+
+When enabled:
+
+- A single NAT Gateway is provisioned in the same AZ as FortiManager, FortiAnalyzer, and the jump box (they're all AZ1-only by design), avoiding cross-AZ data-transfer charges for their traffic.
+- The management VPC's public subnets' default route points at that NAT Gateway instead of the Internet Gateway — every public subnet in the VPC shares one route table, so this is all-or-nothing across AZs, never a mix of IGW and NAT Gateway.
+- `enable_fortimanager_public_ip`, `enable_fortianalyzer_public_ip`, and `enable_jump_box_public_ip` are all forced off regardless of their own settings — an EIP alongside NAT'd routing on the same interface doesn't make sense.
+- `enable_fgt_management_public_ip` in `autoscale_template` is forced off the same way, so the FortiGate's own dedicated management interface stays consistent with the rest of the management plane.
+
+{{% notice note %}}
+FortiGate management interfaces in AZ2/AZ3 (multi-AZ deployments) cross an AZ boundary to reach the single AZ1 NAT Gateway. This is an accepted tradeoff given the egress path here carries small, infrequent traffic (FortiGuard checkins, license verification), not routine data-plane volume.
+{{% /notice %}}
+
 ### Characteristics
 - **Highest security posture**: Complete physical isolation
 - **Greatest flexibility**: Independent infrastructure lifecycle
@@ -283,6 +338,27 @@ enable_dedicated_management_eni = false
 - Management access shares public interface with egress traffic
 - Simplest configuration but lacks management plane isolation
 
+### Pattern 4: No Public IPs Anywhere (Direct Connect)
+```hcl
+# existing_vpc_resources/terraform.tfvars
+create_management_subnet_in_inspection_vpc = true
+enable_dedicated_management_public_ip      = false
+create_nat_gateway_subnets                 = true
+# -- or, using the dedicated management VPC instead:
+enable_build_management_vpc             = true
+enable_dedicated_management_nat_gateway = true
+
+# autoscale_template/terraform.tfvars
+access_internet_mode             = "nat_gw"
+enable_dedicated_management_eni  = true    # or enable_dedicated_management_vpc = true
+enable_fgt_management_public_ip  = false
+enable_dedicated_management_nat_gateway = true   # only if using the dedicated management VPC
+```
+- No Elastic IP anywhere in the management path — FortiGate management port, FortiManager, FortiAnalyzer, and the jump box all stay private
+- FortiGuard updates and license validation still work, routed through a NAT Gateway rather than an IGW+EIP
+- Admin access to the GUI/SSH is only possible via Direct Connect, VPN, TGW-attached network, or SSM Session Manager — there is no public inbound path by design
+- The primary pattern for customers whose only connectivity is AWS Direct Connect and who don't want any management-plane interface exposed with a public IP
+
 ---
 
 ## Best Practices
@@ -310,13 +386,24 @@ enable_dedicated_management_eni = false
 
 ### Issue: Management interface has no public IP
 
-**Cause**: Using `access_internet_mode = "nat_gw"` with dedicated management ENI
+**Cause**: Using `access_internet_mode = "nat_gw"` with dedicated management ENI and `enable_fgt_management_public_ip = false`. This is expected and intentional for Direct Connect/VPN-only deployments — it does not by itself mean FortiGuard/licensing is broken (see next issue).
 
-**Solutions**:
+**If you need public internet access to the GUI/SSH**, choose one:
 1. Switch to `access_internet_mode = "eip"` to receive public IP on port2
 2. Enable `enable_dedicated_management_vpc = true` with separate internet connectivity
 3. Use AWS Systems Manager Session Manager for private access
 4. Configure VPN or Direct Connect for private network access
+
+### Issue: FortiGuard updates or license validation failing with no public IP on the management interface
+
+**Cause**: `enable_dedicated_management_public_ip` (in `existing_vpc_resources`) is out of sync with `enable_fgt_management_public_ip` (in `autoscale_template`), or is left at its default `true` while `enable_fgt_management_public_ip` is `false`. In that mismatched state the dedicated management subnet's default route still points at the Internet Gateway, which provides no real egress once the interface has no public IP — FortiGuard and license checks fail silently rather than erroring visibly.
+
+**Check**:
+1. `access_internet_mode = "nat_gw"` and `create_nat_gateway_subnets = true` in `existing_vpc_resources/terraform.tfvars` — a NAT Gateway must actually exist to route to.
+2. `enable_dedicated_management_public_ip = false` in `existing_vpc_resources/terraform.tfvars` matches `enable_fgt_management_public_ip = false` in `autoscale_template/terraform.tfvars`.
+3. Re-apply `existing_vpc_resources` after changing this — it changes route table entries, not just the FortiGate instance.
+
+Same underlying fix applies to the dedicated management VPC path (Option 3) via `enable_dedicated_management_nat_gateway` — see that section above.
 
 ### Issue: HA sync not working with dedicated management VPC
 
