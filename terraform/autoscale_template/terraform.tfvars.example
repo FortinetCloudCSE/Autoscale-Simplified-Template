@@ -104,6 +104,10 @@ enable_dedicated_management_eni = true
 # Set to false if managing FortiGates via VPN/Direct Connect/private path only
 # Only relevant when enable_dedicated_management_vpc or enable_dedicated_management_eni is true
 # Ignored (forced false) when enable_dedicated_management_nat_gateway = true below
+# If enable_dedicated_management_eni is true, must also match enable_dedicated_management_public_ip
+# in existing_vpc_resources/terraform.tfvars -- when false there, the dedicated management
+# subnets route via the inspection VPC's NAT Gateway instead of the IGW (requires
+# access_internet_mode = "nat_gw" above), otherwise there's no egress path for that interface.
 #
 enable_fgt_management_public_ip = true
 

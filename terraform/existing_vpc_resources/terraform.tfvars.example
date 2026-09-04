@@ -142,6 +142,17 @@ create_nat_gateway_subnets = false
 #
 create_management_subnet_in_inspection_vpc = false
 
+# Whether the dedicated management ENI above will get a public IP.
+# Must match enable_fgt_management_public_ip in autoscale_template/terraform.tfvars.
+# true  -> dedicated management subnets' default route goes to the IGW.
+# false -> default route goes to the NAT Gateway instead (requires create_nat_gateway_subnets
+#          = true above / access_internet_mode = "nat_gw" in autoscale_template) -- without a
+#          public IP, an IGW-only route provides no real egress, so FortiGuard updates and
+#          license verification would silently fail.
+# Only relevant when create_management_subnet_in_inspection_vpc = true above.
+#
+enable_dedicated_management_public_ip = true
+
 #====================================================================================================
 # MANAGEMENT VPC CONFIGURATION
 #====================================================================================================

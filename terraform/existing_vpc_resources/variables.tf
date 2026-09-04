@@ -260,3 +260,8 @@ variable "create_management_subnet_in_inspection_vpc" {
   type        = bool
   default     = false
 }
+variable "enable_dedicated_management_public_ip" {
+  description = "Must match enable_fgt_management_public_ip in autoscale_template's tfvars. Only relevant when create_management_subnet_in_inspection_vpc is true. When true, the dedicated management subnets' (az1/az2/az3) default route goes to the IGW. When false, it goes to the NAT Gateway instead (requires create_nat_gateway_subnets = true / access_internet_mode = \"nat_gw\" in autoscale_template) -- without a public IP on that interface, an IGW-only route provides no real egress, and FortiGuard updates/license verification silently fail."
+  type        = bool
+  default     = true
+}
