@@ -12,6 +12,76 @@ automatically — no manual resource identification is required.
 
 ---
 
+## Why Upgrading an Autoscale Group Is Different
+
+On a standalone FortiGate, an upgrade is an operation on a running instance: you upload new
+firmware, the unit reboots into it, and the instance keeps its identity, its disk, and its
+configuration. The upgraded version *is* the instance.
+
+In an autoscale group, that model does not apply. FortiGate instances are **disposable and
+are created from a template**, not maintained individually. The ASG can terminate any
+instance (scale-in, health-check failure, instance refresh) and launch a replacement at any
+time — and every replacement is built from whatever the **launch template** says at that
+moment.
+
+The launch template is therefore the source of truth for the FortiOS version:
+
+| Component | What it controls |
+|-----------|------------------|
+| **Launch template AMI** | The FortiOS version every *new* instance boots with |
+| **Launch template user-data** | The bootstrap config (license, hostname, sync/HA settings) applied at first boot |
+| **Auto Scaling Group** | How many instances exist, and when instances are added or removed |
+| **Lifecycle hooks + Lambda** | Holds new instances in `Pending:Wait` until they are configured and joined to the cluster |
+
+### The trap: upgrading the instances but not the template
+
+If you upgrade FortiOS on the running FortiGates (GUI, CLI, or FortiManager) and leave the
+launch template alone, the upgrade looks successful — until the next scale-out event or
+instance replacement. The new instance launches from the *old* AMI and comes up on the
+*old* FortiOS version. The group is now running mixed versions, which can break config
+sync with the primary, produce unpredictable behavior, and silently undo the upgrade over
+time as upgraded instances are recycled.
+
+### The inverse: upgrading the template but not the instances
+
+Updating the launch template only affects **future launches**. It does not touch instances
+that are already running. Until those instances are replaced, the group continues to run
+the old version.
+
+### What an autoscale upgrade must therefore do
+
+An upgrade of an autoscale group has two jobs, and both are required:
+
+1. **Update the launch template** (new version with the target AMI) on every ASG that
+   launches FortiGates — both BYOL and On-Demand — so all future instances come up on the
+   target version.
+2. **Replace the running instances** so they are rebuilt from the new template, rather
+   than upgrading them in place with firmware.
+
+Replacing instances has its own consequences that a standalone upgrade does not face:
+
+- **Configuration is not carried over.** A replacement boots from bootstrap user-data and
+  receives its configuration from the primary via native config sync. Across major
+  versions this sync does not work, which is why cross-major upgrades need a config
+  restore (Path C) or a parallel stack (blue-green).
+- **Licensing is re-evaluated.** Each new instance must obtain a BYOL license or come up
+  as PAYGO, so capacity planning matters during the upgrade.
+- **Primary election and traffic.** Instances must pass the lifecycle hook and GWLB
+  health checks before receiving traffic, and the primary must be handled carefully so
+  there is always an elected primary.
+
+The strategies below are different answers to these problems. The in-place paths update the
+launch template and then roll or restore instances. Blue-green builds an entirely new stack
+from a new template and cuts traffic over.
+
+{{% notice note %}}
+"In-place" in this toolset means *the same ASG and Terraform stack is reused*, not that
+FortiOS is upgraded on a running instance. Instances are still replaced; they are just
+replaced by the same ASG.
+{{% /notice %}}
+
+---
+
 ## Entry Points
 
 The toolset has two separate entry points — one for each strategy. Run `discover.py` first
