@@ -60,9 +60,20 @@ and understanding the autoscale state machine. This requires a combined skill
 set of FortiGate administration, AWS networking, and AWS serverless operations.
 
 ### Upgrade Complexity
-Upgrading FortiOS on a running autoscale group is a manual, multi-step process
-involving AWS Console operations, new launch template versions, and per-instance
-firmware upgrades through the FortiGate GUI. There is no automated upgrade path.
+Upgrading FortiOS on an autoscale group is different from upgrading a standalone
+FortiGate. Instances are rebuilt from a launch template, so the upgrade must update the
+launch template AMI *and* replace the running instances. This workshop includes an
+`upgrade_fortios/` toolset that automates both. It discovers the deployment from
+Terraform state and supports two strategies:
+
+- **In-place** — updates the launch templates and rolls the instances through the existing
+  ASG. Suited to same-major-version upgrades.
+- **Blue-green** — builds a parallel stack and flips traffic over, with fast rollback.
+  Suited to cross-major-version upgrades.
+
+Both require operator confirmation at each step. Cross-major upgrades and blue-green
+still take planning, and blue-green needs roughly 2x license capacity during the
+monitoring window. See [Upgrade FortiOS](../6_upgrade_fortios/) for the details.
 
 ### VPN Limitations
 VPN tunnels cannot be terminated on autoscale instances. IPSec requires a
