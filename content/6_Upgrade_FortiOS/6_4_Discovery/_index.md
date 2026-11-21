@@ -6,13 +6,54 @@ weight: 64
 
 ## Overview
 
-`discover.py` extracts the complete Blue environment inventory from the existing
-`terraform.tfstate` file and produces a structured `blue_inventory.json` used by
-all subsequent upgrade phases.
+### What discovery is for
 
-Discovery does not rely on AWS resource tags — it reads the Terraform state directly.
-This makes it reliable for deployments that were not created with the Simplified Template
-and may not follow the `{cp}-{env}-{resource}` tag convention.
+Before anything is changed, the upgrade tools need to know exactly what they are working
+on: which Auto Scaling groups and launch templates belong to the deployment, which load
+balancer and Transit Gateway routes, which FortiGate is the primary, which FortiOS
+version runs today, and which AMI is the target. Discovery collects all of that into one
+file, `blue_inventory.json`. Every later step, in-place or blue-green, reads that file
+instead of asking you for resource IDs.
+
+"Blue" is the name the blue-green strategy gives to the existing environment. The same
+inventory is used for an in-place upgrade.
+
+### Where the information comes from
+
+Discovery combines two sources:
+
+- **The Terraform state file** says what was deployed. It is the authoritative list of
+  the deployment's resources and their IDs. Because discovery reads the state directly,
+  it does not depend on AWS tags or naming conventions, so it also works for deployments
+  that were not created with the Simplified Template and do not follow the
+  `{cp}-{env}-{resource}` convention.
+- **Live AWS** says what is true right now: how many FortiGates are running, which one
+  is the primary, and which AWS Marketplace AMI matches the target version.
+
+### It changes nothing
+
+Discovery only reads. It makes no change in AWS and none on the FortiGates, so it can be
+run at any time and as often as you like, including well before the maintenance window
+to see what an upgrade would do.
+
+### What to do with the result
+
+Discovery prints a summary: the current FortiOS version, the target AMI, the size of each
+Auto Scaling group, the primary, and the upgrade path that applies. Read it before going
+further. This is the cheapest place to catch a mistake, such as the wrong region or
+account, an unexpected current version, or a group that is not in the state you thought.
+If discovery cannot work something out safely (the region, the architecture, or an AMI
+for the target version), it stops and says so instead of guessing.
+
+### Keep it current
+
+The inventory is a snapshot. Run discovery again shortly before the upgrade, from a fresh
+copy of the Terraform state, and again after anything about the deployment changes.
+
+{{% notice note %}}
+The `state/` directory holds copies of the Terraform state and `terraform.tfvars`, which
+contain credentials. It is excluded from git. Treat its contents as sensitive.
+{{% /notice %}}
 
 ---
 
@@ -27,13 +68,11 @@ If the deployment uses local Terraform state (default):
 bash upgrade_fortios/state/refresh.sh
 ```
 
-`refresh.sh` copies:
-- `terraform/autoscale_template/terraform.tfstate`
-- `terraform/autoscale_template/terraform.tfvars`
-- `terraform/existing_vpc_resources/terraform.tfstate`
-- `terraform/existing_vpc_resources/terraform.tfvars`
-
-into `upgrade_fortios/state/`.
+`refresh.sh` copies these into `upgrade_fortios/state/`, renaming each after its template:
+- `terraform/autoscale_template/terraform.tfstate` → `autoscale_template.tfstate`
+- `terraform/autoscale_template/terraform.tfvars` → `autoscale_template.tfvars`
+- `terraform/existing_vpc_resources/terraform.tfstate` → `existing_vpc_resources.tfstate`
+- `terraform/existing_vpc_resources/terraform.tfvars` → `existing_vpc_resources.tfvars`
 
 ### Remote State (S3 Backend)
 
@@ -61,7 +100,7 @@ cd upgrade_fortios
 
 python3 scripts/discover.py \
   --state state/autoscale_template.tfstate \
-  --target-version 7.6.2 \
+  --target-version 7.6.8 \
   --output state/blue_inventory.json
 ```
 
@@ -72,7 +111,7 @@ spoke TGW routes that `cutover.py` will flip:
 python3 scripts/discover.py \
   --state state/autoscale_template.tfstate \
   --vpc-state state/existing_vpc_resources.tfstate \
-  --target-version 7.6.2 \
+  --target-version 7.6.8 \
   --output state/blue_inventory.json
 ```
 
@@ -80,8 +119,13 @@ python3 scripts/discover.py \
 |----------|-------------|
 | `--state` | Path to `autoscale_template.tfstate` |
 | `--vpc-state` | Path to `existing_vpc_resources.tfstate` (blue-green only — adds spoke TGW routes) |
-| `--target-version` | Target FortiOS version (e.g., `7.6.2`) — triggers AMI lookup |
+| `--target-version` | Target FortiOS version (e.g., `7.6.8`) — triggers AMI lookup |
 | `--output` | Path for `blue_inventory.json` output (default: `blue_inventory.json`) |
+| `--region` | AWS region of the deployment. Default: read from the state file, then from the AWS CLI profile |
+
+Discovery stops with an error, and writes no inventory, when the region cannot be
+determined, when the architecture of the current AMI cannot be read, or when no AMI for
+the target version is found for one of the launch templates.
 
 ---
 
@@ -97,7 +141,7 @@ python3 scripts/discover.py \
 | **GWLB** | Load balancer ARN, listener ARN, target group ARN, endpoint IDs per AZ |
 | **Auto Scaling Groups** | BYOL and On-Demand ASG names, launch template IDs/versions, desired/min/max, current instances, primary instance |
 | **Instance Architecture** | x86 vs ARM64 (detected from current launch template AMI name) |
-| **Target AMI** | AMI ID for target FortiOS version and detected architecture |
+| **Target AMI** | AMI ID for target FortiOS version and detected architecture, from the same AWS Marketplace product as the current AMI |
 | **Lambda** | Function name |
 | **DynamoDB** | Table name |
 | **CloudWatch** | Alarm names and current thresholds |
@@ -106,17 +150,30 @@ python3 scripts/discover.py \
 
 ### Identifying the Primary Instance
 
-The primary FortiGate has scale-in protection enabled. `discover.py` queries the live
-ASG via `boto3` to find the instance where `ProtectedFromScaleIn` is `true`:
+The Lambda tags the elected primary `Autoscale Role: Primary`. `discover.py` reads that
+tag from the live instances of each ASG:
 
 ```bash
 # Manual verification using AWS CLI
-aws autoscaling describe-auto-scaling-instances \
-  --query "AutoScalingInstances[?AutoScalingGroupName=='<byol_asg_name>' && ProtectedFromScaleIn==\`true\`]" \
-  --output table
+aws ec2 describe-instances \
+  --filters "Name=tag:Autoscale Role,Values=Primary" "Name=instance-state-name,Values=running" \
+  --query "Reservations[].Instances[].InstanceId" --output text
 ```
 
-### Architecture Detection
+If no instance carries the tag, discovery falls back to scale-in protection
+(`ProtectedFromScaleIn`), and only when exactly one instance has it. Scale-in protection
+is set only when the deployment has `primary_scalein_protection = true`.
+
+`inplace_upgrade.py` identifies the primary again from live state when it runs, so an
+inventory taken before a primary change does not send it to the wrong instance.
+
+### Architecture and Target AMI
+
+The architecture and the AWS Marketplace product code are read from the AMI the launch
+template uses today (looked up by ID, which also works once that AMI is deprecated). The
+target AMI is searched among images owned by AWS Marketplace with the same product code
+whose name contains `(<target-version>)`. A name match alone is not accepted: anyone can
+publish a public AMI with a FortiGate-looking name.
 
 | Launch Template AMI Name Contains | Architecture |
 |-----------------------------------|-------------|
@@ -203,8 +260,8 @@ All sections are top-level keys — there is no nesting under a `blue_environmen
     "min": 1,
     "max": 4,
     "instances": [
-      {"instance_id": "i-xxx", "health": "Healthy", "lifecycle": "InService", "protected": true},
-      {"instance_id": "i-yyy", "health": "Healthy", "lifecycle": "InService", "protected": false}
+      {"instance_id": "i-xxx", "health": "Healthy", "lifecycle": "InService", "protected": true, "role": "Primary"},
+      {"instance_id": "i-yyy", "health": "Healthy", "lifecycle": "InService", "protected": false, "role": "Secondary"}
     ],
     "primary_instance": "i-xxx",
     "launch_template_id": "lt-xxx"
@@ -221,10 +278,11 @@ All sections are top-level keys — there is no nesting under a `blue_environmen
 }
 ```
 
-The `desired` values determine the in-place upgrade path:
-- Both `desired=0`, no `.conf` backup → Path A
-- Both `desired=0` + `state/blue_primary_config.conf` present → Path C
-- Either `desired>0` → Path B
+The `desired` values show which in-place path applies. `inplace_upgrade.py` reads them
+again from AWS when it starts, so the path follows the live group, not the inventory:
+- Both `desired=0`, no `.conf` backup in `state/` → Path A
+- Both `desired=0` + a `.conf` backup in `state/` → Path C
+- Instances running → Path B
 
 #### `transit_gateway.routes_to_update`
 
@@ -270,10 +328,10 @@ aws ec2 describe-transit-gateway-vpc-attachments \
   --filters "Name=vpc-id,Values=<vpc-id>" \
   --output table
 
-# Find primary FortiGate instance (scale-in protected)
-aws autoscaling describe-auto-scaling-instances \
-  --query "AutoScalingInstances[?AutoScalingGroupName=='<asg-name>' && ProtectedFromScaleIn==\`true\`]" \
-  --output table
+# Find primary FortiGate instance (tagged by the Lambda)
+aws ec2 describe-instances \
+  --filters "Name=tag:Autoscale Role,Values=Primary" "Name=instance-state-name,Values=running" \
+  --query "Reservations[].Instances[].InstanceId" --output text
 ```
 
 Populate a `blue_inventory.json` manually from these results if needed. Use the schema

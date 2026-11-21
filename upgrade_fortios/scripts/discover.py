@@ -45,19 +45,40 @@ def get_resource(state, resource_type, name=None):
 # Architecture detection
 # ─────────────────────────────────────────────
 
-def detect_architecture(ec2, ami_id):
-    """Detect x86 or arm64 from the current launch template AMI."""
+# AWS Marketplace product codes for the FortiGate-VM listings, keyed by
+# (architecture, license type). Used only when the product code cannot be read
+# from the AMI the launch template uses today. Same values as the Fortinet
+# terraform module (modules/fortigate/fgt_asg/main.tf).
+FALLBACK_PRODUCT_CODES = {
+    ('arm64', 'byol'):      '33ndn84xbrajb9vmu5lxnfpjq',
+    ('x86_64', 'byol'):     'dlaioq277sglm5mw1y1dmeuqa',
+    ('arm64', 'ondemand'):  '8gc40z1w65qjt61p9ps88057n',
+    ('x86_64', 'ondemand'): '2wqkpek696qhdeo7lbbjncqli',
+}
+
+
+def describe_ami(ec2, ami_id):
+    """
+    Return (architecture, name, product_code) of an AMI.
+    Looking an AMI up by ID also returns deprecated AMIs, which is what the
+    launch template of an older FortiOS version usually points at.
+    """
     try:
         resp = ec2.describe_images(ImageIds=[ami_id])
         if not resp['Images']:
-            return 'unknown', 'unknown'
+            return 'unknown', 'unknown', None
         img = resp['Images'][0]
-        arch = img.get('Architecture', 'unknown')
-        name = img.get('Name', '')
-        return arch, name
+        codes = [c.get('ProductCodeId') for c in img.get('ProductCodes', []) if c.get('ProductCodeId')]
+        return img.get('Architecture', 'unknown'), img.get('Name', ''), (codes[0] if codes else None)
     except Exception as e:
         print(f"  Warning: could not describe AMI {ami_id}: {e}")
-        return 'unknown', 'unknown'
+        return 'unknown', 'unknown', None
+
+
+def detect_architecture(ec2, ami_id):
+    """Detect x86 or arm64 from the current launch template AMI."""
+    arch, name, _ = describe_ami(ec2, ami_id)
+    return arch, name
 
 
 def ami_name_filter(arch, license_type):
@@ -75,15 +96,24 @@ def ami_name_filter(arch, license_type):
             return 'FortiGate-VM64-AWS *'
 
 
-def find_target_ami(ec2, arch, license_type, target_version):
-    """Find the AMI ID for the target FortiOS version and architecture."""
+def find_target_ami(ec2, arch, license_type, target_version, product_code=None):
+    """
+    Find the AMI ID for the target FortiOS version and architecture.
+
+    The search is limited to images owned by AWS Marketplace and to the
+    Marketplace product the deployment already uses. An image name alone is not
+    enough: anyone can publish a public AMI with a FortiGate-looking name.
+    """
     name_filter = ami_name_filter(arch, license_type)
     version_str = f'({target_version})'
+    product_code = product_code or FALLBACK_PRODUCT_CODES.get((arch, license_type))
+
+    filters = [{'Name': 'name', 'Values': [name_filter]}]
+    if product_code:
+        filters.append({'Name': 'product-code', 'Values': [product_code]})
 
     paginator = ec2.get_paginator('describe_images')
-    pages = paginator.paginate(Filters=[
-        {'Name': 'name', 'Values': [name_filter]}
-    ])
+    pages = paginator.paginate(Owners=['aws-marketplace'], Filters=filters)
     images = []
     for page in pages:
         for img in page['Images']:
@@ -118,16 +148,40 @@ def get_live_asg(autoscaling, asg_name):
         return None
 
 
-def find_primary_instance(autoscaling, asg_name):
-    """Find the primary instance — the one with scale-in protection."""
+def get_autoscale_roles(ec2, instance_ids):
+    """Return {instance_id: value of the 'Autoscale Role' tag} for the given instances."""
+    roles = {}
+    if not instance_ids:
+        return roles
     try:
-        resp = autoscaling.describe_auto_scaling_instances()
-        for inst in resp['AutoScalingInstances']:
-            if (inst['AutoScalingGroupName'] == asg_name and
-                    inst.get('ProtectedFromScaleIn')):
-                return inst['InstanceId']
+        resp = ec2.describe_instances(InstanceIds=list(instance_ids))
+        for res in resp['Reservations']:
+            for inst in res['Instances']:
+                tags = {t['Key']: t['Value'] for t in inst.get('Tags', [])}
+                roles[inst['InstanceId']] = tags.get('Autoscale Role', '')
     except Exception as e:
-        print(f"  Warning: could not find primary instance: {e}")
+        print(f"  Warning: could not read Autoscale Role tags: {e}")
+    return roles
+
+
+def find_primary_instance(instances, roles):
+    """
+    Find the primary among one ASG's instances.
+
+    The Lambda tags the elected primary 'Autoscale Role: Primary'. That tag is
+    always written. Scale-in protection is only set when the deployment has
+    primary_scalein_protection = true, so it is the fallback, and only when
+    exactly one instance carries it.
+    """
+    tagged = [i['instance_id'] for i in instances if roles.get(i['instance_id']) == 'Primary']
+    if len(tagged) == 1:
+        return tagged[0]
+    if len(tagged) > 1:
+        print(f"  Warning: more than one instance is tagged Primary: {tagged}")
+        return None
+    protected = [i['instance_id'] for i in instances if i.get('protected')]
+    if len(protected) == 1:
+        return protected[0]
     return None
 
 
@@ -220,11 +274,42 @@ def discover_vpc_resources(vpc_state_file):
     }
 
 
-def discover(state_file, target_version=None, vpc_state_file=None):
+def region_from_state(state):
+    """Read the deployment's region from an ARN in the terraform state."""
+    for rtype in ('aws_lb', 'aws_lb_target_group', 'aws_autoscaling_group', 'aws_launch_template'):
+        for attr in get_resources(state, rtype):
+            arn = attr.get('arn') or ''
+            parts = arn.split(':')
+            if len(parts) > 3 and parts[3]:
+                return parts[3]
+    return None
+
+
+def resolve_region(state, region_arg=None):
+    """--region wins, then the region recorded in the state file, then the AWS CLI profile."""
+    state_region = region_from_state(state)
+    session_region = boto3.session.Session().region_name
+    if region_arg:
+        if state_region and state_region != region_arg:
+            print(f"  Warning: --region {region_arg} differs from the state file's region {state_region}")
+        return region_arg
+    if state_region:
+        if session_region and session_region != state_region:
+            print(f"  Note: using region {state_region} from the state file "
+                  f"(the AWS CLI profile is set to {session_region})")
+        return state_region
+    if session_region:
+        return session_region
+    print("Error: could not determine the AWS region from the state file or the AWS CLI profile.")
+    print("       Pass it explicitly with --region.")
+    sys.exit(1)
+
+
+def discover(state_file, target_version=None, vpc_state_file=None, region_arg=None):
     print(f"\nLoading state from {state_file}...")
     state = load_state(state_file)
 
-    region = boto3.session.Session().region_name or 'us-west-2'
+    region = resolve_region(state, region_arg)
     ec2 = boto3.client('ec2', region_name=region)
     autoscaling = boto3.client('autoscaling', region_name=region)
     elbv2 = boto3.client('elbv2', region_name=region)
@@ -347,9 +432,30 @@ def discover(state_file, target_version=None, vpc_state_file=None):
 
     # ── Target AMI lookup ─────────────────────
     if target_version:
+        if arch not in ('x86_64', 'arm64'):
+            print(f"Error: could not detect the architecture of the current AMI ({current_ami_id}).")
+            print("       Without it the target AMI cannot be chosen safely. Check that the state file")
+            print("       is current and that the AWS credentials can describe that AMI.")
+            sys.exit(1)
+
         print(f"Looking up target AMI for FortiOS {target_version} ({arch})...")
-        byol_ami_id, byol_ami_name = find_target_ami(ec2, arch, 'byol', target_version)
-        od_ami_id, od_ami_name = find_target_ami(ec2, arch, 'ondemand', target_version)
+        product_codes = {}
+        for lic, lt in launch_templates.items():
+            _, _, product_codes[lic] = describe_ami(ec2, lt['current_ami_id'])
+            lt['product_code'] = product_codes[lic] or FALLBACK_PRODUCT_CODES.get((arch, lic))
+
+        byol_ami_id, byol_ami_name = find_target_ami(
+            ec2, arch, 'byol', target_version, product_codes.get('byol'))
+        od_ami_id, od_ami_name = find_target_ami(
+            ec2, arch, 'ondemand', target_version, product_codes.get('ondemand'))
+
+        missing = [lic for lic in launch_templates
+                   if not (byol_ami_id if lic == 'byol' else od_ami_id)]
+        if missing:
+            print(f"Error: no AWS Marketplace AMI found for FortiOS {target_version} ({arch}) "
+                  f"for: {', '.join(missing)}.")
+            print(f"       Check the version number and that it is published in {region}.")
+            sys.exit(1)
 
         inventory['target'] = {
             'fortios_version': target_version,
@@ -382,7 +488,10 @@ def discover(state_file, target_version=None, vpc_state_file=None):
                 }
                 for i in live.get('Instances', [])
             ]
-            primary = find_primary_instance(autoscaling, asg_name)
+            roles = get_autoscale_roles(ec2, [i['instance_id'] for i in instances])
+            for i in instances:
+                i['role'] = roles.get(i['instance_id'], '')
+            primary = find_primary_instance(instances, roles)
             asgs[license_type] = {
                 'asg_name': asg_name,
                 'license_type': license_type,
@@ -394,6 +503,8 @@ def discover(state_file, target_version=None, vpc_state_file=None):
                 'launch_template_id': attr.get('launch_template', [{}])[0].get('id') if attr.get('launch_template') else None,
             }
         else:
+            print(f"  Warning: ASG {asg_name} is in the state file but was not found in {region}. "
+                  f"The state file may be out of date, or the credentials may be for another account.")
             asgs[license_type] = {
                 'asg_name': asg_name,
                 'license_type': license_type,
@@ -506,11 +617,14 @@ def main():
     parser.add_argument('--output', default='blue_inventory.json',
                         help='Output inventory file (default: blue_inventory.json)')
     parser.add_argument('--target-version',
-                        help='Target FortiOS version (e.g. 7.6.6) — triggers AMI lookup')
+                        help='Target FortiOS version (e.g. 7.6.8) — triggers AMI lookup')
+    parser.add_argument('--region', default=None,
+                        help='AWS region of the deployment (default: read from the state file, '
+                             'then from the AWS CLI profile)')
     args = parser.parse_args()
 
     try:
-        inventory = discover(args.state, args.target_version, args.vpc_state)
+        inventory = discover(args.state, args.target_version, args.vpc_state, args.region)
     except FileNotFoundError as e:
         print(f"Error: state file not found: {e}")
         sys.exit(1)

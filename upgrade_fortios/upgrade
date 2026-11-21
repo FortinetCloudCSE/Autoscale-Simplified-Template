@@ -2,9 +2,10 @@
 # upgrade — FortiGate autoscale upgrade entry point
 #
 # Usage:
-#   ./upgrade --in-place  --fortios-version 7.6.6  [--state state/terraform.tfstate]
-#   ./upgrade --blue-green --fortios-version 7.6.6  [--state state/terraform.tfstate]
+#   ./upgrade --in-place  --fortios-version 7.6.8  [--state state/autoscale_template.tfstate]
+#   ./upgrade --blue-green --fortios-version 7.6.8  [--state state/autoscale_template.tfstate]
 #
+# Runs state/refresh.sh, discover.py and inplace_upgrade.py in order.
 # Expects state files in ./state/ by default.
 
 set -euo pipefail
@@ -26,25 +27,33 @@ usage() {
 Usage: $(basename "$0") <mode> --fortios-version <version> [options]
 
 Modes:
-  --in-place     Upgrade FortiOS on running instances (rolling replacement)
-  --blue-green   Deploy parallel environment and cut over (not yet implemented)
+  --in-place     Replace the instances of the existing ASGs from an updated launch template
+  --blue-green   Deploy parallel environment and cut over (manual runbook, not automated here)
 
 Options:
-  --fortios-version <version>   Target FortiOS version (e.g. 7.6.6)  [required]
-  --state <path>                Path to terraform.tfstate
-                                (default: state/terraform.tfstate)
+  --fortios-version <version>   Target FortiOS version (e.g. 7.6.8)  [required]
+  --state <path>                Path to the autoscale_template state file
+                                (default: state/autoscale_template.tfstate)
   --inventory <path>            Path to existing blue_inventory.json
-                                (skips discovery if provided)
+                                (skips the state refresh and discovery)
+  --region <region>             AWS region (default: read from the state file)
+  --restore-config <file>       Rolling replacement only: restore this config backup to the
+                                new primary afterwards (cross-major-version upgrades)
+  --fgt-api-key <key>           FortiGate REST API key for an automated config restore
+  --fgt-mgmt-port <port>        FortiGate management HTTPS port (default: 443)
+  --allow-single-instance       Allow replacing the only instance in the group (outage)
   --help                        Show this help
 
 Examples:
-  ./upgrade --in-place --fortios-version 7.6.6
-  ./upgrade --in-place --fortios-version 7.6.6 --state /path/to/terraform.tfstate
+  ./upgrade --in-place --fortios-version 7.6.8
+  ./upgrade --in-place --fortios-version 7.6.8 --state /path/to/terraform.tfstate
 EOF
     exit 1
 }
 
 INVENTORY_OVERRIDE=""
+DISCOVER_ARGS=()
+UPGRADE_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -63,6 +72,20 @@ while [[ $# -gt 0 ]]; do
         --inventory)
             INVENTORY_OVERRIDE="${2:-}"
             shift 2
+            ;;
+        --region)
+            [[ -z "${2:-}" ]] && { echo "Error: --region requires a value"; usage; }
+            DISCOVER_ARGS+=(--region "$2")
+            shift 2
+            ;;
+        --restore-config|--fgt-api-key|--fgt-mgmt-port)
+            [[ -z "${2:-}" ]] && { echo "Error: $1 requires a value"; usage; }
+            UPGRADE_ARGS+=("$1" "$2")
+            shift 2
+            ;;
+        --allow-single-instance)
+            UPGRADE_ARGS+=("$1")
+            shift
             ;;
         --help|-h) usage ;;
         *) echo "Unknown argument: $1"; usage ;;
@@ -106,34 +129,13 @@ if [[ "$MODE" == "in-place" ]]; then
         echo ""
         echo "Using existing inventory: ${INVENTORY_FILE}"
     else
-        REPO_ROOT="${SCRIPT_DIR}/.."
-
         echo ""
         echo "Phase 0: Refresh State"
         echo "──────────────────────────────────────────────────────────"
 
-        # Remove all stale files from state directory
-        echo "  Clearing state directory..."
-        rm -f "${STATE_DIR}"/*.tfstate "${STATE_DIR}"/*.tfvars \
-              "${STATE_DIR}"/*.json "${STATE_DIR}"/*.conf
-
-        # Pull fresh state from terraform directories
-        for f in tfstate tfvars; do
-            src="${REPO_ROOT}/terraform/autoscale_template/terraform.${f}"
-            if [[ -f "$src" ]]; then
-                echo "  Copying autoscale_template.${f}"
-                cp "$src" "${STATE_DIR}/autoscale_template.${f}"
-            else
-                echo "  WARNING: ${src} not found"
-            fi
-        done
-        for f in tfstate tfvars; do
-            src="${REPO_ROOT}/terraform/existing_vpc_resources/terraform.${f}"
-            if [[ -f "$src" ]]; then
-                echo "  Copying existing_vpc_resources.${f}"
-                cp "$src" "${STATE_DIR}/existing_vpc_resources.${f}"
-            fi
-        done
+        # refresh.sh replaces the state files and the inventory. It leaves config
+        # backups (*.conf) and inplace_rollback.json alone.
+        bash "${STATE_DIR}/refresh.sh"
 
         if [[ ! -f "$STATE_FILE" ]]; then
             echo ""
@@ -147,13 +149,15 @@ if [[ "$MODE" == "in-place" ]]; then
         python3 "${SCRIPTS_DIR}/discover.py" \
             --state "${STATE_FILE}" \
             --target-version "${FORTIOS_VERSION}" \
-            --output "${INVENTORY_FILE}"
+            --output "${INVENTORY_FILE}" \
+            ${DISCOVER_ARGS[@]+"${DISCOVER_ARGS[@]}"}
     fi
 
     echo ""
     python3 "${SCRIPTS_DIR}/inplace_upgrade.py" \
         --inventory "${INVENTORY_FILE}" \
-        --state-dir "${STATE_DIR}"
+        --state-dir "${STATE_DIR}" \
+        ${UPGRADE_ARGS[@]+"${UPGRADE_ARGS[@]}"}
 
 # ── Blue-Green ────────────────────────────────
 
