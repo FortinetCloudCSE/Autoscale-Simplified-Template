@@ -347,7 +347,39 @@ def print_preview(routes_to_flip, green_attach_id, blue_natgws, green_info, egre
 # Main cutover logic
 # ─────────────────────────────────────────────────────────────────────────────
 
+def upgrade_path_errors(inventory):
+    """
+    Why the cutover must not run, judged from the version change discover.py recorded.
+    Empty when it may. This repeats discovery's check at the last point before traffic
+    moves, so an inventory edited by hand or produced another way is caught too.
+    """
+    change = inventory.get('version_change')
+    if not change:
+        return [
+            "ERROR: the inventory does not record the version change.",
+            "       Run scripts/discover.py again with --vpc-state and --target-version.",
+        ]
+    cur, tgt, kind = change.get('from'), change.get('to'), change.get('kind')
+    if kind == 'downgrade':
+        return [f"ERROR: FortiOS {cur} -> {tgt} is a downgrade. Fortinet supports no downgrade paths."]
+    if kind in ('minor', 'major', 'unknown') and not change.get('upgrade_path_verified'):
+        return [
+            f"ERROR: FortiOS {cur} -> {tgt} crosses a {kind} version and the upgrade path has not",
+            "       been confirmed. Green's configuration was restored from a backup taken on the",
+            "       older version, which is only a supported conversion when Fortinet's upgrade",
+            "       path between the two versions is a single step.",
+            "       Check https://docs.fortinet.com/upgrade-tool/fortigate, then run",
+            "       scripts/discover.py again with --upgrade-path-verified.",
+        ]
+    return []
+
+
 def run_cutover(inventory, green_state, dry_run, yes, progress_path):
+    errors = upgrade_path_errors(inventory)
+    if errors:
+        print('\n'.join(errors))
+        sys.exit(2)
+
     region = inventory.get('discovery_metadata', {}).get('region', 'us-west-2')
     ec2 = boto3.client('ec2', region_name=region)
 

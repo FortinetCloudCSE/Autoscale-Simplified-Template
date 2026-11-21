@@ -42,6 +42,9 @@ Options:
   --fgt-api-key <key>           FortiGate REST API key for an automated config restore
   --fgt-mgmt-port <port>        FortiGate management HTTPS port (default: 443)
   --allow-single-instance       Allow replacing the only instance in the group (outage)
+  --upgrade-path-verified       Confirm Fortinet's Upgrade Path Tool gives a single-step path
+                                to the target version. Required when a config restore crosses
+                                a minor or major version
   --help                        Show this help
 
 Examples:
@@ -84,6 +87,11 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --allow-single-instance)
+            UPGRADE_ARGS+=("$1")
+            shift
+            ;;
+        --upgrade-path-verified)
+            DISCOVER_ARGS+=("$1")
             UPGRADE_ARGS+=("$1")
             shift
             ;;

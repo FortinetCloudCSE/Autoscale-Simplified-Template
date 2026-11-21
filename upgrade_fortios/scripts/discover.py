@@ -41,6 +41,31 @@ def get_resource(state, resource_type, name=None):
     return results[0] if results else None
 
 
+def nat_gateways_in_state(state, vpc_id=None):
+    """
+    NAT gateways recorded in a Terraform state, optionally only those in vpc_id.
+
+    The VPC is taken from the NAT gateway itself where the provider records it,
+    otherwise from the gateway's subnet. A gateway whose VPC cannot be determined
+    is left out when vpc_id is given.
+    """
+    subnet_vpc = {a.get('id'): a.get('vpc_id') for a in get_resources(state, 'aws_subnet')}
+    found, seen = [], set()
+    for attr in get_resources(state, 'aws_nat_gateway'):
+        if attr['id'] in seen:
+            continue
+        if vpc_id and (attr.get('vpc_id') or subnet_vpc.get(attr.get('subnet_id'))) != vpc_id:
+            continue
+        seen.add(attr['id'])
+        found.append({
+            'id': attr['id'],
+            'subnet_id': attr.get('subnet_id'),
+            'eip_allocation_id': attr.get('allocation_id'),
+            'public_ip': attr.get('public_ip'),
+        })
+    return found
+
+
 # ─────────────────────────────────────────────
 # Architecture detection
 # ─────────────────────────────────────────────
@@ -162,6 +187,163 @@ def get_autoscale_roles(ec2, instance_ids):
     except Exception as e:
         print(f"  Warning: could not read Autoscale Role tags: {e}")
     return roles
+
+
+# ─────────────────────────────────────────────
+# Version change and upgrade path
+# ─────────────────────────────────────────────
+
+UPGRADE_PATH_TOOL_URL = 'https://docs.fortinet.com/upgrade-tool/fortigate'
+
+# Version changes a blue-green upgrade refuses until the operator has confirmed the
+# upgrade path, and the one it always refuses.
+NEEDS_UPGRADE_PATH_CHECK = ('minor', 'major', 'unknown')
+
+
+def parse_version(text):
+    """'7.6.8' -> (7, 6, 8). None when text is not three dot-separated numbers."""
+    parts = str(text or '').strip().split('.')
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def classify_version_change(current, target):
+    """
+    How far apart two FortiOS versions are: 'same', 'patch' (7.6.7 -> 7.6.8),
+    'minor' (7.4.x -> 7.6.x), 'major' (7.x -> 8.x), 'downgrade', or 'unknown'
+    when either version cannot be read.
+    """
+    cur, tgt = parse_version(current), parse_version(target)
+    if not cur or not tgt:
+        return 'unknown'
+    if tgt == cur:
+        return 'same'
+    if tgt < cur:
+        return 'downgrade'
+    if tgt[0] != cur[0]:
+        return 'major'
+    if tgt[1] != cur[1]:
+        return 'minor'
+    return 'patch'
+
+
+def fortios_version_from_ami_name(name):
+    """'FortiGate-VMARM64-AWS build3744 (7.6.8) GA-...' -> '7.6.8'; 'unknown' if absent."""
+    name = name or ''
+    if '(' in name and ')' in name:
+        return name.split('(')[1].split(')')[0]
+    return 'unknown'
+
+
+def running_fortios_versions(ec2, instance_ids):
+    """Return {instance_id: FortiOS version of the AMI the instance was launched from}."""
+    versions = {}
+    if not instance_ids:
+        return versions
+    try:
+        images = {}
+        for res in ec2.describe_instances(InstanceIds=list(instance_ids))['Reservations']:
+            for inst in res['Instances']:
+                images[inst['InstanceId']] = inst.get('ImageId')
+        names = {}
+        for ami_id in {a for a in images.values() if a}:
+            names[ami_id] = describe_ami(ec2, ami_id)[1]
+        for instance_id, ami_id in images.items():
+            versions[instance_id] = fortios_version_from_ami_name(names.get(ami_id))
+    except Exception as e:
+        print(f"  Warning: could not read the running FortiOS version: {e}")
+    return versions
+
+
+def backup_fortios_version(path):
+    """
+    FortiOS version a configuration backup was taken on, from its first line
+    ('#config-version=FGAAWS-7.6.8-FW-build3744-...'). 'unknown' when the file cannot
+    be read or has no such line, as with an encrypted backup.
+    """
+    try:
+        with open(path, 'rb') as f:
+            head = f.read(512).decode('utf-8', errors='replace')
+    except OSError:
+        return 'unknown'
+    for line in head.splitlines():
+        if line.startswith('#config-version='):
+            for field in line.split(':')[0].split('-'):
+                if parse_version(field):
+                    return field
+    return 'unknown'
+
+
+def restore_path_errors(cur, tgt, verified, upgrade, restores, confirm):
+    """
+    Why a configuration backup taken on FortiOS `cur` must not be restored on `tgt`,
+    as lines of text. Empty when it may.
+
+      upgrade   what is being attempted, e.g. 'blue-green upgrade'
+      restores  sentence saying what gets restored where
+      confirm   how the operator confirms the upgrade path and tries again
+
+    FortiOS converts an older backup when it is restored, in one step. That is only a
+    supported path when Fortinet's upgrade path between the two versions is itself a
+    single step.
+    """
+    kind = classify_version_change(cur, tgt)
+
+    if kind == 'downgrade':
+        return [
+            f"ERROR: {upgrade} from FortiOS {cur} to {tgt} is a downgrade.",
+            "",
+            "  Fortinet supports no downgrade paths, and a configuration backup taken on a newer",
+            "  FortiOS version cannot be restored on an older one.",
+        ]
+
+    if kind in NEEDS_UPGRADE_PATH_CHECK and not verified:
+        what = {'major': 'crosses a major version',
+                'minor': 'crosses a minor version',
+                'unknown': 'starts from a version that could not be determined'}[kind]
+        return [
+            f"ERROR: {upgrade} from FortiOS {cur} to {tgt} {what},",
+            "       and the upgrade path has not been confirmed.",
+            "",
+            f"  {restores}",
+            "  FortiOS converts the backup when it is restored, in one step. Fortinet tests",
+            "  upgrades step by step along the supported upgrade path; if that path has",
+            "  intermediate versions between these two, the restore skips them and can lose or",
+            "  corrupt configuration.",
+            "",
+            "  Before continuing:",
+            f"    1. Open the Upgrade Path Tool: {UPGRADE_PATH_TOOL_URL}",
+            f"       Select the FortiGate-VM AWS model, current version {cur}, target version {tgt}.",
+            f"    2. Continue only if the recommended path is a single step, {cur} -> {tgt}.",
+            "       If it lists intermediate versions, upgrade to the last intermediate version",
+            "       first and start again from there.",
+            f"    3. Read \"Upgrade information\" and the special notices in the {tgt} release notes.",
+            "",
+            f"  {confirm}",
+        ]
+    return []
+
+
+def upgrade_path_errors(version_change, blue_green):
+    """
+    Why a blue-green upgrade must not go ahead with this version change, as lines
+    of text. Empty when it may, and always empty for an in-place discovery: an
+    in-place upgrade is checked by inplace_upgrade.py, and only when it restores a
+    configuration backup.
+
+    Blue-green carries the configuration across as a backup taken on the current
+    version and restored on FortiGates already running the target version.
+    """
+    if not blue_green or not version_change:
+        return []
+    cur, tgt = version_change.get('from'), version_change.get('to')
+    return restore_path_errors(
+        cur, tgt, version_change.get('upgrade_path_verified'),
+        upgrade='blue-green upgrade',
+        restores=(f"A blue-green upgrade restores a configuration backup taken on {cur} onto "
+                  f"FortiGates\n  that are already running {tgt}."),
+        confirm='Then run discovery again with --upgrade-path-verified.')
 
 
 def find_primary_instance(instances, roles):
@@ -305,7 +487,8 @@ def resolve_region(state, region_arg=None):
     sys.exit(1)
 
 
-def discover(state_file, target_version=None, vpc_state_file=None, region_arg=None):
+def discover(state_file, target_version=None, vpc_state_file=None, region_arg=None,
+             upgrade_path_verified=False):
     print(f"\nLoading state from {state_file}...")
     state = load_state(state_file)
 
@@ -348,15 +531,10 @@ def discover(state_file, target_version=None, vpc_state_file=None, region_arg=No
     inventory['subnets'] = list(subnets.values())
 
     # ── NAT Gateways ─────────────────────────
+    # The inspection VPC is normally built by existing_vpc_resources, so its NAT
+    # gateways are in that state and are added below when --vpc-state is given.
     print("Discovering NAT gateways...")
-    nat_gws = []
-    for attr in get_resources(state, 'aws_nat_gateway'):
-        nat_gws.append({
-            'id': attr['id'],
-            'subnet_id': attr.get('subnet_id'),
-            'eip_allocation_id': attr.get('allocation_id'),
-            'public_ip': attr.get('public_ip'),
-        })
+    nat_gws = nat_gateways_in_state(state)
     inventory['nat_gateways'] = nat_gws
     inventory['egress_mode'] = 'nat_gw' if nat_gws else 'eip'
 
@@ -517,6 +695,36 @@ def discover(state_file, target_version=None, vpc_state_file=None, region_arg=No
 
     inventory['autoscale_groups'] = asgs
 
+    # ── Running version and version change ────
+    # The launch template in the state file is what Terraform last applied. After an
+    # in-place upgrade that has not been reconciled it still names the old version, so
+    # the version that matters is the one the primary is running: that is where the
+    # configuration backup comes from.
+    in_service = [i for asg in asgs.values() for i in asg.get('instances', [])
+                  if i['lifecycle'] == 'InService']
+    running = running_fortios_versions(ec2, [i['instance_id'] for i in in_service])
+    for i in in_service:
+        i['fortios_version'] = running.get(i['instance_id'], 'unknown')
+    primaries = [asg['primary_instance'] for asg in asgs.values() if asg.get('primary_instance')]
+    primary_version = running.get(primaries[0]) if len(primaries) == 1 else None
+    known = sorted({v for v in running.values() if v != 'unknown'})
+    if primary_version and primary_version != 'unknown':
+        running_version, version_source = primary_version, 'primary instance'
+    elif len(known) == 1:
+        running_version, version_source = known[0], 'running instances'
+    else:
+        running_version, version_source = current_version, 'launch template in the state file'
+    inventory['architecture']['running_fortios_version'] = running_version
+    inventory['architecture']['running_fortios_version_source'] = version_source
+
+    if target_version:
+        inventory['version_change'] = {
+            'from': running_version,
+            'to': target_version,
+            'kind': classify_version_change(running_version, target_version),
+            'upgrade_path_verified': bool(upgrade_path_verified),
+        }
+
     # ── Lambda + DynamoDB ─────────────────────
     print("Discovering Lambda and DynamoDB...")
     lambdas = [attr.get('function_name') for attr in get_resources(state, 'aws_lambda_function')]
@@ -562,6 +770,18 @@ def discover(state_file, target_version=None, vpc_state_file=None, region_arg=No
         print("Discovering VPC resources (existing_vpc_resources)...")
         inventory['vpc_resources'] = discover_vpc_resources(vpc_state_file)
 
+        # NAT gateways of the inspection VPC that existing_vpc_resources created.
+        # Only that VPC's: the same state can hold a management VPC NAT gateway.
+        known = {n['id'] for n in inventory['nat_gateways']}
+        from_vpc_state = [
+            n for n in nat_gateways_in_state(load_state(vpc_state_file),
+                                             inventory['inspection_vpc']['vpc_id'])
+            if n['id'] not in known
+        ]
+        if from_vpc_state:
+            inventory['nat_gateways'].extend(from_vpc_state)
+            inventory['egress_mode'] = 'nat_gw'
+
     return inventory
 
 
@@ -583,8 +803,19 @@ def print_summary(inventory):
     print(f"  Architecture: {arch.get('arch', 'unknown')}")
     print(f"  Current AMI:  {arch.get('current_ami_id')}  (FortiOS {arch.get('current_fortios_version')})")
 
+    if arch.get('running_fortios_version'):
+        print(f"  Running:      FortiOS {arch['running_fortios_version']}  "
+              f"(from the {arch.get('running_fortios_version_source')})")
+
     if target:
         print(f"  Target AMI:   {target.get('byol_ami_id')}  (FortiOS {target.get('fortios_version')})")
+
+    change = inventory.get('version_change')
+    if change:
+        verified = '  — upgrade path confirmed by the operator' if change.get('upgrade_path_verified') else ''
+        print(f"  Version change: {change['from']} -> {change['to']}  ({change['kind']}){verified}")
+        if change['kind'] != 'same' and not change.get('upgrade_path_verified'):
+            print(f"    Check the supported upgrade path before upgrading: {UPGRADE_PATH_TOOL_URL}")
 
     print()
     print("  ASGs:")
@@ -621,16 +852,32 @@ def main():
     parser.add_argument('--region', default=None,
                         help='AWS region of the deployment (default: read from the state file, '
                              'then from the AWS CLI profile)')
+    parser.add_argument('--upgrade-path-verified', action='store_true',
+                        help='Confirm that Fortinet\'s Upgrade Path Tool gives a single-step path '
+                             'from the running version to --target-version. Required for a '
+                             'blue-green discovery (--vpc-state) that crosses a minor or major '
+                             'version: without it discovery stops and writes no inventory. Recorded '
+                             'in the inventory, where inplace_upgrade.py and cutover.py read it.')
     args = parser.parse_args()
 
     try:
-        inventory = discover(args.state, args.target_version, args.vpc_state, args.region)
+        inventory = discover(args.state, args.target_version, args.vpc_state, args.region,
+                             upgrade_path_verified=args.upgrade_path_verified)
     except FileNotFoundError as e:
         print(f"Error: state file not found: {e}")
         sys.exit(1)
     except Exception as e:
         print(f"Error during discovery: {e}")
         raise
+
+    # A blue-green upgrade (--vpc-state) across a minor or major version stops here
+    # until the upgrade path has been confirmed. No inventory is written, so nothing
+    # downstream can run on it.
+    errors = upgrade_path_errors(inventory.get('version_change'), blue_green=bool(args.vpc_state))
+    if errors:
+        print()
+        print('\n'.join(errors))
+        sys.exit(2)
 
     with open(args.output, 'w') as f:
         json.dump(inventory, f, indent=2, default=str)

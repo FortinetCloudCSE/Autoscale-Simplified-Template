@@ -27,6 +27,7 @@ except ImportError:                      # the scripts import boto3 at module lo
     sys.modules['boto3'] = types.ModuleType('boto3')
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'scripts'))
+import cutover             # noqa: E402
 import discover            # noqa: E402
 import inplace_upgrade as up   # noqa: E402
 
@@ -758,6 +759,38 @@ class FortiFlexTests(RerunTests):
 
 
 class DiscoverTests(unittest.TestCase):
+    @staticmethod
+    def vpc_state():
+        """existing_vpc_resources-style state: inspection and management NAT gateways."""
+        def res(rtype, name, attrs):
+            return {'type': rtype, 'name': name, 'mode': 'managed', 'instances': [{'attributes': attrs}]}
+        return {'resources': [
+            res('aws_subnet', 'insp-natgw-az1', {'id': 'subnet-insp1', 'vpc_id': 'vpc-insp'}),
+            res('aws_subnet', 'mgmt-public', {'id': 'subnet-mgmt', 'vpc_id': 'vpc-mgmt'}),
+            # VPC recorded on the gateway itself
+            res('aws_nat_gateway', 'vpc-az1', {'id': 'nat-insp1', 'vpc_id': 'vpc-insp', 'subnet_id': 'subnet-insp1',
+                                               'allocation_id': 'eipalloc-1', 'public_ip': '198.51.100.1'}),
+            # VPC only known through the subnet
+            res('aws_nat_gateway', 'vpc-az2', {'id': 'nat-insp2', 'subnet_id': 'subnet-insp1',
+                                               'allocation_id': 'eipalloc-2', 'public_ip': '198.51.100.2'}),
+            res('aws_nat_gateway', 'mgmt', {'id': 'nat-mgmt', 'subnet_id': 'subnet-mgmt',
+                                            'allocation_id': 'eipalloc-3', 'public_ip': '198.51.100.3'}),
+            # subnet not in this state: VPC unknown
+            res('aws_nat_gateway', 'elsewhere', {'id': 'nat-unknown', 'subnet_id': 'subnet-other'}),
+        ]}
+
+    def test_nat_gateways_are_limited_to_the_requested_vpc(self):
+        found = discover.nat_gateways_in_state(self.vpc_state(), 'vpc-insp')
+        self.assertEqual([n['id'] for n in found], ['nat-insp1', 'nat-insp2'])
+        self.assertEqual(found[0], {'id': 'nat-insp1', 'subnet_id': 'subnet-insp1',
+                                    'eip_allocation_id': 'eipalloc-1', 'public_ip': '198.51.100.1'})
+
+    def test_nat_gateways_without_a_vpc_filter_returns_all_of_them_once(self):
+        state = self.vpc_state()
+        state['resources'].append(state['resources'][2])      # same gateway listed twice
+        ids = [n['id'] for n in discover.nat_gateways_in_state(state)]
+        self.assertEqual(ids, ['nat-insp1', 'nat-insp2', 'nat-mgmt', 'nat-unknown'])
+
     def test_target_ami_lookup_is_limited_to_marketplace_and_product(self):
         calls = []
 
@@ -810,6 +843,224 @@ class DiscoverTests(unittest.TestCase):
         with mock.patch.object(discover, 'boto3', fake_boto3), \
                 contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
             discover.resolve_region({'resources': []})
+
+
+class UpgradePathGateTests(unittest.TestCase):
+    """A blue-green upgrade across a minor or major version must stop until confirmed."""
+
+    @staticmethod
+    def change(cur, tgt, verified=False):
+        return {'from': cur, 'to': tgt, 'kind': discover.classify_version_change(cur, tgt),
+                'upgrade_path_verified': verified}
+
+    def test_version_changes_are_classified(self):
+        kind = discover.classify_version_change
+        self.assertEqual(kind('7.6.8', '7.6.8'), 'same')
+        self.assertEqual(kind('7.6.7', '7.6.8'), 'patch')
+        self.assertEqual(kind('7.4.9', '7.6.8'), 'minor')
+        self.assertEqual(kind('7.6.8', '8.0.2'), 'major')
+        self.assertEqual(kind('7.6.8', '7.6.7'), 'downgrade')
+        self.assertEqual(kind('8.0.2', '7.6.8'), 'downgrade')
+        self.assertEqual(kind('7.6.10', '7.6.9'), 'downgrade')     # compared as numbers, not text
+        self.assertEqual(kind('7.6.9', '7.6.10'), 'patch')
+        self.assertEqual(kind('unknown', '8.0.2'), 'unknown')
+        self.assertEqual(kind('7.6', '8.0.2'), 'unknown')
+
+    def test_blue_green_across_major_or_minor_is_refused_until_confirmed(self):
+        for cur, tgt in (('7.6.8', '8.0.2'), ('7.4.9', '7.6.8'), ('unknown', '8.0.2')):
+            errors = discover.upgrade_path_errors(self.change(cur, tgt), blue_green=True)
+            self.assertTrue(errors, (cur, tgt))
+            text = '\n'.join(errors)
+            self.assertIn(discover.UPGRADE_PATH_TOOL_URL, text)
+            self.assertIn('--upgrade-path-verified', text)
+            self.assertEqual(discover.upgrade_path_errors(self.change(cur, tgt, verified=True), blue_green=True), [])
+
+    def test_blue_green_patch_and_same_version_are_allowed(self):
+        self.assertEqual(discover.upgrade_path_errors(self.change('7.6.7', '7.6.8'), blue_green=True), [])
+        self.assertEqual(discover.upgrade_path_errors(self.change('7.6.8', '7.6.8'), blue_green=True), [])
+
+    def test_downgrade_is_refused_even_when_confirmed(self):
+        errors = discover.upgrade_path_errors(self.change('8.0.2', '7.6.8', verified=True), blue_green=True)
+        self.assertIn('downgrade', '\n'.join(errors))
+
+    def test_in_place_upgrades_are_not_gated(self):
+        self.assertEqual(discover.upgrade_path_errors(self.change('7.6.8', '8.0.2'), blue_green=False), [])
+        self.assertEqual(discover.upgrade_path_errors(None, blue_green=True), [])
+
+    def test_discovery_stops_and_writes_no_inventory(self):
+        inventory = {'version_change': self.change('7.6.8', '8.0.2')}
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, 'blue_inventory.json')
+            argv = ['discover.py', '--vpc-state', 'vpc.tfstate', '--target-version', '8.0.2', '--output', out]
+            with mock.patch.object(discover, 'discover', return_value=inventory), \
+                 mock.patch.object(sys, 'argv', argv), \
+                 contextlib.redirect_stdout(io.StringIO()) as printed:
+                with self.assertRaises(SystemExit) as stop:
+                    discover.main()
+            self.assertEqual(stop.exception.code, 2)
+            self.assertFalse(os.path.exists(out))
+            self.assertIn('crosses a major version', printed.getvalue())
+
+    def test_discovery_passes_the_confirmation_through(self):
+        seen = {}
+
+        def fake_discover(state, target, vpc_state, region, upgrade_path_verified=False):
+            seen['verified'] = upgrade_path_verified
+            return {'version_change': self.change('7.6.8', '8.0.2', verified=upgrade_path_verified)}
+
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, 'blue_inventory.json')
+            argv = ['discover.py', '--vpc-state', 'vpc.tfstate', '--target-version', '8.0.2',
+                    '--output', out, '--upgrade-path-verified']
+            with mock.patch.object(discover, 'discover', side_effect=fake_discover), \
+                 mock.patch.object(discover, 'print_summary'), \
+                 mock.patch.object(sys, 'argv', argv), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                discover.main()
+            self.assertTrue(seen['verified'])
+            self.assertTrue(os.path.exists(out))
+
+    def test_running_version_comes_from_the_instances_ami(self):
+        class EC2:
+            def describe_instances(self, InstanceIds):
+                return {'Reservations': [{'Instances': [
+                    {'InstanceId': 'i-a', 'ImageId': 'ami-768'},
+                    {'InstanceId': 'i-b', 'ImageId': 'ami-none'}]}]}
+
+            def describe_images(self, ImageIds):
+                if ImageIds == ['ami-768']:
+                    return {'Images': [{'Architecture': 'arm64', 'ProductCodes': [],
+                                        'Name': 'FortiGate-VMARM64-AWS build3744 (7.6.8) GA-x'}]}
+                return {'Images': []}
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            versions = discover.running_fortios_versions(EC2(), ['i-a', 'i-b'])
+        self.assertEqual(versions, {'i-a': '7.6.8', 'i-b': 'unknown'})
+
+    def test_cutover_repeats_the_check(self):
+        self.assertEqual(cutover.upgrade_path_errors({'version_change': self.change('7.6.7', '7.6.8')}), [])
+        self.assertEqual(
+            cutover.upgrade_path_errors({'version_change': self.change('7.6.8', '8.0.2', verified=True)}), [])
+        self.assertTrue(cutover.upgrade_path_errors({'version_change': self.change('7.6.8', '8.0.2')}))
+        self.assertTrue(cutover.upgrade_path_errors({'version_change': self.change('8.0.2', '7.6.8', verified=True)}))
+        self.assertIn('discover.py', '\n'.join(cutover.upgrade_path_errors({})))     # older inventory
+
+    def test_cutover_exits_before_touching_aws(self):
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as stop:
+            cutover.run_cutover({'version_change': self.change('7.6.8', '8.0.2')}, {}, True, True, 'unused')
+        self.assertEqual(stop.exception.code, 2)
+
+
+class RestoreGateTests(Base):
+    """An in-place upgrade that restores a backup from another minor or major version."""
+
+    def backup(self, version, name='primary.conf', directory=None):
+        path = os.path.join(directory or self.backups.name, name)
+        with open(path, 'w') as f:
+            if version:
+                f.write(f'#config-version=FGAAWS-{version}-FW-build1234-260101:opmode=0:vdom=0:user=admin\n')
+            f.write('#conf_file_ver=1\nconfig system global\nend\n')
+        return path
+
+    def setUp(self):
+        super().setUp()
+        self.backups = tempfile.TemporaryDirectory()
+        self.addCleanup(self.backups.cleanup)
+
+    def start(self, aws, inv, restore_config=None, verified=False):
+        """Run up to the first prompt and answer no. Returns (output, prompts, exit code)."""
+        args = types.SimpleNamespace(restore_config=restore_config, allow_single_instance=False,
+                                     fgt_api_key=None, fgt_mgmt_port=443,
+                                     upgrade_path_verified=verified, state_dir=self.tmp.name)
+        prompts, out, code = [], io.StringIO(), None
+
+        def respond(prompt=''):
+            prompts.append(prompt)
+            return 'n'
+        with mock.patch.object(up.time, 'sleep', aws.tick), \
+                mock.patch.object(builtins, 'input', respond), \
+                mock.patch.object(up, 'credentials_expiry', lambda: None), \
+                contextlib.redirect_stdout(out):
+            try:
+                up.run(args, inv, 'eu-central-1', aws, aws, aws)
+            except SystemExit as e:
+                code = e.code
+        return out.getvalue(), prompts, code
+
+    def test_backup_version_is_read_from_the_file(self):
+        self.assertEqual(discover.backup_fortios_version(self.backup('7.4.11')), '7.4.11')
+        self.assertEqual(discover.backup_fortios_version(self.backup(None, 'encrypted.conf')), 'unknown')
+        self.assertEqual(discover.backup_fortios_version(os.path.join(self.backups.name, 'missing.conf')),
+                         'unknown')
+
+    def test_rolling_restore_across_a_minor_version_is_refused(self):
+        aws, inv, _ = build(byol=2)                       # target is 7.6.8
+        out, prompts, code = self.start(aws, inv, restore_config=self.backup('7.4.11'))
+        self.assertEqual(code, 2)
+        self.assertEqual(prompts, [])                     # stopped before asking anything
+        self.assertIn('from FortiOS 7.4.11 to 7.6.8 crosses a minor version', out)
+        self.assertIn(discover.UPGRADE_PATH_TOOL_URL, out)
+        self.assertIn('Nothing was changed.', out)
+
+    def test_rolling_restore_goes_ahead_once_confirmed(self):
+        aws, inv, _ = build(byol=2)
+        out, prompts, code = self.start(aws, inv, restore_config=self.backup('7.4.11'), verified=True)
+        self.assertEqual(len(prompts), 1)                 # reached "Proceed?"
+        self.assertEqual(code, 0)
+
+    def test_confirmation_recorded_at_discovery_is_accepted(self):
+        aws, inv, _ = build(byol=2)
+        inv['version_change'] = {'from': '7.4.11', 'to': '7.6.8', 'kind': 'minor',
+                                 'upgrade_path_verified': True}
+        _, prompts, code = self.start(aws, inv, restore_config=self.backup('7.4.11'))
+        self.assertEqual((len(prompts), code), (1, 0))
+
+    def test_restore_within_one_minor_version_is_not_gated(self):
+        aws, inv, _ = build(byol=2)
+        _, prompts, code = self.start(aws, inv, restore_config=self.backup('7.6.7'))
+        self.assertEqual((len(prompts), code), (1, 0))
+
+    def test_rolling_upgrade_without_a_restore_is_not_gated(self):
+        aws, inv, _ = build(byol=2)
+        inv['target']['fortios_version'] = '8.0.2'
+        inv['version_change'] = {'from': '7.6.8', 'to': '8.0.2', 'kind': 'major',
+                                 'upgrade_path_verified': False}
+        _, prompts, code = self.start(aws, inv)
+        self.assertEqual((len(prompts), code), (1, 0))
+
+    def test_backup_version_wins_over_the_running_version(self):
+        # The group runs 7.6.8, but the file being restored is an old 7.2.13 backup.
+        aws, inv, _ = build(byol=2)
+        inv['version_change'] = {'from': '7.6.8', 'to': '7.6.8', 'kind': 'same',
+                                 'upgrade_path_verified': False}
+        out, _, code = self.start(aws, inv, restore_config=self.backup('7.2.13'))
+        self.assertEqual(code, 2)
+        self.assertIn('taken on 7.2.13', out)
+
+    def test_unreadable_backup_falls_back_to_the_running_version(self):
+        aws, inv, _ = build(byol=2)
+        inv['target']['fortios_version'] = '8.0.2'
+        inv['version_change'] = {'from': '7.6.8', 'to': '8.0.2', 'kind': 'major',
+                                 'upgrade_path_verified': False}
+        out, _, code = self.start(aws, inv, restore_config=self.backup(None))
+        self.assertEqual(code, 2)
+        self.assertIn('from FortiOS 7.6.8 to 8.0.2 crosses a major version', out)
+        self.assertIn('could not be read', out)
+
+    def test_restoring_a_newer_backup_is_refused_even_when_confirmed(self):
+        aws, inv, _ = build(byol=2)
+        out, _, code = self.start(aws, inv, restore_config=self.backup('8.0.2'), verified=True)
+        self.assertEqual(code, 2)
+        self.assertIn('downgrade', out)
+
+    def test_scale_from_zero_restore_is_gated_too(self):
+        aws, inv, _ = build(byol=0)
+        self.backup('7.2.13', 'blue_primary_config.conf', directory=self.tmp.name)
+        out, prompts, code = self.start(aws, inv)
+        self.assertEqual((prompts, code), ([], 2))
+        self.assertIn('from FortiOS 7.2.13 to 7.6.8 crosses a minor version', out)
+        _, prompts, code = self.start(aws, inv, verified=True)
+        self.assertEqual((len(prompts), code), (1, 0))
 
 
 if __name__ == '__main__':
