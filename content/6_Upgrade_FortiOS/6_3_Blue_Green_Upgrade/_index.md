@@ -21,7 +21,9 @@ after the switch until you decide to remove it.
   relies on new FortiGates copying their configuration from old ones, and FortiGates on
   different major versions (7.4 and 7.6) cannot do that. In blue-green, Green's
   FortiGates never talk to Blue's. The configuration moves as a backup file, taken from
-  Blue's primary and restored to Green's primary.
+  Blue's primary and restored to Green's primary. That restore is itself a version
+  conversion, so it only works where Fortinet supports going from the old version to
+  the new one in a single step. See [Check the upgrade path first](#check-the-upgrade-path-first).
 - **The old environment stays intact.** If Green misbehaves after the switch, one
   command sends traffic back to Blue.
 - **Green is deployed fresh.** Problems in the existing stack, such as broken alarms or
@@ -113,6 +115,12 @@ Green Inspection VPC  (10.0.0.0/16)  ← SAME CIDR as Blue
     └── Lambda (current version)
 ```
 
+Green also gets its own Transit Gateway route table. Terraform fills it with the return
+routes to the spoke and management VPCs, and gives Green's GWLB endpoint subnets the same
+RFC1918 routes to the Transit Gateway that Blue's have. Green can therefore forward and
+return traffic as soon as the spoke routes are flipped; the cutover itself only changes
+the spoke route tables.
+
 ### After Cutover
 
 ```
@@ -152,6 +160,54 @@ causes no routing conflict while they coexist.
 
 ---
 
+## Check the Upgrade Path First
+
+A blue-green upgrade does not upgrade a FortiGate. It takes a configuration backup on the
+version Blue runs and restores it on Green FortiGates that already run the target
+version. FortiOS converts the older backup when it is restored, in one step.
+
+Fortinet tests upgrades step by step along a supported upgrade path. When that path has
+intermediate versions between Blue's version and the target, a blue-green upgrade skips
+them, and the restore can lose or corrupt configuration. Fortinet's own position is
+narrower still: restoring a backup is officially supported on the same model and the same
+firmware version, and a backup from an older version is converted automatically but
+should be checked afterwards.
+
+Before a blue-green upgrade that crosses a minor or major version (7.4 to 7.6, or 7.6 to
+8.0):
+
+1. Open the [Upgrade Path Tool](https://docs.fortinet.com/upgrade-tool/fortigate). Select the FortiGate-VM AWS
+   model, the version Blue is running and the target version.
+2. Continue only if the recommended path is a **single step** from one to the other.
+   If the tool lists intermediate versions, upgrade to the last intermediate version
+   first — in place, or with a blue-green upgrade per step — and start again from there.
+3. Read "Upgrade information" and the special notices in the target version's release
+   notes. Some versions must not be skipped even within one minor version.
+
+The tool gives the recommended path and is updated from time to time, so check it close
+to the upgrade, not weeks before.
+
+The scripts enforce this. `discover.py` compares the version Blue's primary is running
+with `--target-version`. For a blue-green discovery (`--vpc-state`) that crosses a minor
+or major version it stops with an error and writes no inventory until it is run with
+`--upgrade-path-verified`, which is your statement that step 2 holds. `cutover.py` checks
+the same thing again before it moves any traffic, and refuses an inventory that does not
+carry the confirmation. A downgrade is always refused: Fortinet supports no downgrade
+paths, and a newer backup cannot be restored on older firmware.
+
+A patch upgrade within one minor version (7.6.7 to 7.6.8) is not stopped, but discovery
+prints the link as a reminder. An [in-place upgrade](../6_2_in_place_upgrade/) that
+restores a configuration backup is held to the same rule.
+
+{{% notice warning %}}
+`--upgrade-path-verified` records that you checked; it does not check anything itself.
+The restore onto Green is still the real test. Compare Green's configuration with Blue's
+during Phase 3 before cutting over. Blue is untouched until then, so a restore that goes
+wrong costs only Green.
+{{% /notice %}}
+
+---
+
 ## Phase 0 — Discovery
 
 **Goal:** Produce a complete inventory of the Blue environment.
@@ -170,6 +226,9 @@ python3 scripts/discover.py \
   --output state/blue_inventory.json
 ```
 
+If the upgrade crosses a minor or major version, this stops with an error. Do the
+[upgrade path check](#check-the-upgrade-path-first), then add `--upgrade-path-verified`.
+
 Review the output before proceeding:
 
 ```bash
@@ -179,6 +238,13 @@ python3 -m json.tool state/blue_inventory.json | less
 **Gate:** Operator reviews inventory and confirms all resources are identified correctly.
 Note the key values you will need for Green `terraform.tfvars`: `inspection_vpc.cidr_block`,
 `egress_mode`, `autoscale_groups.byol.desired/min/max`, AZs, and TGW name.
+
+`egress_mode` is `nat_gw` when the Blue inspection VPC has NAT gateways and `eip` when it
+does not. The NAT gateways belong to `existing_vpc_resources`, so they are only found when
+`--vpc-state` is given. Use this value for Green's `access_internet_mode`, even if
+`access_internet_mode` in Blue's `autoscale_template` says otherwise: a Blue inspection
+VPC built with NAT gateway subnets sends FortiGate traffic through them whatever the
+FortiGate setting is, and only the matching mode gives Green the same subnet CIDRs as Blue.
 
 See [Discovery](../6_4_discovery/) for details on the inventory schema.
 
@@ -225,6 +291,7 @@ Complete this checklist before Phase 2. All items must be confirmed before deplo
 - [ ] Enough licenses available for 2× capacity — Blue and Green run simultaneously during the monitoring window
 - [ ] For BYOL: S3 license bucket has sufficient `.lic` files for Green instances
 - [ ] For FortiFlex: token pool has capacity for Green desired count
+- [ ] For FortiFlex: Green's `fortiflex_sn_list` contains **only serials Blue is not using** — Green has its own Lambda and serial pool, and a serial listed in both stacks can be issued to a Blue and a Green FortiGate at the same time
 - [ ] For PAYG: no license action needed
 
 **Capacity**
@@ -237,11 +304,16 @@ Complete this checklist before Phase 2. All items must be confirmed before deplo
 - [ ] FortiGate API key ready for the Green primary (needed for config restore)
 - [ ] FortiManager access available to re-authorize Green serial numbers (if FortiManager is enabled)
 
+**Upgrade Path**
+- [ ] Fortinet's Upgrade Path Tool gives a single-step path from Blue's running version to the target version
+- [ ] Target version's release notes read for upgrade information and special notices
+
 **Config and State**
 - [ ] Phase 0 (Discovery) complete — `state/blue_inventory.json` exists and reviewed
 - [ ] Phase 1 (Backup) complete — `state/blue_primary_config.conf` exists and readable
 - [ ] Green `terraform.tfvars` prepared — `fortios_version` set, all required fields populated
 - [ ] `vpc_cidr_inspection` in Green tfvars **matches Blue exactly** (required for config restore)
+- [ ] `access_internet_mode` in Green tfvars matches `egress_mode` in `blue_inventory.json`
 - [ ] `asg_module_prefix` set to `"green"` (avoids resource name collisions with Blue)
 - [ ] `asg_license_directory` points to a valid directory (create empty `asg_license/` for FortiFlex/PAYG)
 
@@ -286,10 +358,18 @@ availability_zone_2  = "c"
 vpc_cidr_inspection  = "10.0.0.0/16"   # MUST match Blue
 subnet_bits          = 8               # MUST match Blue
 firewall_policy_mode = "2-arm"         # MUST match Blue
-access_internet_mode = "nat_gw"        # MUST match Blue
+access_internet_mode = "nat_gw"        # MUST match egress_mode in blue_inventory.json
 
 # ── Green-specific ─────────────────────────────────────
 asg_module_prefix    = "green"         # REQUIRED: different from Blue
+
+# ── Capacity ───────────────────────────────────────────
+# With FortiFlex start at one instance: two instances that launch together can be
+# issued the same serial. Raise min/desired to Blue's values once the first FortiGate
+# shows License Status: Valid.
+asg_byol_asg_min_size     = 1
+asg_byol_asg_max_size     = 2
+asg_byol_asg_desired_size = 1
 
 # ── Licensing ──────────────────────────────────────────
 # asg_license_directory MUST point to a directory, even if empty.
@@ -297,7 +377,32 @@ asg_module_prefix    = "green"         # REQUIRED: different from Blue
 # attempt to upload every file it finds as a license — which will fail.
 # For FortiFlex or PAYG: create an empty directory and point to it.
 asg_license_directory = "asg_license"  # directory exists but is empty for FortiFlex/PAYG
+
+# FortiFlex: only serials Blue is NOT using (see the pre-deployment checklist)
+fortiflex_sn_list = ["FGVMXXXX00000003", "FGVMXXXX00000004"]
 ```
+
+#### Transit Gateway return routes
+
+Green's own Transit Gateway route table needs a route to every VPC the FortiGates
+forward to, as Blue's inspection route table has. By default Terraform derives them from
+the Transit Gateway: one static route per CIDR of every attached VPC, pointing at that
+VPC's attachment. VPCs whose primary CIDR equals `vpc_cidr_inspection` (Blue's inspection
+VPC, and Green's own) are skipped.
+
+Set `tgw_return_routes` to list the routes yourself when a destination is not a VPC in
+the same account and region — a VPN, Direct Connect, a peering attachment, or a VPC
+attached from another account — because those cannot be looked up:
+
+```hcl
+tgw_return_routes = {
+  "192.168.0.0/24" = "tgw-attach-0123456789abcdef0"
+  "192.168.1.0/24" = "tgw-attach-0fedcba9876543210"
+}
+```
+
+Compare the result with Blue's inspection route table in `terraform plan` before applying:
+the `aws_ec2_transit_gateway_route.green_return` entries should match it route for route.
 
 {{% notice warning %}}
 `asg_license_directory` must always point to a valid directory path, even when using
@@ -385,9 +490,14 @@ These checks confirm that Green is structurally sound before automated validatio
 - [ ] Green inspection VPC created with correct CIDR (matches Blue)
 - [ ] Green NAT Gateways created in both AZs (will have temporary EIPs)
 - [ ] Green GWLB created and GWLB endpoints are in "Available" state
+- [ ] Green TGW route table has the same routes as Blue's inspection TGW route table (spoke and management CIDRs)
+- [ ] Green GWLB endpoint route tables have the RFC1918 routes to the Transit Gateway and a default route to the internet gateway
+- [ ] Green public route tables default-route to the Green NAT gateways (`nat_gw` mode) or the internet gateway (`eip` mode)
 
 **FortiGate Health**
 - [ ] Green ASG instances launched and in `InService` lifecycle state
+- [ ] `get system status` on each Green FortiGate shows `License Status: Valid`, and each has its own serial
+- [ ] Green ASG raised from one instance to its final size once the first instance is licensed (FortiFlex)
 - [ ] One Green instance has `ProtectedFromScaleIn: true` (primary elected)
 - [ ] Green primary FortiGate accessible via HTTPS on management port
 - [ ] Config restore completed without errors (check FortiGate event log)
@@ -458,6 +568,7 @@ Before running the cutover script, confirm:
 - [ ] Change window open (if required by your organization)
 - [ ] Application teams notified of brief session interruption
 - [ ] `state/green.tfstate` present in `upgrade_fortios/state/` directory
+- [ ] `blue_inventory.json` was produced with `--upgrade-path-verified` if the upgrade crosses a minor or major version (`cutover.py` refuses to run otherwise)
 
 ### Preview the Cutover Plan
 
@@ -640,22 +751,47 @@ state files (`autoscale_template` and `existing_vpc_resources`). The inspection 
 is in `existing_vpc_resources` alongside shared infrastructure (TGW, management VPC,
 spokes) — **do not run `terraform destroy` on `existing_vpc_resources`.**
 
-Instead, destroy Blue resources selectively using targeted AWS CLI commands or by removing
-them from the `autoscale_template` state and running `terraform destroy`:
+Destroy the `autoscale_template` resources (ASG, GWLB, Lambda, DynamoDB, launch templates)
+with Terraform, after taking the spoke default routes out of its state.
+
+{{% notice warning %}}
+With `create_tgw_routes_for_existing = true`, Blue's `autoscale_template` state owns the
+spoke route tables' default routes. After cutover those routes point at **Green**.
+`terraform destroy` deletes a Transit Gateway route by route table and destination,
+whatever it points at, so destroying Blue as it stands removes the routes that send
+spoke traffic to Green. Remove them from the state first.
+{{% /notice %}}
 
 ```bash
 cd terraform/autoscale_template
 
-# Review what will be destroyed — ensure shared resources are NOT listed
+# The spoke default routes this state owns
+terraform state list | grep aws_ec2_transit_gateway_route
+
+# Stop Terraform managing them. This changes nothing in AWS.
+terraform state rm \
+  'aws_ec2_transit_gateway_route.east-default-route-to-inspection[0]' \
+  'aws_ec2_transit_gateway_route.west-default-route-to-inspection[0]'
+
+# Review what will be destroyed. No aws_ec2_transit_gateway_route may be listed,
+# and nothing outside the Blue inspection VPC and the Blue ASG stack.
 terraform plan -destroy
 
-# Destroy only autoscale_template resources (ASG, GWLB, Lambda, DynamoDB, LTs)
 terraform destroy
 ```
 
-The Blue inspection VPC and its subnets must be deleted separately after confirming
-no other resources depend on them. The TGW attachment for Blue should already be in
-a `deleted` state after `cutover.py` ran the TGW route flip — verify before proceeding.
+The two spoke default routes keep pointing at Green and are no longer managed by any
+Terraform state. Blue's inspection VPC, its Transit Gateway attachment and its inspection
+route table are not touched by this. They belong to `existing_vpc_resources` and stay in place, unused,
+until they are removed there. `cutover.py` flips routes; it does not delete the Blue
+attachment.
+
+{{% notice note %}}
+In `nat_gw` mode the cutover deleted Blue's NAT gateways and moved their Elastic IPs to
+Green, but the `existing_vpc_resources` state still records both. Read `terraform plan`
+in `terraform/existing_vpc_resources` before any later apply there: it will propose
+recreating the Blue NAT gateways with Elastic IPs that Green is now using.
+{{% /notice %}}
 
 After destroy completes:
 - Archive `blue_primary_config.conf` and `blue_inventory.json` for audit purposes
