@@ -47,6 +47,8 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+import discover
+
 
 POLL_INTERVAL = 15   # seconds between status polls
 MAX_WAIT_MINS = 10   # minutes to wait for replacement to become InService
@@ -1272,6 +1274,11 @@ def main():
                              'If omitted, the restore falls back to a manual prompt.')
     parser.add_argument('--fgt-mgmt-port', type=int, default=443,
                         help='FortiGate management HTTPS port (default: 443)')
+    parser.add_argument('--upgrade-path-verified', action='store_true',
+                        help='Confirm that Fortinet\'s Upgrade Path Tool gives a single-step path '
+                             'from the version the config backup was taken on to the target '
+                             'version. Required when a config restore (Path C, or Path B with '
+                             '--restore-config) crosses a minor or major version.')
     parser.add_argument('--allow-single-instance', action='store_true',
                         help='Path B: allow replacing the only instance in the group. '
                              'This is an outage until the replacement is in service.')
@@ -1304,6 +1311,34 @@ def main():
         sys.exit(1)
 
 
+def restore_upgrade_path_errors(inventory, conf_file, verified):
+    """
+    Why this run must not restore conf_file, as lines of text. Empty when it may.
+
+    The version the backup was taken on is read from the backup itself; if it cannot be
+    (an encrypted backup), the version discovery found running is used. A restore that
+    crosses a minor or major version is refused until the operator has confirmed the
+    upgrade path, here with --upgrade-path-verified or at discovery.
+    """
+    change = inventory.get('version_change') or {}
+    arch = inventory.get('architecture', {})
+    target = inventory.get('target', {}).get('fortios_version')
+    backup_version = discover.backup_fortios_version(conf_file)
+    source = backup_version
+    if source == 'unknown':
+        source = (change.get('from') or arch.get('running_fortios_version')
+                  or arch.get('current_fortios_version') or 'unknown')
+    name = os.path.basename(conf_file)
+    taken_on = (f"taken on {backup_version}" if backup_version != 'unknown'
+                else f"whose version could not be read (assumed {source})")
+    return discover.restore_path_errors(
+        source, target, verified or change.get('upgrade_path_verified'),
+        upgrade='in-place upgrade with a config restore',
+        restores=(f"This run restores {name}, a configuration backup {taken_on}, onto a\n"
+                  f"  FortiGate running {target}."),
+        confirm='Then run this again with --upgrade-path-verified.')
+
+
 def run(args, inventory, region, ec2, autoscaling, elbv2, dynamodb=None):
     arch = inventory.get('architecture', {})
     table_name = (inventory.get('dynamodb') or {}).get('table_name')
@@ -1334,6 +1369,21 @@ def run(args, inventory, region, ec2, autoscaling, elbv2, dynamodb=None):
         upgrade_path = 'C' if conf_file else 'A'
     else:
         upgrade_path = 'B'
+
+    # ── Upgrade path check for a config restore ──
+    # Path C always restores a backup; Path B only with --restore-config. Restoring a
+    # backup from another minor or major version is a version conversion in one step,
+    # so it is refused until the upgrade path has been confirmed.
+    restore_file = conf_file if upgrade_path == 'C' else getattr(args, 'restore_config', None)
+    if restore_file:
+        errors = restore_upgrade_path_errors(inventory, restore_file,
+                                             getattr(args, 'upgrade_path_verified', False))
+        if errors:
+            print()
+            print('\n'.join(errors))
+            print()
+            print("  Nothing was changed.")
+            sys.exit(2)
 
     # ── Pre-flight summary ─────────────────────
     banner("In-Place FortiOS Upgrade — Pre-flight Summary")

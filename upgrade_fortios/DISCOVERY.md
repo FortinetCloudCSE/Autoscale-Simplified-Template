@@ -35,7 +35,9 @@ terraform state pull > ../../upgrade_fortios/state/existing_vpc_resources.tfstat
 - Inspection VPC ID and CIDR block
 - Subnet IDs, CIDRs, and AZs
 - Internet Gateway ID
-- NAT Gateway IDs and EIP allocation IDs (if `access_internet_mode = "nat_gw"`)
+- NAT Gateway IDs and EIP allocation IDs of the inspection VPC. These are created by
+  `existing_vpc_resources`, so they are read from `--vpc-state`; without it none are found
+  and `egress_mode` is reported as `eip`
 - TGW attachment ID and TGW route table ID (inspection VPC attachment)
 - TGW routes managed by the module
 - GWLB ARN, target group ARN, and endpoint IDs
@@ -76,6 +78,7 @@ python3 scripts/discover.py \
 | `--state` | Path to `autoscale_template.tfstate` |
 | `--vpc-state` | Path to `existing_vpc_resources.tfstate` (for TGW cutover routes) |
 | `--target-version` | Target FortiOS version (e.g., `7.6.2`) — triggers AMI lookup |
+| `--upgrade-path-verified` | Required with `--vpc-state` (blue-green) when the upgrade crosses a minor or major version: confirms that Fortinet's Upgrade Path Tool (https://docs.fortinet.com/upgrade-tool/fortigate) gives a single-step path from the running version to the target. Without it discovery stops with an error and writes no inventory. Recorded in the inventory for `cutover.py` and `inplace_upgrade.py` |
 | `--output` | Path for `blue_inventory.json` output (default: `blue_inventory.json`) |
 
 ## Discovery Script Output: blue_inventory.json

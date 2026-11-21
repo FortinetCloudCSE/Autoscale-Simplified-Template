@@ -121,7 +121,10 @@ ASGs at zero → Path A, or Path C if a `.conf` backup is present in `state/`.
 Options: `--restore-config FILE` (Path B, cross-major only: restore this backup to the new
 primary after the roll), `--fgt-api-key KEY` (do a restore through the REST API instead of
 the GUI), `--fgt-mgmt-port PORT` (FortiGate admin HTTPS port used for a restore, default
-443), `--allow-single-instance` (accept the outage of replacing the only instance).
+443), `--allow-single-instance` (accept the outage of replacing the only instance),
+`--upgrade-path-verified` (required when a config restore crosses a minor or major version:
+confirms that Fortinet's Upgrade Path Tool, https://docs.fortinet.com/upgrade-tool/fortigate,
+gives a single-step path from the backup's version to the target).
 
 `./upgrade --in-place --fortios-version 7.6.8` runs refresh, discovery and the upgrade in
 order.

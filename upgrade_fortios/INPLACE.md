@@ -128,6 +128,14 @@ replacing the only instance is an outage.
 For a cross-major upgrade add `--restore-config backups/<file>.conf` to restore the backup
 to the new primary after the roll (this reboots it).
 
+A config restore (here or in Path C) that crosses a minor or major version stops before
+anything is changed, until the script is run with `--upgrade-path-verified`. The version
+is read from the first line of the backup file. Check Fortinet's Upgrade Path Tool
+(https://docs.fortinet.com/upgrade-tool/fortigate) first: restoring the backup is a
+version conversion in one step, so the tool must show a single-step path from the
+backup's version to the target. If it lists intermediate versions, upgrade one step at a
+time. A backup from a newer version than the target is always refused.
+
 Afterwards set `fortios_version` in `terraform/autoscale_template/terraform.tfvars` to the
 new version and run `terraform plan`.
 

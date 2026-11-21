@@ -75,6 +75,18 @@ variable "allow_cross_zone_load_balancing" {
   description = "Allow GWLB to use healthy instances in a different zone"
   type        = bool
 }
+variable "tgw_return_routes" {
+  description = <<-EOT
+    Static routes for the Green inspection TGW route table, as { "<cidr>" = "<tgw attachment id>" }.
+    These are the return routes from the Green FortiGates to the spoke and management VPCs.
+    Leave null to derive them from the Transit Gateway: one route per CIDR of every attached
+    VPC, except VPCs whose primary CIDR equals vpc_cidr_inspection. Set it when a destination
+    is not a VPC in this account and region (VPN, Direct Connect, peering, a VPC attached from
+    another account), or to use exactly the routes of Blue's inspection route table.
+  EOT
+  type        = map(string)
+  default     = null
+}
 variable "vpc_cidr_inspection" {
   description = "CIDR for the Green inspection VPC. Must be identical to Blue inspection VPC CIDR."
 }

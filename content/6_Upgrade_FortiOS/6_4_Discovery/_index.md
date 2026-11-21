@@ -122,6 +122,7 @@ python3 scripts/discover.py \
 | `--target-version` | Target FortiOS version (e.g., `7.6.8`) — triggers AMI lookup |
 | `--output` | Path for `blue_inventory.json` output (default: `blue_inventory.json`) |
 | `--region` | AWS region of the deployment. Default: read from the state file, then from the AWS CLI profile |
+| `--upgrade-path-verified` | Confirms that Fortinet's Upgrade Path Tool gives a single-step path from the running version to `--target-version`. Required for a blue-green discovery (`--vpc-state`) that crosses a minor or major version; without it discovery stops with an error and writes no inventory. The confirmation is recorded in the inventory, where `cutover.py` and `inplace_upgrade.py` read it. See [Check the upgrade path first](../6_3_blue_green_upgrade/#check-the-upgrade-path-first) |
 
 Discovery stops with an error, and writes no inventory, when the region cannot be
 determined, when the architecture of the current AMI cannot be read, or when no AMI for
@@ -136,7 +137,7 @@ the target version is found for one of the launch templates.
 | **VPC** | VPC ID, CIDR block, region, availability zones |
 | **Subnets** | IDs, CIDRs, and AZs for: public, private, GWLBE, NAT GW, management |
 | **Internet Gateway** | IGW ID |
-| **NAT Gateways** | NAT GW IDs, EIP allocation IDs, public IPs (if `nat_gw` egress mode) |
+| **NAT Gateways** | NAT GW IDs, EIP allocation IDs, public IPs of the inspection VPC's NAT gateways. They are created by `existing_vpc_resources`, so they are found only when `--vpc-state` is given. `egress_mode` is `nat_gw` when any are found, `eip` otherwise |
 | **Transit Gateway** | TGW ID, inspection attachment ID, TGW route table IDs, spoke attachment IDs, routes to update at cutover |
 | **GWLB** | Load balancer ARN, listener ARN, target group ARN, endpoint IDs per AZ |
 | **Auto Scaling Groups** | BYOL and On-Demand ASG names, launch template IDs/versions, desired/min/max, current instances, primary instance |
@@ -166,6 +167,31 @@ is set only when the deployment has `primary_scalein_protection = true`.
 
 `inplace_upgrade.py` identifies the primary again from live state when it runs, so an
 inventory taken before a primary change does not send it to the wrong instance.
+
+### Running Version and Version Change
+
+The launch template in the state file is what Terraform last applied. After an in-place
+upgrade that has not been reconciled it still names the old version. Discovery therefore
+also reads the AMI of the running instances and reports the version the primary is
+running (`architecture.running_fortios_version`), which is the version a configuration
+backup would be taken on.
+
+With `--target-version`, the inventory records the change as `version_change`:
+
+```json
+"version_change": {
+  "from": "7.6.8",
+  "to": "8.0.2",
+  "kind": "major",
+  "upgrade_path_verified": true
+}
+```
+
+`kind` is `same`, `patch` (7.6.7 to 7.6.8), `minor` (7.4 to 7.6), `major` (7.6 to 8.0),
+`downgrade`, or `unknown` when the running version cannot be read. `cutover.py` reads this
+section and refuses a `minor`, `major` or `unknown` change that is not verified, and any
+downgrade. `inplace_upgrade.py` applies the same rule to a config restore, using the
+version in the backup file itself.
 
 ### Architecture and Target AMI
 

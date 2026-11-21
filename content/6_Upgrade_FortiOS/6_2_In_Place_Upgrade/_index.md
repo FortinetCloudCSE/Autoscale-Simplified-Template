@@ -384,6 +384,24 @@ finishes, [reconcile Terraform](#after-the-upgrade-reconcile-terraform).
 
 ### Config Restore After the Roll (Cross-Major Only)
 
+{{% notice warning %}}
+Restoring a backup taken on one version onto another is a version conversion in one
+step. It is only a supported path when Fortinet's
+[Upgrade Path Tool](https://docs.fortinet.com/upgrade-tool/fortigate) gives a **single-step** path
+between the two versions. If the path has intermediate versions, upgrade one step at a
+time. Also read the target version's release notes.
+
+The script enforces this for every config restore, here and in Path C. It reads the
+version from the first line of the backup file and compares it with the target version.
+If the restore crosses a minor or major version (7.4 to 7.6, or 7.6 to 8.0) it stops
+before changing anything, until it is run with `--upgrade-path-verified`. That flag is
+your statement that the tool shows a single step; it checks nothing itself. Restoring a
+backup from a newer version than the target is always refused.
+
+A rolling replacement **without** a restore is not stopped. Discovery prints the link
+whenever the version changes.
+{{% /notice %}}
+
 For a cross-major upgrade the new secondaries cannot sync from the old primary, so the
 new primary ends up without the running configuration. Pass the backup explicitly to
 have it restored once every instance has been replaced:
@@ -392,6 +410,7 @@ have it restored once every instance has been replaced:
 python3 scripts/inplace_upgrade.py \
   --inventory state/blue_inventory.json \
   --restore-config backups/primary.conf \
+  --upgrade-path-verified \
   --fgt-api-key <api-key>   # optional — otherwise the script prompts for a GUI restore
 ```
 

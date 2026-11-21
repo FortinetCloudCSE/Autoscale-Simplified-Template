@@ -7,7 +7,10 @@
 #
 
 module "spk_tgw_gwlb_asg_fgt_igw" {
-  source = "git::https://github.com/fortinetdev/terraform-aws-cloud-modules.git//examples/spk_tgw_gwlb_asg_fgt_igw"
+  # Pinned to the same published registry release as terraform/autoscale_template, so Green is
+  # built by the module version Blue was. Change both together, then run `terraform init -upgrade`.
+  source  = "fortinetdev/cloud-modules/aws//examples/spk_tgw_gwlb_asg_fgt_igw"
+  version = "1.1.7"
 
   ## Root config
   region        = var.aws_region

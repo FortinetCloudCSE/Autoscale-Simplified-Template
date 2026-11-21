@@ -145,7 +145,7 @@ firewall_policy_mode = "1-arm"
 # @ui-required: true
 # @ui-width: full
 # @ui-default: nat_gw
-# @ui-help: NAT Gateway: Predictable source IP, additional cost. EIP: Distributed egress, no NAT Gateway cost.
+# @ui-help: NAT Gateway: Predictable source IP, additional cost. EIP: Distributed egress, no NAT Gateway cost. Must match the inspection VPC: NAT Gateway when it was built with NAT gateway subnets, EIP when it was not; terraform plan stops if they disagree.
 access_internet_mode = "nat_gw"
 
 #====================================================================================================

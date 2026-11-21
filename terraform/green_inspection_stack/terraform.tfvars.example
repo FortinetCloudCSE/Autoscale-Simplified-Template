@@ -57,9 +57,14 @@ vpc_cidr_spoke      = "192.168.0.0/16"
 subnet_bits         = 8               # Must match Blue exactly
 
 # ── Internet Egress ────────────────────────────────────────────────────────────
-# Must match Blue deployment.
+# Must match how Blue's inspection VPC was built, not only Blue's FortiGate setting:
+# use nat_gw if Blue's inspection VPC has NAT gateways (create_nat_gateway_subnets = true
+# in existing_vpc_resources), eip if it does not. The NAT gateway subnets shift the second
+# AZ's subnet indexes, so only the matching mode gives Green the same subnet CIDRs as Blue.
 # nat_gw: Green NAT GWs start with temp EIPs; Blue EIPs migrated at cutover.
+#         Public subnets default-route to the NAT gateway of their AZ.
 # eip: No NAT GWs created; each FortiGate gets its own EIP.
+#      Public subnets default-route to the internet gateway.
 
 access_internet_mode = "nat_gw"   # Must match Blue: "nat_gw" or "eip"
 
@@ -70,9 +75,20 @@ enable_dedicated_management_vpc = false
 enable_dedicated_management_eni = true
 
 # ── Transit Gateway ────────────────────────────────────────────────────────────
-# Green attaches to the same TGW as Blue.
-# TGW route tables are NOT modified — that is the operator's responsibility.
-# After apply, use output green_tgw_attachment_id to update spoke routes.
+# Green attaches to the same TGW as Blue and gets its own TGW route table.
+# Existing TGW route tables are NOT modified — flipping the spoke routes to
+# green_tgw_attachment_id is the cutover step (scripts/cutover.py).
+#
+# Green's own route table is filled with the return routes to the spoke and management
+# VPCs. By default they are derived from the TGW: one route per CIDR of every attached VPC
+# (VPCs with the inspection CIDR are skipped). Set tgw_return_routes to list them yourself
+# when a destination is not a VPC in this account and region (VPN, Direct Connect, peering,
+# cross-account attachment):
+#
+# tgw_return_routes = {
+#   "192.168.0.0/24" = "tgw-attach-0123456789abcdef0"
+#   "192.168.1.0/24" = "tgw-attach-0fedcba9876543210"
+# }
 
 enable_tgw_attachment = true
 attach_to_tgw_name    = "acme-test-tgw"
@@ -87,11 +103,13 @@ endpoint_name_az1 = "green-gwlbe_az1"
 endpoint_name_az2 = "green-gwlbe_az2"
 
 # ── Autoscale Group Capacity ───────────────────────────────────────────────────
-# Match Blue desired/min/max so Green starts at the same capacity.
+# Blue's maximum, but with FortiFlex start at min = desired = 1: two instances that launch
+# together can be issued the same FortiFlex serial. Raise min/desired to Blue's values once
+# the first FortiGate shows License Status: Valid.
 
 asg_byol_asg_min_size     = 1
 asg_byol_asg_max_size     = 4
-asg_byol_asg_desired_size = 2
+asg_byol_asg_desired_size = 1
 
 asg_ondemand_asg_min_size     = 0
 asg_ondemand_asg_max_size     = 4
@@ -116,6 +134,10 @@ allow_cross_zone_load_balancing = true
 #
 # NOTE: Both Blue and Green ASGs run simultaneously during the monitoring window.
 # Ensure enough licenses are available for 2x capacity before applying.
+#
+# FortiFlex: Green has its own Lambda and its own serial pool. fortiflex_sn_list must
+# contain ONLY serials Blue is not using. A serial listed in both stacks can be issued to
+# a Blue and a Green FortiGate at the same time, and only one of them will be licensed.
 
 asg_license_directory   = "asg_license"   # Must point to a directory (can be empty for FortiFlex/PAYG)
 fortiflex_username      = ""

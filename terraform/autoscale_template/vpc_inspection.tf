@@ -282,6 +282,57 @@ data "aws_nat_gateway" "inspection_az3" {
   }
 }
 
+#
+# Guard: access_internet_mode must agree with how the inspection VPC was built.
+#
+# The inspection VPC decides where its public subnets send their default route: to a NAT
+# gateway (create_nat_gateway_subnets = true in existing_vpc_resources) or to the internet
+# gateway. access_internet_mode here decides whether the FortiGates get their own public IP
+# on the data port. When the two disagree nothing fails at deploy time:
+#   eip    + NAT gateway route      -> FortiGate public IPs are assigned but never used; all
+#                                      egress leaves through the NAT gateways.
+#   nat_gw + internet gateway route -> FortiGates have no public IP and no NAT gateway to
+#                                      use, so they have no internet access at all.
+# The check reads the route table each public subnet is associated with and stops the plan
+# on either combination. A public subnet with no explicit route table association (it uses
+# the VPC's main route table) is not checked.
+#
+locals {
+  inspection_public_subnet_ids = merge(
+    {
+      az1 = data.aws_subnet.inspection_public_az1.id
+      az2 = data.aws_subnet.inspection_public_az2.id
+    },
+    var.availability_zone_3 != "" ? { az3 = data.aws_subnet.inspection_public_az3[0].id } : {}
+  )
+}
+data "aws_route_tables" "inspection_public_associated" {
+  for_each = local.inspection_public_subnet_ids
+  filter {
+    name   = "association.subnet-id"
+    values = [each.value]
+  }
+}
+data "aws_route_table" "inspection_public_associated" {
+  for_each       = { for az, rts in data.aws_route_tables.inspection_public_associated : az => rts.ids[0] if length(rts.ids) > 0 }
+  route_table_id = each.value
+
+  lifecycle {
+    postcondition {
+      condition = !(var.access_internet_mode == "eip" && anytrue([
+        for r in self.routes : r.cidr_block == "0.0.0.0/0" && try(length(r.nat_gateway_id), 0) > 0
+      ]))
+      error_message = "access_internet_mode is \"eip\", but the inspection VPC's public subnet in ${each.key} sends its default route to a NAT gateway (route table ${self.id}). The inspection VPC was built for NAT gateway egress (create_nat_gateway_subnets = true in existing_vpc_resources). Set access_internet_mode = \"nat_gw\", or rebuild the inspection VPC with create_nat_gateway_subnets = false."
+    }
+    postcondition {
+      condition = !(var.access_internet_mode == "nat_gw" && anytrue([
+        for r in self.routes : r.cidr_block == "0.0.0.0/0" && try(startswith(r.gateway_id, "igw-"), false)
+      ]))
+      error_message = "access_internet_mode is \"nat_gw\", but the inspection VPC's public subnet in ${each.key} sends its default route to the internet gateway (route table ${self.id}). The inspection VPC was built without NAT gateway subnets (create_nat_gateway_subnets = false in existing_vpc_resources). Set access_internet_mode = \"eip\", or rebuild the inspection VPC with create_nat_gateway_subnets = true."
+    }
+  }
+}
+
 # TGW Attachment (only needed when creating TGW routes for existing spoke VPCs)
 data "aws_ec2_transit_gateway_vpc_attachment" "inspection" {
   count = (var.enable_tgw_attachment && var.create_tgw_routes_for_existing) ? 1 : 0

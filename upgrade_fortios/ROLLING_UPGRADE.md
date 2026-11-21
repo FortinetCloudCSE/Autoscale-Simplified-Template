@@ -98,7 +98,8 @@ more reason the gate is a manual check.
 **Cross-major-version upgrades (e.g. 7.4.x → 7.6.x):** native config sync does not work.
 The new secondaries come up with the bootstrap configuration only. Run the roll with
 `--restore-config FILE` to restore the primary's backup to the new primary afterwards, or
-use Path C. See INPLACE.md.
+use Path C. Either restore is refused across a minor or major version until the upgrade
+path has been checked and `--upgrade-path-verified` is given. See INPLACE.md.
 
 ---
 
