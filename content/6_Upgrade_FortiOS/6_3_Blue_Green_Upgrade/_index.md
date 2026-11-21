@@ -258,17 +258,60 @@ See [Discovery](../6_4_discovery/) for details on the inventory schema.
 **Traffic impact:** None
 
 {{% notice warning %}}
-Do not skip this phase. The backup is required to restore Green's primary FortiGate to the
-current production configuration after Green launches.
+Do not skip this phase. Green's FortiGates start with the template's bootstrap
+configuration only. Everything configured on Blue since it was deployed reaches Green
+through this backup and no other way. Cut over without it and traffic moves to FortiGates
+that are missing those policies, addresses and routes.
 {{% /notice %}}
 
 1. Identify the primary FortiGate instance — it has `ProtectedFromScaleIn: true` in the
    Blue ASG. The `blue_inventory.json` shows the primary instance ID.
-2. Log in to the primary FortiGate GUI or SSH
-3. **System → Settings → Backup → Full Configuration**
-4. Save to `upgrade_fortios/state/blue_primary_config.conf`
+2. Log in to the primary FortiGate GUI
+3. **System → Settings → Backup → Full Configuration**. Do not encrypt the backup: the
+   scripts read its first line to check which FortiOS version it was taken on.
+4. Save to `upgrade_fortios/state/blue_primary_config.conf`, replacing any file of that
+   name left from an earlier upgrade
+5. Confirm the file is the backup you just took:
 
-**Gate:** Operator confirms backup file is present and readable.
+   ```bash
+   head -1 state/blue_primary_config.conf
+   ```
+
+   The line begins `#config-version=` and names the version Blue is running, for example
+   `#config-version=FGAAWS-7.6.8-FW-build3744-...`.
+
+**Gate:** The backup file is present and its first line names Blue's running version.
+
+`cutover.py` enforces this gate. It stops, before it moves any traffic, when
+`state/blue_primary_config.conf` is missing, cannot be read, or was taken on a FortiOS
+version other than the one Blue runs. See [Phase 4](#the-backup-check).
+
+### Backup From the Command Line
+
+The backup can be copied with SCP instead of the GUI. SCP is disabled on a FortiGate by
+default, so enable it on the primary first:
+
+```
+config system global
+    set admin-scp enable
+end
+```
+
+Then, from `upgrade_fortios/`:
+
+```bash
+scp -O admin@<primary-management-ip>:sys_config state/blue_primary_config.conf
+```
+
+`-O` selects the legacy SCP protocol, which FortiOS requires and current OpenSSH clients
+no longer use by default. The administrator account needs read-write access to System
+settings.
+
+{{% notice note %}}
+`501-Permission Denied` from this command means SCP is still disabled on the FortiGate.
+Check with `show full-configuration system global | grep admin-scp`. It is not a reason to
+go on without a backup: take it from the GUI.
+{{% /notice %}}
 
 ### What the Config Backup Contains
 
@@ -561,7 +604,8 @@ go through Green. Outbound source IPs are preserved after EIP migration complete
 
 Before running the cutover script, confirm:
 
-- [ ] Phase 1 (Backup) complete — `state/blue_primary_config.conf` exists
+- [ ] Phase 1 (Backup) complete — `state/blue_primary_config.conf` exists and was taken on the version Blue is running (`cutover.py` refuses to run otherwise)
+- [ ] That backup was restored to Green's primary and Green's policies were checked (the script cannot see this)
 - [ ] Phase 3 (Validate Green) passed — all automated checks green
 - [ ] Post-deployment verification checklist complete
 - [ ] Spoke VPC connectivity confirmed through Blue (last health check before cutover)
@@ -589,8 +633,30 @@ Dry-run output shows:
 - Blue attachment ID → Green attachment ID
 - Which Blue NAT Gateways will be deleted (EIPs shown)
 - Which Green NAT Gateways will be recreated with Blue EIPs
+- The configuration backup it checked: its FortiOS version, when it was saved, and a
+  warning if it is more than a day old
 
 Review this output carefully before proceeding.
+
+### The Backup Check
+
+Before anything else, in a dry run as well, `cutover.py` looks at the backup of Blue's
+primary (`state/blue_primary_config.conf`, or the file given with `--config-backup`). It
+stops with an error and changes nothing when:
+
+| Condition | Why it stops |
+|-----------|--------------|
+| The file is missing | Phase 1 was skipped, so Green has only its bootstrap configuration |
+| The first line is not `#config-version=...` | The file is encrypted or is not a FortiGate backup |
+| The backup's version is not the version Blue runs | The file is left over from an earlier upgrade and is not a backup of Blue as it runs now |
+
+The check covers what a script can see. It cannot tell whether the backup was restored to
+Green's primary: that is the operator's check in
+[Restore Config to Green Primary](#restore-config-to-green-primary).
+
+`--skip-backup-check` runs the cutover without a backup. Use it only when Green gets its
+whole configuration another way: FortiManager pushes it, or Blue has never been changed
+from the template's bootstrap configuration. The script prints a warning saying so.
 
 ### Execute the Cutover
 

@@ -951,6 +951,65 @@ class UpgradePathGateTests(unittest.TestCase):
         self.assertEqual(stop.exception.code, 2)
 
 
+class ConfigBackupGateTests(unittest.TestCase):
+    """cutover.py stops when the backup of Blue's primary is missing or is not of Blue as it runs."""
+
+    INVENTORY = {'version_change': {'from': '7.6.8', 'to': '8.0.2', 'kind': 'major',
+                                    'upgrade_path_verified': True}}
+
+    def backup(self, first_line):
+        f = tempfile.NamedTemporaryFile('w', suffix='.conf', delete=False)
+        f.write(first_line + '\nconfig system global\nend\n')
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def header(self, version):
+        return f'#config-version=FGAAWS-{version}-FW-build3744-260128:opmode=0:vdom=0:user=admin'
+
+    def test_backup_of_the_running_version_passes(self):
+        self.assertEqual(cutover.config_backup_errors(self.INVENTORY, self.backup(self.header('7.6.8'))), [])
+
+    def test_missing_backup_stops(self):
+        errors = '\n'.join(cutover.config_backup_errors(self.INVENTORY, '/nonexistent/blue.conf'))
+        self.assertIn('no configuration backup', errors)
+        self.assertIn('--skip-backup-check', errors)
+
+    def test_backup_left_from_an_earlier_upgrade_stops(self):
+        errors = '\n'.join(cutover.config_backup_errors(self.INVENTORY, self.backup(self.header('7.2.13'))))
+        self.assertIn('taken on FortiOS 7.2.13, but Blue is running 7.6.8', errors)
+
+    def test_unreadable_backup_stops(self):
+        errors = '\n'.join(cutover.config_backup_errors(self.INVENTORY, self.backup('#FGBK|4|encrypted')))
+        self.assertIn('not a readable FortiGate configuration backup', errors)
+
+    def test_unknown_running_version_checks_only_that_the_backup_is_readable(self):
+        inventory = {'version_change': {'from': 'unknown', 'to': '8.0.2'}}
+        self.assertEqual(cutover.config_backup_errors(inventory, self.backup(self.header('7.6.8'))), [])
+
+    def test_old_backup_is_flagged_in_the_preview(self):
+        path = self.backup(self.header('7.6.8'))
+        fresh = '\n'.join(cutover.describe_config_backup(path))
+        old = '\n'.join(cutover.describe_config_backup(path, now=os.path.getmtime(path) + 3 * 86400))
+        self.assertNotIn('WARNING', fresh)
+        self.assertIn('saved 3 day(s) ago', old)
+        self.assertIn('cannot see whether it was restored', fresh)
+
+    def test_cutover_exits_before_touching_aws(self):
+        with contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as stop:
+            cutover.run_cutover(self.INVENTORY, {}, True, True, 'unused', backup_path='/nonexistent/blue.conf')
+        self.assertEqual(stop.exception.code, 2)
+        self.assertIn('no configuration backup', out.getvalue())
+
+    def test_skip_flag_gets_past_the_check(self):
+        # Past the gate the next stop is the empty Green state (exit 1), reached without a backup.
+        with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(cutover.boto3, 'client'), \
+                self.assertRaises(SystemExit) as stop:
+            cutover.run_cutover(self.INVENTORY, {}, True, True, 'unused',
+                                backup_path='/nonexistent/blue.conf', skip_backup_check=True)
+        self.assertEqual(stop.exception.code, 1)
+
+
 class RestoreGateTests(Base):
     """An in-place upgrade that restores a backup from another minor or major version."""
 

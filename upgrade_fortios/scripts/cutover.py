@@ -27,20 +27,30 @@ Usage:
   python3 scripts/cutover.py \\
     --inventory  state/blue_inventory.json \\
     --green-state state/green.tfstate \\
+    [--config-backup state/blue_primary_config.conf] \\
     [--dry-run] [--yes]
 
 Options:
-  --dry-run    Preview all changes without executing any AWS API calls.
-  --yes        Skip the interactive confirmation prompt.
+  --dry-run            Preview all changes without executing any AWS API calls.
+  --yes                Skip the interactive confirmation prompt.
+  --config-backup      Backup of Blue's primary that was restored to Green. The cutover
+                       stops if it is missing or was taken on another FortiOS version.
+  --skip-backup-check  Run without that backup. Only when Green gets its configuration
+                       another way.
 """
 
 import argparse
 import boto3
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+import discover
+
+DEFAULT_CONFIG_BACKUP = 'state/blue_primary_config.conf'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -374,11 +384,77 @@ def upgrade_path_errors(inventory):
     return []
 
 
-def run_cutover(inventory, green_state, dry_run, yes, progress_path):
+def config_backup_errors(inventory, backup_path):
+    """
+    Why the cutover must not run, judged from the backup of Blue's primary. Empty when
+    it may.
+
+    Green's FortiGates start with the template's bootstrap configuration. Whatever was
+    configured on Blue after it was deployed reaches Green only when a backup of Blue's
+    primary is restored to Green's primary. This checks the part a script can see: the
+    backup exists, and it was taken on the version Blue runs now, so it is not a file
+    left over from an earlier upgrade. It cannot see whether the backup was restored.
+    """
+    skip = "       To cut over without it, because Green gets its configuration another way, add --skip-backup-check."
+    how = [
+        "       Green's FortiGates start with the bootstrap configuration only. Changes made on",
+        "       Blue since it was deployed reach Green only through this backup.",
+        "       On Blue's primary: System > Settings > Backup > Full Configuration (not encrypted).",
+        f"       Save it as {backup_path}, restore it to Green's primary, check Green's policies,",
+        "       then run the cutover again.",
+        skip,
+    ]
+    if not os.path.isfile(backup_path):
+        return [f"ERROR: no configuration backup of Blue at {backup_path}."] + how
+
+    backup_version = discover.backup_fortios_version(backup_path)
+    if backup_version == 'unknown':
+        return [
+            f"ERROR: {backup_path} is not a readable FortiGate configuration backup.",
+            "       Its first line should begin '#config-version='. An encrypted backup cannot be checked.",
+        ] + how
+
+    running = (inventory.get('version_change') or {}).get('from')
+    if discover.parse_version(running) and backup_version != running:
+        return [
+            f"ERROR: {backup_path} was taken on FortiOS {backup_version}, but Blue is running {running}.",
+            "       It is not a backup of Blue as it runs now.",
+        ] + how
+    return []
+
+
+def describe_config_backup(backup_path, now=None):
+    """Lines for the preview: the backup's version and age, and what the operator must confirm."""
+    taken = os.path.getmtime(backup_path)
+    age_days = int(((now or time.time()) - taken) // 86400)
+    when = datetime.fromtimestamp(taken).strftime('%Y-%m-%d %H:%M')
+    lines = [
+        f"Configuration backup: {backup_path}",
+        f"  FortiOS {discover.backup_fortios_version(backup_path)}, saved {when}",
+    ]
+    if age_days >= 1:
+        lines.append(f"  WARNING: saved {age_days} day(s) ago. Changes made on Blue since then are not in it.")
+    lines.append("  This script cannot see whether it was restored. Confirm that Green's primary has")
+    lines.append("  this configuration and that its policies were checked before you continue.")
+    return lines
+
+
+def run_cutover(inventory, green_state, dry_run, yes, progress_path,
+                backup_path=DEFAULT_CONFIG_BACKUP, skip_backup_check=False):
     errors = upgrade_path_errors(inventory)
+    if not errors and not skip_backup_check:
+        errors = config_backup_errors(inventory, backup_path)
     if errors:
         print('\n'.join(errors))
         sys.exit(2)
+
+    if skip_backup_check:
+        backup_lines = [
+            "WARNING: --skip-backup-check given. No backup of Blue was checked.",
+            "  Green carries only what its bootstrap configuration or FortiManager gave it.",
+        ]
+    else:
+        backup_lines = describe_config_backup(backup_path)
 
     region = inventory.get('discovery_metadata', {}).get('region', 'us-west-2')
     ec2 = boto3.client('ec2', region_name=region)
@@ -405,6 +481,8 @@ def run_cutover(inventory, green_state, dry_run, yes, progress_path):
         pairs = pair_natgws_by_az(ec2, blue_natgws, green_info)
 
     print_preview(routes, green_attach, blue_natgws, green_info, egress_mode, pairs)
+    print('\n'.join(backup_lines))
+    print()
 
     if dry_run:
         print("Dry-run complete. No changes made.")
@@ -607,6 +685,18 @@ def main():
         '--yes', action='store_true',
         help='Skip interactive confirmation prompt'
     )
+    parser.add_argument(
+        '--config-backup', default=DEFAULT_CONFIG_BACKUP,
+        help="Configuration backup of Blue's primary that was restored to Green's primary "
+             f"(default: {DEFAULT_CONFIG_BACKUP}). The cutover stops if it is missing, unreadable "
+             "or taken on a FortiOS version other than the one Blue runs."
+    )
+    parser.add_argument(
+        '--skip-backup-check', action='store_true',
+        help="Cut over without a configuration backup of Blue. Only when Green gets its "
+             "configuration another way, for example from FortiManager, or the template's "
+             "bootstrap configuration is all Blue has."
+    )
     args = parser.parse_args()
 
     try:
@@ -624,7 +714,8 @@ def main():
         sys.exit(1)
 
     try:
-        run_cutover(inventory, green_state, args.dry_run, args.yes, args.progress)
+        run_cutover(inventory, green_state, args.dry_run, args.yes, args.progress,
+                    backup_path=args.config_backup, skip_backup_check=args.skip_backup_check)
     except KeyboardInterrupt:
         print("\nInterrupted. Check state/cutover_progress.json to determine what ran.")
         sys.exit(1)

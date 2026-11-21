@@ -126,9 +126,28 @@ aws ec2 describe-instances \
 2. Log in as admin
 3. Go to System → Settings → Backup
 4. Select Full Configuration backup
-5. Save as `blue_primary_config.conf`
+5. Save as `state/blue_primary_config.conf`, replacing any file of that name left from an
+   earlier upgrade
 
-**Option B: CLI**
+Do not encrypt the backup: `cutover.py` reads its first line to check which FortiOS
+version it was taken on.
+
+**Option B: SCP**
+
+SCP is disabled on a FortiGate by default. Enable it on the primary first:
+```
+config system global
+    set admin-scp enable
+end
+```
+Then copy the configuration (`-O` selects the legacy SCP protocol FortiOS requires):
+```bash
+scp -O admin@<management-ip>:sys_config state/blue_primary_config.conf
+```
+`501-Permission Denied` means SCP is still disabled. Take the backup from the GUI
+rather than going on without one.
+
+**Option C: CLI to an FTP server**
 ```bash
 ssh admin@<management-ip> -p 22
 # In FortiGate CLI:
@@ -147,10 +166,21 @@ Record the version (e.g., `FortiOS v7.4.4 build2662`).
 
 ### Step 1.5 — Verify backup is readable
 
-Open `blue_primary_config.conf` in a text editor. Confirm it contains recognizable
-FortiGate configuration sections: `config system global`, `config firewall policy`, etc.
+```bash
+head -1 state/blue_primary_config.conf
+```
+
+The line begins `#config-version=` and names the version recorded in Step 1.4. A file
+that names another version is left over from an earlier upgrade: replace it. Open the
+file and confirm it contains recognizable FortiGate configuration sections:
+`config system global`, `config firewall policy`, etc.
 
 **GATE — Operator confirms backup file is complete and readable.**
+
+`cutover.py` checks this again in Phase 4. It stops, before it moves any traffic, when
+`state/blue_primary_config.conf` is missing, cannot be read, or was taken on a FortiOS
+version other than the one Blue runs. Green's FortiGates start with the bootstrap
+configuration only, so this backup is the only way Blue's later changes reach Green.
 
 ---
 
@@ -356,6 +386,12 @@ Review the output. Confirm:
 - Correct TGW route table IDs and CIDRs are listed
 - Blue attachment ID → Green attachment ID is correct
 - For nat_gw mode: correct Blue NAT GW IDs and EIPs are listed
+- The configuration backup shown is the one restored to Green's primary
+
+The script stops here if the backup of Blue's primary is missing, unreadable or from
+another FortiOS version (`--config-backup FILE` names a backup kept elsewhere).
+`--skip-backup-check` runs without one. Use it only when Green gets its whole
+configuration another way, for example from FortiManager.
 
 ### Step 4.2 — Execute cutover
 

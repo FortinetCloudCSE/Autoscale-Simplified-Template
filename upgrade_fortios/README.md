@@ -147,7 +147,7 @@ python3 tests/test_inplace_upgrade.py
 | Phase | Script / Action | Gate |
 |-------|-----------------|------|
 | 0 Discovery | `discover.py` | Review inventory |
-| 1 Backup | FortiGate GUI config export | Save to `state/blue_primary_config.conf` |
+| 1 Backup | FortiGate GUI config export | Save to `state/blue_primary_config.conf`; `cutover.py` stops without it |
 | 2 Deploy Green | `terraform apply` (green_inspection_stack) | Review plan |
 | 3 Validate | Manual health checks + console review | All checks pass |
 | 4 Cutover | `cutover.py --dry-run` then `cutover.py` | Monitor traffic |
