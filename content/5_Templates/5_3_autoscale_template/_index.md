@@ -412,6 +412,15 @@ access_internet_mode = "nat_gw"  # or "eip"
 - **nat_gw**: Production deployments (higher availability)
 - **eip**: Lower cost, simpler architecture
 
+{{% notice warning %}}
+This must agree with how the inspection VPC was built. Use `nat_gw` when
+`create_nat_gateway_subnets = true` in `existing_vpc_resources`, and `eip` when it is
+`false`. `terraform plan` checks the public subnets' route tables and stops with an error
+when the two disagree: with `eip` on a NAT gateway VPC the FortiGates' public IPs are
+never used, and with `nat_gw` on a VPC without NAT gateways the FortiGates have no
+internet access. `terraform destroy` is not blocked by the check.
+{{% /notice %}}
+
 See [Internet Egress](../../4_solution_components/4_1_internet_egress/) for detailed comparison.
 
 ### Step 7: Configure Management Options

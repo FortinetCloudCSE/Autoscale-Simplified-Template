@@ -71,6 +71,10 @@ fortigate_asg_password = ""
 #   "eip"    - Use Elastic IP per instance (distributed egress, no NAT Gateway cost)
 # See Solution Components documentation for detailed comparison
 #
+# Must agree with how the inspection VPC was built: "nat_gw" when create_nat_gateway_subnets
+# = true in existing_vpc_resources, "eip" when it is false. terraform plan stops with an error
+# when the public subnets' default route does not match this setting.
+#
 access_internet_mode = "nat_gw"
 
 # Firewall policy mode - defines FortiGate interface architecture
