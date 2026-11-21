@@ -113,15 +113,33 @@ resource "aws_route_table" "green_public_az2" {
   }
 }
 
+# Public subnet default route: the NAT gateway of the same AZ in nat_gw mode, the internet
+# gateway in eip mode. Mirrors existing_vpc_resources (inspection-public-default-route-*).
+# In nat_gw mode the FortiGates have no public IP on the data port, so a route straight to
+# the internet gateway would leave them without internet access.
 resource "aws_route" "green_public_az1_igw" {
+  count                  = local.enable_nat_gateway ? 0 : 1
   route_table_id         = aws_route_table.green_public_az1.id
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = aws_internet_gateway.green_inspection.id
 }
 resource "aws_route" "green_public_az2_igw" {
+  count                  = local.enable_nat_gateway ? 0 : 1
   route_table_id         = aws_route_table.green_public_az2.id
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = aws_internet_gateway.green_inspection.id
+}
+resource "aws_route" "green_public_az1_natgw" {
+  count                  = local.enable_nat_gateway ? 1 : 0
+  route_table_id         = aws_route_table.green_public_az1.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.green_az1[0].id
+}
+resource "aws_route" "green_public_az2_natgw" {
+  count                  = local.enable_nat_gateway ? 1 : 0
+  route_table_id         = aws_route_table.green_public_az2.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.green_az2[0].id
 }
 
 resource "aws_route_table_association" "green_public_az1" {
