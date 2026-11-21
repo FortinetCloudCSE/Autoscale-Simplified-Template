@@ -246,11 +246,14 @@ The `discover.py` script produces a flat JSON file. All sections are top-level k
 ### In-Place Upgrade
 
 `inplace_upgrade.py` reads:
-- `autoscale_groups.byol.desired` / `autoscale_groups.ondemand.desired` — path detection
-- `autoscale_groups.byol.asg_name` — ASG to operate on
-- `autoscale_groups.byol.primary_instance` — instance to terminate last (Path B)
+- `discovery_metadata.region` — region for every AWS call
+- `autoscale_groups.byol.asg_name` / `autoscale_groups.ondemand.asg_name` — ASGs to operate on
 - `launch_templates.byol.id` / `launch_templates.ondemand.id` — LTs to update
-- `target.byol_ami_id` / `target.ondemand_ami_id` — new AMI to set
+- `launch_templates.*.target_ami_id` — new AMI to set
+- `gwlb.target_group_arn` — target group whose health gates each step
+
+Desired capacity, the instance list and the primary are read again from AWS when the script
+starts, so they follow the live group and not the inventory.
 
 ### Blue-Green Cutover
 
@@ -264,15 +267,17 @@ The `discover.py` script produces a flat JSON file. All sections are top-level k
 
 ## Identifying the Primary FortiGate Instance
 
-The primary instance has scale-in protection enabled. To find it:
+The Lambda tags the elected primary `Autoscale Role: Primary`. To find it:
 
 ```bash
-aws autoscaling describe-auto-scaling-instances \
-  --query "AutoScalingInstances[?AutoScalingGroupName=='<byol_asg_name>' && ProtectedFromScaleIn==\`true\`]" \
-  --output table
+aws ec2 describe-instances \
+  --filters "Name=tag:Autoscale Role,Values=Primary" "Name=instance-state-name,Values=running" \
+  --query "Reservations[].Instances[].InstanceId" --output text
 ```
 
-The primary instance is the one where `ProtectedFromScaleIn` is `true`.
+Scale-in protection (`ProtectedFromScaleIn`) is also set on the primary, but only when the
+deployment has `primary_scalein_protection = true`. The scripts use it as a fallback, and
+only when exactly one instance has it.
 
 ---
 
