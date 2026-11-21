@@ -15,7 +15,7 @@ current state and the operator's risk tolerance.
 
 | Strategy | Best For | Traffic Impact | Rollback |
 |----------|----------|----------------|---------|
-| **In-Place** | Same-major-version bumps on healthy deployments | Brief per-instance restart | Manual LT revert |
+| **In-Place** | Same-major-version bumps on healthy deployments with two or more instances | One instance short during each replacement; its connections are dropped | Previous launch template version, then roll again |
 | **Blue-Green** | Cross-major-version upgrades, config remediation, or when full fallback is required | Near-zero (session interrupt at cutover) | Single script call, < 60 seconds |
 
 ---
@@ -27,7 +27,7 @@ The in-place strategy inspects live ASG state and selects the appropriate path a
 | Path | Condition | What Happens |
 |------|-----------|-------------|
 | **A** | `desired = 0`, no running instances | Update launch templates only — no instance replacement |
-| **B** | `desired > 0`, instances running | Rolling replacement: secondaries first, primary last |
+| **B** | Instances running | Rolling replacement in both ASGs: secondaries first, primary last |
 | **C** | `desired = 0` + config backup present | Update LTs, launch primary, restore config, scale out |
 
 ---
@@ -38,7 +38,7 @@ The blue-green strategy deploys a parallel inspection stack and flips TGW routes
 
 | Phase | Action | Duration |
 |-------|--------|---------|
-| 0 — Discovery | Extract Blue inventory from `terraform.tfstate` | 30 min |
+| 0 — Discovery | Extract Blue inventory from the Terraform state files | 30 min |
 | 1 — Backup | Export primary FortiGate configuration | 30–60 min |
 | 2 — Deploy Green | `terraform apply` with new FortiOS AMI | 30–60 min |
 | 3 — Validate Green | Health checks, config verification | 30–60 min |
@@ -72,11 +72,13 @@ All upgrade scripts, documentation, and state files live under:
 ```
 upgrade_fortios/
 ├── scripts/
-│   ├── discover.py          — Extract Blue inventory from terraform.tfstate
+│   ├── discover.py          — Extract Blue inventory from the Terraform state files
 │   ├── inplace_upgrade.py   — In-place upgrade workflow (Paths A, B, C)
 │   ├── cutover.py           — TGW route flip + NAT GW EIP migration
 │   ├── rollback.py          — Revert TGW routes to Blue + EIP rollback
 │   └── watch_lambda.sh      — Stream Lambda CloudWatch logs during upgrade
-├── state/                   — Working directory for tfstate files and backups
+├── state/                   — Working directory for tfstate files and the inventory
+├── backups/                 — Config backups taken before a rolling upgrade (not in git)
+├── tests/                   — Tests against a simulated ASG (no AWS calls)
 └── README.md
 ```

@@ -6,13 +6,79 @@ weight: 63
 
 ## Overview
 
-Blue-green upgrade deploys a parallel (Green) inspection stack alongside the existing
-(Blue) stack, validates Green under real conditions, then flips all TGW routes atomically
-at cutover. Blue remains suspended as a live fallback until the operator explicitly approves
-cleanup.
+### What a blue-green upgrade is
 
-This strategy eliminates cross-version config sync issues and gives full rollback capability
-at every phase up through cleanup.
+A blue-green upgrade builds a second, complete inspection stack next to the one in
+production and then moves traffic from the old one to the new one. The existing stack is
+called **Blue**. The new one, **Green**, has its own inspection VPC, Gateway Load
+Balancer, Auto Scaling groups, Lambda and FortiGates, already on the target FortiOS
+version. Nothing in Blue is changed while Green is built and checked, and Blue is kept
+after the switch until you decide to remove it.
+
+### Why you would choose it
+
+- **It works across major versions.** An [in-place upgrade](../6_2_in_place_upgrade/)
+  relies on new FortiGates copying their configuration from old ones, and FortiGates on
+  different major versions (7.4 and 7.6) cannot do that. In blue-green, Green's
+  FortiGates never talk to Blue's. The configuration moves as a backup file, taken from
+  Blue's primary and restored to Green's primary.
+- **The old environment stays intact.** If Green misbehaves after the switch, one
+  command sends traffic back to Blue.
+- **Green is deployed fresh.** Problems in the existing stack, such as broken alarms or
+  licensing state, are not carried over.
+
+The price is that two stacks run at the same time: roughly twice the licences and AWS
+resources for a day or two, and more preparation than an in-place upgrade.
+
+### How it works
+
+The six phases on this page fall into five stages:
+
+1. **Prepare (Phases 0 and 1).** [Discovery](../6_4_discovery/) records what Blue
+   consists of, and the configuration of Blue's primary FortiGate is backed up.
+2. **Build and check (Phases 2 and 3).** Terraform deploys Green with the same address
+   ranges as Blue. The backup is restored to Green's primary, and Green is validated.
+   Blue carries all traffic throughout; Green is connected to the Transit Gateway but no
+   route points at it.
+3. **Switch (Phase 4).** The cutover script changes the Transit Gateway routes of the
+   spoke VPCs so they point at Green instead of Blue. This takes under 30 seconds. With
+   NAT Gateway egress, it then moves Blue's public IP addresses to Green, so the source
+   addresses the outside world sees do not change.
+4. **Watch (Phase 5).** Green carries production traffic for 24 to 48 hours. Blue is
+   idle but complete, and is the fallback.
+5. **Remove Blue (Phase 6).** Once you are satisfied, Blue is destroyed. This is the
+   only step that cannot be undone.
+
+### Why Green uses the same addresses
+
+A FortiGate configuration contains the subnet addresses of the VPC it runs in. Because
+Green uses the same address ranges as Blue, the backup restores without editing. The two
+VPCs are not connected to each other, so the overlap causes no conflict.
+[Why the Same CIDR](#why-the-same-cidr) has the detail.
+
+### What you will notice
+
+- **Before the switch:** nothing. Blue is not touched.
+- **At the switch:** connections in progress are interrupted once and re-established
+  through Green. New connections go to Green at once.
+- **With NAT Gateway egress:** for the two to three minutes the public addresses take to
+  move, outbound traffic may leave from temporary addresses.
+- **In FortiManager:** Green's FortiGates have new serial numbers and must be authorized.
+
+### Your part
+
+You prepare Green's Terraform variables to match Blue, take and restore the backup, work
+through the checklists before and after deploying Green, choose the moment for the
+switch, and give the sign-off before Blue is removed. Every phase ends with a gate that
+waits for you.
+
+### Backing out
+
+| When | How |
+|------|-----|
+| Before the switch | Nothing to undo. Fix or destroy Green; Blue was never changed |
+| After the switch, until Blue is removed | Run `rollback.py`. Traffic returns to Blue in under a minute |
+| After Blue is removed | Not possible |
 
 ---
 

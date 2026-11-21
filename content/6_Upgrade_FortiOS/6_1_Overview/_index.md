@@ -7,7 +7,7 @@ weight: 61
 ## Purpose
 
 The `upgrade_fortios/` toolset upgrades the FortiOS version on a FortiGate autoscale group
-running in AWS. It reads the existing `terraform.tfstate` file to discover the deployment
+running in AWS. It reads the deployment's existing Terraform state to discover it
 automatically — no manual resource identification is required.
 
 ---
@@ -58,6 +58,14 @@ An upgrade of an autoscale group has two jobs, and both are required:
 2. **Replace the running instances** so they are rebuilt from the new template, rather
    than upgrading them in place with firmware.
 
+And one follow-up that is easy to miss: the launch template is a Terraform resource, and
+the module chooses its AMI from `fortios_version` in `terraform.tfvars`. After the
+upgrade, **set `fortios_version` to the new version** and check `terraform plan`.
+Otherwise the next `terraform apply` either fails (AWS Marketplace deprecates the AMIs of
+older versions, and the lookup does not return deprecated images) or puts the launch
+template back on the old version. See
+[Reconcile Terraform](../6_2_in_place_upgrade/#after-the-upgrade-reconcile-terraform).
+
 Replacing instances has its own consequences that a standalone upgrade does not face:
 
 - **Configuration is not carried over.** A replacement boots from bootstrap user-data and
@@ -69,6 +77,8 @@ Replacing instances has its own consequences that a standalone upgrade does not 
 - **Primary election and traffic.** Instances must pass the lifecycle hook and GWLB
   health checks before receiving traffic, and the primary must be handled carefully so
   there is always an elected primary.
+- **Connections are not carried over either.** Autoscale members do not share session
+  state, so connections through an instance are dropped when it is replaced.
 
 The strategies below are different answers to these problems. The in-place paths update the
 launch template and then roll or restore instances. Blue-green builds an entirely new stack
@@ -93,9 +103,11 @@ for both strategies to build the inventory file.
 cd upgrade_fortios
 bash state/refresh.sh
 python3 scripts/discover.py --state state/autoscale_template.tfstate \
-  --target-version 7.6.2 --output state/blue_inventory.json
+  --target-version 7.6.8 --output state/blue_inventory.json
 python3 scripts/inplace_upgrade.py --inventory state/blue_inventory.json
 ```
+
+`./upgrade --in-place --fortios-version 7.6.8` runs the same three commands in order.
 
 **Blue-Green:**
 
@@ -104,7 +116,7 @@ cd upgrade_fortios
 bash state/refresh.sh
 python3 scripts/discover.py --state state/autoscale_template.tfstate \
   --vpc-state state/existing_vpc_resources.tfstate \
-  --target-version 7.6.2 --output state/blue_inventory.json
+  --target-version 7.6.8 --output state/blue_inventory.json
 # Then follow the six-phase blue-green procedure
 ```
 
@@ -116,14 +128,17 @@ python3 scripts/discover.py --state state/autoscale_template.tfstate \
 
 Use in-place when:
 
-- Upgrading within the same major version (e.g., 7.2.8 → 7.2.13)
+- Upgrading within the same major version (e.g., 7.6.7 → 7.6.8)
 - The deployment is healthy — no known config or licensing issues
-- Brief per-instance restart is acceptable
+- The group has two or more instances, and the remaining ones can carry the load while
+  one is being replaced
+- Dropped connections on the instance being replaced are acceptable
 - You want the simplest possible upgrade path
 
 Avoid in-place for:
 - Cross-major-version upgrades (e.g., 7.4.x → 7.6.x) — native config sync does not work
-  across major versions; use Path C or blue-green instead
+  across major versions; use Path C, Path B with `--restore-config`, or blue-green instead
+- Single-instance groups — replacing the only instance is an outage; scale to two first
 - Deployments with misconfigured alarms, license sync issues, or other known problems
 
 ### Blue-Green Upgrade
@@ -146,10 +161,10 @@ while both Blue and Green ASGs are running simultaneously.
 
 | | In-Place (Path B) | Blue-Green |
 |---|---|---|
-| FortiOS versions | Same major (e.g., 7.2.x) | Any (7.4 → 7.6) |
+| FortiOS versions | Same major (e.g., 7.6.x) | Any (7.4 → 7.6) |
 | Config sync during upgrade | Required | Not required |
-| Traffic gap | None (rolling) | None (route flip) |
-| Rollback | Manual LT revert | Single script, < 60 seconds |
+| Traffic impact | One instance short during each replacement; connections through the replaced instance are dropped | Connections are interrupted once, at the route flip |
+| Rollback | Point the ASGs at the previous launch template version and roll again | Single script, < 60 seconds |
 | Cost | Normal | 2x licenses during monitoring window |
 | Terraform state | Unchanged | New Green state added |
 | Typical duration | ~30 min | Longer (full stack deploy + 24–48h monitoring) |
@@ -162,7 +177,8 @@ while both Blue and Green ASGs are running simultaneously.
 
 - Python 3.8 or later
 - `boto3` library: `pip3 install boto3`
-- AWS CLI configured with credentials for the target account
+- AWS CLI configured with credentials for the target account. The region is read from
+  the Terraform state file; `discover.py --region` overrides it
 
 ### AWS Permissions
 
@@ -170,18 +186,20 @@ The operator's IAM role or user requires:
 
 | Service | Permissions |
 |---------|------------|
-| EC2 | `DescribeInstances`, `DescribeImages`, `CreateLaunchTemplateVersion`, `ModifyLaunchTemplate`, `DescribeNetworkInterfaces` |
+| EC2 | `DescribeInstances`, `DescribeImages`, `DescribeLaunchTemplateVersions`, `CreateLaunchTemplateVersion`, `ModifyLaunchTemplate`, `DescribeNetworkInterfaces` |
 | AutoScaling | `DescribeAutoScalingGroups`, `DescribeAutoScalingInstances`, `UpdateAutoScalingGroup`, `SuspendProcesses`, `ResumeProcesses`, `TerminateInstanceInAutoScalingGroup` |
 | ELBv2 | `DescribeTargetHealth`, `DescribeLoadBalancers`, `DescribeTargetGroups` |
 | EC2 Transit Gateway | `DescribeTransitGatewayRouteTables`, `SearchTransitGatewayRoutes`, `ReplaceTransitGatewayRoute` (blue-green only) |
 | CloudWatch | `DescribeAlarms` |
 | Lambda | `GetFunction` |
-| DynamoDB | `DescribeTable` |
+| DynamoDB | `DescribeTable`, `GetItem` (FortiFlex serial check) |
 
 ### State Files
 
-The scripts read `terraform.tfstate` to discover the Blue environment. Get the state file
-into the `upgrade_fortios/state/` directory before running any scripts:
+The scripts discover the Blue environment from copies of the Terraform state, kept in
+`upgrade_fortios/state/` under the name of the template they came from:
+`autoscale_template.tfstate` (always) and `existing_vpc_resources.tfstate` (blue-green).
+Get the state files into that directory before running any scripts:
 
 ```bash
 # Refresh from local Terraform working directories
@@ -204,7 +222,7 @@ results and cause the upgrade scripts to target the wrong resources.
 ```
 upgrade_fortios/
 ├── scripts/
-│   ├── discover.py          ← Parse terraform.tfstate → blue_inventory.json
+│   ├── discover.py          ← Parse state/*.tfstate → blue_inventory.json
 │   ├── inplace_upgrade.py   ← In-place upgrade: Paths A, B, C
 │   ├── cutover.py           ← TGW route flip + NAT GW EIP migration
 │   ├── rollback.py          ← Revert TGW routes to Blue + EIP rollback
@@ -214,9 +232,13 @@ upgrade_fortios/
 │   ├── autoscale_template.tfstate          (Blue autoscale state)
 │   ├── existing_vpc_resources.tfstate      (VPC/TGW topology)
 │   ├── blue_inventory.json                 (output of discover.py)
-│   ├── blue_primary_config.conf            (FortiGate backup — Phase 1)
+│   ├── inplace_rollback.json               (launch template versions before an in-place upgrade)
+│   ├── blue_primary_config.conf            (FortiGate backup — Path C and blue-green Phase 1)
 │   ├── green.tfstate                       (Green stack state — blue-green only)
 │   └── cutover_progress.json              (written by cutover.py — used by rollback.py)
+├── backups/                                ← Config backups for a rolling upgrade (not in git)
+└── tests/
+    └── test_inplace_upgrade.py             ← Tests against a simulated ASG, no AWS calls
 ```
 
 ### Data Flow
