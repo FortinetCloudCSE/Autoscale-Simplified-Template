@@ -25,7 +25,7 @@ FortiGate has no API key, so a session login is the only way in without the GUI.
 
 Usage:
   python3 scripts/blue_green.py --fortios-version 8.0.2 [--upgrade-path-verified]
-      [--start-at STEP] [--yes] [--use-private-ip] [--fgt-mgmt-port 443]
+      [--start-at STEP] [--yes] [--use-private-ip] [--fgt-mgmt-port 443] [--fgt-ca-file ca.pem]
 
 Progress is recorded in state/bluegreen_progress.json.
 """
@@ -268,10 +268,29 @@ class FortiGateError(Exception):
     pass
 
 
+def tls_context(ca_file=None):
+    """
+    TLS settings for the FortiGate connections.
+
+    With ca_file, the FortiGate's certificate must chain to it and name the address
+    connected to (an IP SAN when connecting by IP). Without it, the certificate is not
+    checked: a new FortiGate presents its self-signed factory certificate, which no CA
+    file can verify, so this is the only way to reach Green before a certificate is
+    installed on it. The run prints a warning when it is used.
+    """
+    if ca_file:
+        return ssl.create_default_context(cafile=ca_file)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 class FortiGate:
     """Session-cookie client for the FortiOS REST API (login with the admin password)."""
 
-    def __init__(self, host, password, port=443, username='admin', opener=None, timeout=30):
+    def __init__(self, host, password, port=443, username='admin', opener=None, timeout=30,
+                 ca_file=None):
         self.base = f'https://{host}:{port}'
         self.host = host
         self.username = username
@@ -279,9 +298,7 @@ class FortiGate:
         self.timeout = timeout
         self.jar = http.cookiejar.CookieJar()
         if opener is None:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE           # FortiGates ship a self-signed cert
+            ctx = tls_context(ca_file)
             opener = urllib.request.build_opener(
                 urllib.request.HTTPSHandler(context=ctx),
                 urllib.request.HTTPCookieProcessor(self.jar))
@@ -363,12 +380,25 @@ class FortiGate:
         return {t['name']: t.get('remote-ip') for t in json.loads(data).get('results', [])}
 
 
+def certificate_error(exc):
+    """The certificate check failure inside exc, if that is what it is."""
+    reason = getattr(exc, 'reason', exc)          # urllib wraps it in URLError
+    return reason if isinstance(reason, ssl.SSLCertVerificationError) else None
+
+
 def try_login(make_fgt):
+    """A logged-in FortiGate, or None while it is not answering yet. A certificate that
+    fails the --fgt-ca-file check is not a transient failure and stops the run."""
     fgt = make_fgt()
     try:
         fgt.login()
         return fgt
-    except (FortiGateError, OSError):
+    except (FortiGateError, OSError) as e:
+        bad = certificate_error(e)
+        if bad:
+            raise StepError(f'{fgt.host}: certificate check failed ({getattr(bad, "verify_message", None) or bad}). '
+                            'A new FortiGate has only its self-signed factory certificate; install '
+                            'one from the CA in --fgt-ca-file, or run without --fgt-ca-file')
         return None
 
 
@@ -452,7 +482,7 @@ class Run:
         self.args = args
         self.clients = clients
         self.fgt_factory = fgt_factory or (lambda host: FortiGate(
-            host, self.password(), port=args.fgt_mgmt_port))
+            host, self.password(), port=args.fgt_mgmt_port, ca_file=args.fgt_ca_file))
         self.runner = runner or self._run_cmd
         self._blue_tfvars = None
 
@@ -713,6 +743,14 @@ class Run:
 
     # ── driver ───────────────────────────────────────────────────────────────
     def run(self):
+        if self.args.fgt_ca_file:
+            if not os.path.isfile(self.args.fgt_ca_file):
+                raise StepError(f'--fgt-ca-file {self.args.fgt_ca_file} is not a file')
+            print(f'FortiGate certificates are checked against {self.args.fgt_ca_file}.')
+        else:
+            print('WARNING: FortiGate TLS certificates are not checked. Anyone who can intercept '
+                  'the management connections can read the admin password and the configuration. '
+                  'Use --fgt-ca-file when the FortiGates have certificates from a CA you trust.')
         self.done = []
         if PROGRESS.exists() and self.args.start_at != 'preflight':
             self.done = load_json(PROGRESS).get('completed', [])
@@ -762,6 +800,10 @@ def parse_args(argv=None):
                         '(VPN, Direct Connect or a jump host)')
     p.add_argument('--blue-mgmt-ip', help="Address of Blue's primary to use instead of looking it up")
     p.add_argument('--green-mgmt-ip', help="Address of Green's primary to use instead of looking it up")
+    p.add_argument('--fgt-ca-file',
+                   help="PEM file of the CA that signed the FortiGates' admin certificates. With it, "
+                        'certificates and addresses are checked; without it they are not, and a '
+                        'warning is printed (a new FortiGate has only its self-signed certificate)')
     p.add_argument('--fgt-mgmt-port', type=int, default=443,
                    help='FortiGate admin HTTPS port (default: 443)')
     return p.parse_args(argv)

@@ -54,6 +54,7 @@ Options:
   --use-private-ip              Reach the FortiGates on their private management addresses
   --green-prefix <name>         Green's asg_module_prefix (default: green)
   --blue-mgmt-ip / --green-mgmt-ip <ip>  Primary addresses, instead of looking them up
+  --fgt-ca-file <pem>           Check the FortiGates' TLS certificates against this CA
   --help                        Show this help
 
 Examples:
@@ -98,7 +99,7 @@ while [[ $# -gt 0 ]]; do
             [[ "$1" == "--fgt-mgmt-port" ]] && BG_ARGS+=("$1" "$2")
             shift 2
             ;;
-        --start-at|--green-prefix|--blue-mgmt-ip|--green-mgmt-ip)
+        --start-at|--green-prefix|--blue-mgmt-ip|--green-mgmt-ip|--fgt-ca-file)
             [[ -z "${2:-}" ]] && { echo "Error: $1 requires a value"; usage; }
             BG_ARGS+=("$1" "$2")
             shift 2

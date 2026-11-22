@@ -270,6 +270,18 @@ connects to the public address of each primary's management interface; with
 Connect or a jump host. `--blue-mgmt-ip` and `--green-mgmt-ip` give the addresses
 directly.
 
+**Certificates.** By default the script does not check the FortiGates' TLS certificates,
+and prints a warning saying so: a new FortiGate presents only its self-signed factory
+certificate. Anyone who can intercept the management connections could then read the admin
+password and the configuration backup. Reach the FortiGates over a path you trust (a VPN,
+Direct Connect or a jump host with `--use-private-ip`), or install certificates from your
+own CA on the FortiGates and pass that CA with `--fgt-ca-file ca.pem`. With it, each
+certificate must chain to that CA and name the address the script connects to (an IP
+address entry when connecting by IP), or the script stops. This applies to Green as
+well: a Green FortiGate built by `green_inspection_stack` has only its factory certificate,
+so with `--fgt-ca-file` the `wait` step stops until a certificate from your CA is installed
+on it.
+
 **Resuming.** Progress is kept in `state/bluegreen_progress.json`. When a step stops, the
 script names the step to resume from, for example `--start-at restore`.
 

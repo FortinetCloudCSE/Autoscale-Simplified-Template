@@ -195,6 +195,39 @@ class FortiGateTests(unittest.TestCase):
         with self.assertRaisesRegex(bg.FortiGateError, 'backup .* failed'):
             fgt.backup()
 
+    def test_ca_file_turns_on_certificate_and_hostname_checks(self):
+        import ssl
+        real = ssl.create_default_context
+        seen = {}
+
+        def fake(*a, **kw):
+            seen.update(kw)
+            return real()                 # default context: CERT_REQUIRED + check_hostname
+        with mock.patch.object(bg.ssl, 'create_default_context', fake):
+            ctx = bg.tls_context('/path/ca.pem')
+        self.assertEqual(seen, {'cafile': '/path/ca.pem'})
+        self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(ctx.check_hostname)
+
+    def test_without_ca_file_certificates_are_not_checked(self):
+        import ssl
+        ctx = bg.tls_context(None)
+        self.assertEqual(ctx.verify_mode, ssl.CERT_NONE)
+        self.assertFalse(ctx.check_hostname)
+
+    def test_certificate_failure_stops_instead_of_retrying(self):
+        import ssl
+        err = urllib.error.URLError(ssl.SSLCertVerificationError(1, 'self-signed'))
+        fgt = fgt_with()
+        fgt.login = mock.Mock(side_effect=err)
+        with self.assertRaisesRegex(bg.StepError, 'certificate check failed'):
+            bg.try_login(lambda: fgt)
+
+    def test_a_fortigate_that_is_still_booting_is_retried(self):
+        fgt = fgt_with()
+        fgt.login = mock.Mock(side_effect=urllib.error.URLError(ConnectionRefusedError()))
+        self.assertIsNone(bg.try_login(lambda: fgt))
+
     def test_geneve_peers(self):
         fgt = fgt_with()
         fgt.login()
@@ -378,6 +411,15 @@ class WholeRunTests(unittest.TestCase):
         (self.paths['BLUE_TF_DIR'] / 'terraform.tfstate').write_text('{"resources": []}')
         with self.assertRaisesRegex(bg.StepError, 'Blue is not deployed'):
             self.run_all()
+        self.assertEqual(self.commands, [])
+
+    def test_run_warns_when_certificates_are_not_checked(self):
+        out = self.run_all()
+        self.assertIn('WARNING: FortiGate TLS certificates are not checked', out)
+
+    def test_missing_ca_file_stops_before_anything_runs(self):
+        with self.assertRaisesRegex(bg.StepError, 'is not a file'):
+            self.run_all(fgt_ca_file=str(self.root / 'nope.pem'))
         self.assertEqual(self.commands, [])
 
     def test_backup_on_another_version_stops_before_green_is_built(self):
