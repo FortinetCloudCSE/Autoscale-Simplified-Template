@@ -54,8 +54,11 @@ The six phases on this page fall into five stages:
 ### Why Green uses the same addresses
 
 A FortiGate configuration contains the subnet addresses of the VPC it runs in. Because
-Green uses the same address ranges as Blue, the backup restores without editing. The two
-VPCs are not connected to each other, so the overlap causes no conflict.
+Green uses the same address ranges as Blue, almost all of the backup restores without
+editing. The exception is the Gateway Load Balancer's own addresses, which AWS picks for
+each load balancer: a script swaps Blue's for Green's before the restore (see
+[Prepare the backup for Green](#prepare-the-backup-for-green)). The two VPCs are not
+connected to each other, so the overlap causes no conflict.
 [Why the Same CIDR](#why-the-same-cidr) has the detail.
 
 ### What you will notice
@@ -152,8 +155,14 @@ FortiGate configurations contain hard-coded references to inspection VPC CIDRs:
 - `firewall address` — objects may reference internal subnets
 
 If Green used different CIDRs, every CIDR reference in the exported Blue config would need
-manual editing before restore. Identical CIDRs mean the config restores cleanly to Green
-without modification.
+manual editing before restore. Identical CIDRs mean those references restore to Green
+unchanged.
+
+The same CIDR does not make the GWLB's addresses the same. AWS assigns each load
+balancer its own interface address in each subnet, and the configuration uses them as the
+GENEVE tunnel peers (`config system geneve` → `set remote-ip`) and in a /32 static route
+to each. `prepare_green_config.py` replaces those, and only those, in a copy of the backup.
+See [Prepare the backup for Green](#prepare-the-backup-for-green).
 
 Blue and Green are fully isolated VPCs with no peering between them — having the same CIDR
 causes no routing conflict while they coexist.
@@ -428,6 +437,12 @@ asg_byol_asg_min_size     = 1
 asg_byol_asg_max_size     = 2
 asg_byol_asg_desired_size = 1
 
+# On-demand (PAYG) burst ASG: max 0 means none is created, as in autoscale_template.
+# Match Blue's values.
+asg_ondemand_asg_min_size     = 0
+asg_ondemand_asg_max_size     = 0
+asg_ondemand_asg_desired_size = 0
+
 # ── Licensing ──────────────────────────────────────────
 # asg_license_directory MUST point to a directory, even if empty.
 # Setting it to "" causes the module to scan the current directory and
@@ -500,12 +515,39 @@ cp terraform.tfstate ../../upgrade_fortios/state/green.tfstate
 After Green FortiGates are running and the Lambda has initialized them, restore the Blue
 config to the Green primary FortiGate.
 
+#### Prepare the backup for Green
+
+Do not restore `state/blue_primary_config.conf` as it is. Each FortiGate reaches the
+Gateway Load Balancer through one GENEVE tunnel per availability zone, and the tunnel's
+peer (`config system geneve` → `set remote-ip`) is the GWLB's address in that zone, with a
+/32 static route to it. Blue's backup carries **Blue's** GWLB addresses. Restored as it is,
+Green's tunnels point at Blue's GWLB: the GWLB health check still shows Green healthy,
+because it only probes a port, but no traffic passes through Green after cutover. FortiOS
+will not change a tunnel peer while routes, policy routes or a zone use the tunnel, so it
+cannot be fixed with one command afterwards.
+
+Write a copy of the backup with Green's GWLB addresses:
+
+```bash
+cd upgrade_fortios
+python3 scripts/prepare_green_config.py \
+  --inventory   state/blue_inventory.json \
+  --green-state state/green.tfstate
+```
+
+The script looks up both GWLBs' addresses in AWS, pairs them by availability zone, and
+writes `state/green_primary_config.conf` with only the GENEVE peers and their /32 routes
+changed. It prints each line it changed. It stops and writes nothing when a GENEVE peer in
+the backup is not one of Blue's GWLB addresses (the backup is of another stack, or was
+rewritten already) or when the two GWLBs are not in the same zones. The original backup is
+left unchanged: `cutover.py` still checks it.
+
 **Option A — via FortiGate GUI (manual):**
 
 1. Identify the Green primary instance — it has `ProtectedFromScaleIn: true` in the
    Green BYOL ASG
 2. Open the Green primary FortiGate GUI at `https://<management-ip>/`
-3. **System → Settings → Restore → Upload** `state/blue_primary_config.conf`
+3. **System → Settings → Restore → Upload** `state/green_primary_config.conf`
 4. FortiGate reboots after restore (allow up to 10 minutes)
 5. Log in again and verify security policies are present
 
@@ -524,12 +566,15 @@ curl -k -X POST \
   -H "Authorization: Bearer <api-key>" \
   -F "source=upload" \
   -F "scope=global" \
-  -F "file=@state/blue_primary_config.conf"
+  -F "file=@state/green_primary_config.conf"
 ```
 
 After restore, the FortiGate reboots. Poll until it returns to GWLB healthy state
 (~5–10 minutes). The Green secondary will receive config from the Green primary
 automatically via the Lambda once the primary is back online.
+
+Then check the tunnel peers on Green's primary. `show system geneve` must list Green's GWLB
+addresses, the ones `prepare_green_config.py` printed on the right of each arrow.
 
 **Gate:** Terraform apply completes. Green ASG instances are healthy.
 
@@ -593,6 +638,7 @@ Manually verify each of the following before proceeding to cutover:
 | GWLB targets healthy | AWS Console → EC2 → Load Balancers → Target Groups → confirm all targets healthy |
 | Primary elected | Check for one instance with `ProtectedFromScaleIn: true` in Green BYOL ASG |
 | Config restored | Log in to Green primary FortiGate → confirm expected security policies present |
+| GENEVE peers | Green primary CLI: `show system geneve` lists Green's GWLB addresses, not Blue's |
 | CloudWatch alarms | AWS Console → CloudWatch → Alarms → confirm Green alarms in `OK` state |
 | Lambda operating | AWS Console → Lambda → confirm recent successful invocations in CloudWatch metrics |
 | DynamoDB state | AWS Console → DynamoDB → scan `fgt_asg_track_table` → confirm Green instances registered |
@@ -620,7 +666,7 @@ go through Green. Outbound source IPs are preserved after EIP migration complete
 Before running the cutover script, confirm:
 
 - [ ] Phase 1 (Backup) complete — `state/blue_primary_config.conf` exists and was taken on the version Blue is running (`cutover.py` refuses to run otherwise)
-- [ ] That backup was restored to Green's primary and Green's policies were checked (the script cannot see this)
+- [ ] That backup, prepared with `prepare_green_config.py`, was restored to Green's primary, and Green's policies and GENEVE peers were checked (the script cannot see this)
 - [ ] Phase 3 (Validate Green) passed — all automated checks green
 - [ ] Post-deployment verification checklist complete
 - [ ] Spoke VPC connectivity confirmed through Blue (last health check before cutover)

@@ -6,6 +6,11 @@
 # are created in vpc_green.tf — no data source lookups for inspection VPC.
 #
 
+locals {
+  # Same rule as autoscale_template: max size 0 means no on-demand ASG at all.
+  enable_ondemand_asg = var.asg_ondemand_asg_max_size > 0
+}
+
 module "spk_tgw_gwlb_asg_fgt_igw" {
   # Pinned to the same published registry release as terraform/autoscale_template, so Green is
   # built by the module version Blue was. Change both together, then run `terraform init -upgrade`.
@@ -105,7 +110,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   fgt_intf_mode            = var.firewall_policy_mode
   fgt_access_internet_mode = var.access_internet_mode
 
-  asgs = {
+  asgs = merge({
     fgt_byol_asg = {
       fmg_integration = var.enable_fortimanager_integration ? {
         ip           = var.fortimanager_ip
@@ -161,56 +166,9 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
       create_dynamodb_table         = true
       dynamodb_table_name           = "fgt_asg_track_table"
       asg_health_check_grace_period = var.asg_health_check_grace_period
-    }
-
-    fgt_on_demand_asg = {
-      fmg_integration = var.enable_fortimanager_integration ? {
-        ip           = var.fortimanager_ip
-        sn           = var.fortimanager_sn
-        primary_only = true
-        fgt_lic_mgmt = "module"
-        vrf_select   = var.fortimanager_vrf_select
-      } : null
-      primary_scalein_protection = var.primary_scalein_protection
-      extra_network_interfaces = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
-        "dedicated_port" = {
-          device_index     = local.management_device_index
-          enable_public_ip = true
-          subnet = [
-            {
-              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.management_public_az1[0].id : aws_subnet.green_management_az1[0].id
-              zone_name = local.availability_zone_1
-            },
-            {
-              id        = var.enable_dedicated_management_vpc ? data.aws_subnet.management_public_az2[0].id : aws_subnet.green_management_az2[0].id
-              zone_name = local.availability_zone_2
-            }
-          ]
-          security_groups = [
-            {
-              id = aws_security_group.management_sg[0].id
-            }
-          ]
-        }
-      }
-      template_name               = "fgt_asg_template_on_demand"
-      fgt_version                 = var.fortios_version
-      license_type                = "on_demand"
-      instance_type               = var.fgt_instance_type
-      fgt_password                = var.fortigate_asg_password
-      keypair_name                = var.keypair
-      enable_fgt_system_autoscale = true
-      intf_security_group = {
-        login_port    = "secgrp1"
-        internal_port = "secgrp1"
-      }
-      user_conf_file_path           = local.fgt_config_file
-      asg_max_size                  = var.asg_ondemand_asg_max_size
-      asg_min_size                  = var.asg_ondemand_asg_min_size
-      asg_desired_capacity          = var.asg_ondemand_asg_desired_size
-      dynamodb_table_name           = "fgt_asg_track_table"
-      asg_health_check_grace_period = var.asg_health_check_grace_period
-      scale_policies = {
+      # Only scale the BYOL ASG itself when there's no on-demand ASG to burst into --
+      # in hybrid mode BYOL stays fixed and CPU-driven scaling happens on fgt_on_demand_asg.
+      scale_policies = local.enable_ondemand_asg ? {} : {
         byol_cpu_above_80 = {
           policy_type        = "SimpleScaling"
           adjustment_type    = "ChangeInCapacity"
@@ -223,99 +181,174 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
           cooldown           = 60
           scaling_adjustment = -1
         }
-        ondemand_cpu_above_80 = {
-          policy_type        = "SimpleScaling"
-          adjustment_type    = "ChangeInCapacity"
-          cooldown           = 60
-          scaling_adjustment = 1
-        }
-        ondemand_cpu_below_30 = {
-          policy_type        = "SimpleScaling"
-          adjustment_type    = "ChangeInCapacity"
-          cooldown           = 60
-          scaling_adjustment = -1
-        }
       }
     }
-  }
+    },
+    local.enable_ondemand_asg ? {
+      fgt_on_demand_asg = {
+        fmg_integration = var.enable_fortimanager_integration ? {
+          ip           = var.fortimanager_ip
+          sn           = var.fortimanager_sn
+          primary_only = true
+          fgt_lic_mgmt = "module"
+          vrf_select   = var.fortimanager_vrf_select
+        } : null
+        primary_scalein_protection = var.primary_scalein_protection
+        extra_network_interfaces = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
+          "dedicated_port" = {
+            device_index     = local.management_device_index
+            enable_public_ip = true
+            subnet = [
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.management_public_az1[0].id : aws_subnet.green_management_az1[0].id
+                zone_name = local.availability_zone_1
+              },
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.management_public_az2[0].id : aws_subnet.green_management_az2[0].id
+                zone_name = local.availability_zone_2
+              }
+            ]
+            security_groups = [
+              {
+                id = aws_security_group.management_sg[0].id
+              }
+            ]
+          }
+        }
+        template_name               = "fgt_asg_template_on_demand"
+        fgt_version                 = var.fortios_version
+        license_type                = "on_demand"
+        instance_type               = var.fgt_instance_type
+        fgt_password                = var.fortigate_asg_password
+        keypair_name                = var.keypair
+        enable_fgt_system_autoscale = true
+        intf_security_group = {
+          login_port    = "secgrp1"
+          internal_port = "secgrp1"
+        }
+        user_conf_file_path           = local.fgt_config_file
+        asg_max_size                  = var.asg_ondemand_asg_max_size
+        asg_min_size                  = var.asg_ondemand_asg_min_size
+        asg_desired_capacity          = var.asg_ondemand_asg_desired_size
+        dynamodb_table_name           = "fgt_asg_track_table"
+        asg_health_check_grace_period = var.asg_health_check_grace_period
+        scale_policies = {
+          byol_cpu_above_80 = {
+            policy_type        = "SimpleScaling"
+            adjustment_type    = "ChangeInCapacity"
+            cooldown           = 60
+            scaling_adjustment = 1
+          }
+          byol_cpu_below_30 = {
+            policy_type        = "SimpleScaling"
+            adjustment_type    = "ChangeInCapacity"
+            cooldown           = 60
+            scaling_adjustment = -1
+          }
+          ondemand_cpu_above_80 = {
+            policy_type        = "SimpleScaling"
+            adjustment_type    = "ChangeInCapacity"
+            cooldown           = 60
+            scaling_adjustment = 1
+          }
+          ondemand_cpu_below_30 = {
+            policy_type        = "SimpleScaling"
+            adjustment_type    = "ChangeInCapacity"
+            cooldown           = 60
+            scaling_adjustment = -1
+          }
+        }
+      }
+    } : {}
+  )
 
   ## CloudWatch Alarms
-  cloudwatch_alarms = {
-    byol_cpu_above_80 = {
-      comparison_operator = "GreaterThanOrEqualToThreshold"
-      evaluation_periods  = 2
-      metric_name         = "CPUUtilization"
-      namespace           = "AWS/EC2"
-      period              = 120
-      statistic           = "Average"
-      threshold           = 80
-      dimensions = {
-        AutoScalingGroupName = "fgt_byol_asg"
-      }
-      alarm_description   = "Green ASG BYOL CPU above 80%"
-      datapoints_to_alarm = 1
-      alarm_asg_policies = {
-        policy_name_map = {
-          "fgt_on_demand_asg" = ["byol_cpu_above_80"]
+  # BYOL alarms go to whichever ASG is elastic: on-demand's policies in hybrid mode,
+  # or BYOL's own policies when there is no on-demand ASG.
+  cloudwatch_alarms = merge(
+    {
+      byol_cpu_above_80 = {
+        comparison_operator = "GreaterThanOrEqualToThreshold"
+        evaluation_periods  = 2
+        metric_name         = "CPUUtilization"
+        namespace           = "AWS/EC2"
+        period              = 120
+        statistic           = "Average"
+        threshold           = 80
+        dimensions = {
+          AutoScalingGroupName = "fgt_byol_asg"
+        }
+        alarm_description   = "Green ASG BYOL CPU above 80%"
+        datapoints_to_alarm = 1
+        alarm_asg_policies = {
+          policy_name_map = local.enable_ondemand_asg ? {
+            "fgt_on_demand_asg" = ["byol_cpu_above_80"]
+            } : {
+            "fgt_byol_asg" = ["byol_cpu_above_80"]
+          }
         }
       }
-    }
-    byol_cpu_below_30 = {
-      comparison_operator = "LessThanThreshold"
-      evaluation_periods  = 2
-      metric_name         = "CPUUtilization"
-      namespace           = "AWS/EC2"
-      period              = 120
-      statistic           = "Average"
-      threshold           = 30
-      dimensions = {
-        AutoScalingGroupName = "fgt_byol_asg"
-      }
-      alarm_description   = "Green ASG BYOL CPU below 30%"
-      datapoints_to_alarm = 1
-      alarm_asg_policies = {
-        policy_name_map = {
-          "fgt_on_demand_asg" = ["byol_cpu_below_30"]
+      byol_cpu_below_30 = {
+        comparison_operator = "LessThanThreshold"
+        evaluation_periods  = 2
+        metric_name         = "CPUUtilization"
+        namespace           = "AWS/EC2"
+        period              = 120
+        statistic           = "Average"
+        threshold           = 30
+        dimensions = {
+          AutoScalingGroupName = "fgt_byol_asg"
+        }
+        alarm_description   = "Green ASG BYOL CPU below 30%"
+        datapoints_to_alarm = 1
+        alarm_asg_policies = {
+          policy_name_map = local.enable_ondemand_asg ? {
+            "fgt_on_demand_asg" = ["byol_cpu_below_30"]
+            } : {
+            "fgt_byol_asg" = ["byol_cpu_below_30"]
+          }
         }
       }
-    }
-    ondemand_cpu_above_80 = {
-      comparison_operator = "GreaterThanOrEqualToThreshold"
-      evaluation_periods  = 2
-      metric_name         = "CPUUtilization"
-      namespace           = "AWS/EC2"
-      period              = 120
-      statistic           = "Average"
-      threshold           = 80
-      dimensions = {
-        AutoScalingGroupName = "fgt_on_demand_asg"
-      }
-      alarm_description = "Green ASG On-Demand CPU above 80%"
-      alarm_asg_policies = {
-        policy_name_map = {
-          "fgt_on_demand_asg" = ["ondemand_cpu_above_80"]
+    },
+    local.enable_ondemand_asg ? {
+      ondemand_cpu_above_80 = {
+        comparison_operator = "GreaterThanOrEqualToThreshold"
+        evaluation_periods  = 2
+        metric_name         = "CPUUtilization"
+        namespace           = "AWS/EC2"
+        period              = 120
+        statistic           = "Average"
+        threshold           = 80
+        dimensions = {
+          AutoScalingGroupName = "fgt_on_demand_asg"
+        }
+        alarm_description = "Green ASG On-Demand CPU above 80%"
+        alarm_asg_policies = {
+          policy_name_map = {
+            "fgt_on_demand_asg" = ["ondemand_cpu_above_80"]
+          }
         }
       }
-    }
-    ondemand_cpu_below_30 = {
-      comparison_operator = "LessThanThreshold"
-      evaluation_periods  = 2
-      metric_name         = "CPUUtilization"
-      namespace           = "AWS/EC2"
-      period              = 120
-      statistic           = "Average"
-      threshold           = 30
-      dimensions = {
-        AutoScalingGroupName = "fgt_on_demand_asg"
-      }
-      alarm_description = "Green ASG On-Demand CPU below 30%"
-      alarm_asg_policies = {
-        policy_name_map = {
-          "fgt_on_demand_asg" = ["ondemand_cpu_below_30"]
+      ondemand_cpu_below_30 = {
+        comparison_operator = "LessThanThreshold"
+        evaluation_periods  = 2
+        metric_name         = "CPUUtilization"
+        namespace           = "AWS/EC2"
+        period              = 120
+        statistic           = "Average"
+        threshold           = 30
+        dimensions = {
+          AutoScalingGroupName = "fgt_on_demand_asg"
+        }
+        alarm_description = "Green ASG On-Demand CPU below 30%"
+        alarm_asg_policies = {
+          policy_name_map = {
+            "fgt_on_demand_asg" = ["ondemand_cpu_below_30"]
+          }
         }
       }
-    }
-  }
+    } : {}
+  )
 
   ## Gateway Load Balancer
   enable_cross_zone_load_balancing = var.allow_cross_zone_load_balancing

@@ -79,11 +79,13 @@ upgrade_fortios/
 ├── scripts/
 │   ├── discover.py             — Parse terraform state, output blue_inventory.json
 │   ├── inplace_upgrade.py      — In-place upgrade workflow (Paths A, B, C)
+│   ├── prepare_green_config.py — Rewrite Blue's GWLB addresses in the backup for Green
 │   ├── cutover.py              — TGW route flip + NAT GW EIP migration
 │   ├── rollback.py             — Revert TGW routes to Blue + EIP rollback
 │   └── watch_lambda.sh         — Stream Lambda CloudWatch logs during upgrade
 ├── tests/
-│   └── test_inplace_upgrade.py — Tests against a simulated ASG and Lambda (no AWS calls)
+│   ├── test_inplace_upgrade.py — Tests against a simulated ASG and Lambda (no AWS calls)
+│   └── test_prepare_green_config.py — Tests for the backup rewrite (no AWS calls)
 ├── backups/                    — Config backups for a rolling upgrade (not in git)
 └── state/
     ├── refresh.sh              — Copy fresh state files from terraform directories
