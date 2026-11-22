@@ -317,7 +317,8 @@ class FortiGate:
 
     def _csrf(self):
         for c in self.jar:
-            if c.name.startswith('ccsrftoken'):
+            # ccsrftoken (/logincheck) or ccsrf_token_<port>_<hash> (/api/v2/authentication)
+            if c.name.startswith(('ccsrftoken', 'ccsrf_token')):
                 return c.value.strip('"')
         return None
 
@@ -335,6 +336,29 @@ class FortiGate:
                 return e.code, gunzip(e.read())
 
     def login(self):
+        """
+        FortiOS 7.6.3 and later: POST /api/v2/authentication with a JSON username and
+        password. /logincheck still answers there, but with the login page and no
+        session, so it is only the fallback for older versions.
+        """
+        status, data = self._send(
+            'POST', '/api/v2/authentication',
+            json.dumps({'username': self.username, 'password': self.password}).encode(),
+            {'Content-Type': 'application/json'})
+        try:
+            result = json.loads(data)
+        except ValueError:
+            result = None
+        # Only an answer from the authentication endpoint itself (it carries
+        # status_message) is final; anything else means an older FortiOS without it.
+        if isinstance(result, dict) and 'status_message' in result:
+            if status == 200 and result.get('error') == 0 and self._csrf():
+                self.auth_mode = 'authentication'
+                return
+            raise FortiGateError(f'login to {self.host} as {self.username} failed (HTTP {status}, '
+                                 f'status_message {result.get("status_message")!r}, '
+                                 f'error {result.get("error")!r})')
+
         body = urllib.parse.urlencode({'username': self.username, 'secretkey': self.password,
                                        'ajax': '1'}).encode()
         status, data = self._send('POST', '/logincheck', body,
@@ -344,12 +368,20 @@ class FortiGate:
             text = ' '.join(data[:160].decode('utf-8', 'replace').split())
             raise FortiGateError(f'login to {self.host} as {self.username} failed '
                                  f'(HTTP {status}, response: {text!r})')
+        self.auth_mode = 'logincheck'
 
     def logout(self):
-        try:
-            self._send('POST', '/logout')
-        except Exception:
-            pass
+        # No documented logout for /api/v2/authentication; DELETE is tried, then /logout.
+        # Both are best effort: an idle admin session times out on the FortiGate anyway.
+        calls = [('DELETE', '/api/v2/authentication'), ('POST', '/logout')] \
+            if getattr(self, 'auth_mode', None) == 'authentication' else [('POST', '/logout')]
+        for method, path in calls:
+            try:
+                status, _ = self._send(method, path)
+                if status == 200:
+                    return
+            except Exception:
+                pass
 
     def backup(self):
         """Full configuration, as the GUI's Backup gives it (unencrypted)."""

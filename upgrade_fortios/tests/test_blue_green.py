@@ -129,8 +129,10 @@ class FakeOpener:
     """Answers like a FortiGate. Records requests."""
 
     def __init__(self, fgt, login_ok=True, backup_get_status=200,
-                 config=b'#config-version=FGAAWS-7.6.8-FW-build1:x\n', gzip_bodies=False):
+                 config=b'#config-version=FGAAWS-7.6.8-FW-build1:x\n', gzip_bodies=False,
+                 new_auth=False):
         self.fgt = fgt
+        self.new_auth = new_auth
         self.gzip_bodies = gzip_bodies
         self.login_ok = login_ok
         self.backup_get_status = backup_get_status
@@ -151,6 +153,18 @@ class FakeOpener:
     def _open(self, req):
         path = req.full_url.split(':443', 1)[1]
         self.requests.append((req.get_method(), path, dict(req.header_items())))
+        if path == '/api/v2/authentication':
+            if req.get_method() == 'DELETE':
+                return Resp(200, b'{}')
+            if not self.new_auth:                       # older FortiOS
+                return Resp(401, b'{"http_status": 401}')
+            if self.login_ok:
+                self.fgt.jar.set_cookie(self._cookie('ccsrf_token_443_ab12', 'NEWTOKEN'))
+                self.fgt.jar.set_cookie(self._cookie('session_key_443_ab12', 'S'))
+                return Resp(200, b'{"status_message": "LOGIN_SUCCESS", "error": 0}')
+            return Resp(401, b'{"status_message": "LOGIN_FAILED", "error": 1}')
+        if path == '/logincheck' and self.new_auth:     # 7.6.3+: login page, no session
+            return Resp(200, b'<!doctype html><html><title>FortiGate</title></html>')
         if path == '/logincheck':
             if self.login_ok:
                 self.fgt.jar.set_cookie(self._cookie('ccsrftoken', '"TOKEN"'))
@@ -248,6 +262,28 @@ class FortiGateTests(unittest.TestCase):
         fgt = fgt_with(login_ok=False, gzip_bodies=True)
         with self.assertRaisesRegex(bg.FortiGateError, "response: '0'"):
             fgt.login()
+
+    def test_fortios_763_login_uses_the_authentication_endpoint(self):
+        fgt = fgt_with(new_auth=True)
+        fgt.login()
+        self.assertEqual(fgt.auth_mode, 'authentication')
+        fgt.restore(b'#config-version=x\n')
+        self.assertEqual(fgt.opener.requests[-1][2].get('X-csrftoken'), 'NEWTOKEN')
+        self.assertFalse(any(p == '/logincheck' for _, p, _ in fgt.opener.requests))
+        fgt.logout()
+        self.assertEqual(fgt.opener.requests[-1][:2], ('DELETE', '/api/v2/authentication'))
+
+    def test_fortios_763_bad_password_is_reported_from_the_new_endpoint(self):
+        fgt = fgt_with(new_auth=True, login_ok=False)
+        with self.assertRaisesRegex(bg.FortiGateError, "LOGIN_FAILED"):
+            fgt.login()
+
+    def test_older_fortios_falls_back_to_logincheck(self):
+        fgt = fgt_with()
+        fgt.login()
+        self.assertEqual(fgt.auth_mode, 'logincheck')
+        self.assertEqual([p for _, p, _ in fgt.opener.requests],
+                         ['/api/v2/authentication', '/logincheck'])
 
     def test_geneve_peers(self):
         fgt = fgt_with()
