@@ -54,8 +54,11 @@ The six phases on this page fall into five stages:
 ### Why Green uses the same addresses
 
 A FortiGate configuration contains the subnet addresses of the VPC it runs in. Because
-Green uses the same address ranges as Blue, the backup restores without editing. The two
-VPCs are not connected to each other, so the overlap causes no conflict.
+Green uses the same address ranges as Blue, almost all of the backup restores without
+editing. The exception is the Gateway Load Balancer's own addresses, which AWS picks for
+each load balancer: a script swaps Blue's for Green's before the restore (see
+[Prepare the backup for Green](#prepare-the-backup-for-green)). The two VPCs are not
+connected to each other, so the overlap causes no conflict.
 [Why the Same CIDR](#why-the-same-cidr) has the detail.
 
 ### What you will notice
@@ -152,8 +155,14 @@ FortiGate configurations contain hard-coded references to inspection VPC CIDRs:
 - `firewall address` — objects may reference internal subnets
 
 If Green used different CIDRs, every CIDR reference in the exported Blue config would need
-manual editing before restore. Identical CIDRs mean the config restores cleanly to Green
-without modification.
+manual editing before restore. Identical CIDRs mean those references restore to Green
+unchanged.
+
+The same CIDR does not make the GWLB's addresses the same. AWS assigns each load
+balancer its own interface address in each subnet, and the configuration uses them as the
+GENEVE tunnel peers (`config system geneve` → `set remote-ip`) and in a /32 static route
+to each. `prepare_green_config.py` replaces those, and only those, in a copy of the backup.
+See [Prepare the backup for Green](#prepare-the-backup-for-green).
 
 Blue and Green are fully isolated VPCs with no peering between them — having the same CIDR
 causes no routing conflict while they coexist.
@@ -427,6 +436,12 @@ asg_module_prefix    = "green"         # REQUIRED: different from Blue
 asg_byol_asg_min_size     = 1
 asg_byol_asg_max_size     = 2
 asg_byol_asg_desired_size = 1
+
+# On-demand (PAYG) burst ASG: max 0 means none is created, as in autoscale_template.
+# Match Blue's values.
+asg_ondemand_asg_min_size     = 0
+asg_ondemand_asg_max_size     = 0
+asg_ondemand_asg_desired_size = 0
 
 # ── Licensing ──────────────────────────────────────────
 # asg_license_directory MUST point to a directory, even if empty.
