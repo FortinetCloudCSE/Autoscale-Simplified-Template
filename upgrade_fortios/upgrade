@@ -3,9 +3,10 @@
 #
 # Usage:
 #   ./upgrade --in-place  --fortios-version 7.6.8  [--state state/autoscale_template.tfstate]
-#   ./upgrade --blue-green --fortios-version 7.6.8  [--state state/autoscale_template.tfstate]
+#   ./upgrade --blue-green --fortios-version 8.0.2  [--upgrade-path-verified] [--yes]
 #
-# Runs state/refresh.sh, discover.py and inplace_upgrade.py in order.
+# In-place runs state/refresh.sh, discover.py and inplace_upgrade.py in order.
+# Blue-green runs scripts/blue_green.py, which stops before the cutover.
 # Expects state files in ./state/ by default.
 
 set -euo pipefail
@@ -28,7 +29,8 @@ Usage: $(basename "$0") <mode> --fortios-version <version> [options]
 
 Modes:
   --in-place     Replace the instances of the existing ASGs from an updated launch template
-  --blue-green   Deploy parallel environment and cut over (manual runbook, not automated here)
+  --blue-green   Build Green next to Blue and restore Blue's config on it (scripts/blue_green.py).
+                 Stops before the cutover, which is always run by hand
 
 Options:
   --fortios-version <version>   Target FortiOS version (e.g. 7.6.8)  [required]
@@ -45,11 +47,20 @@ Options:
   --upgrade-path-verified       Confirm Fortinet's Upgrade Path Tool gives a single-step path
                                 to the target version. Required when a config restore crosses
                                 a minor or major version
+  Blue-green only:
+  --start-at <step>             Resume at a step (preflight, discover, backup, tfvars, deploy,
+                                wait, prepare, restore, verify)
+  --yes                         Answer yes to the tfvars, apply and restore prompts
+  --use-private-ip              Reach the FortiGates on their private management addresses
+  --green-prefix <name>         Green's asg_module_prefix (default: green)
+  --blue-mgmt-ip / --green-mgmt-ip <ip>  Primary addresses, instead of looking them up
+  --fgt-ca-file <pem>           Check the FortiGates' TLS certificates against this CA
   --help                        Show this help
 
 Examples:
   ./upgrade --in-place --fortios-version 7.6.8
   ./upgrade --in-place --fortios-version 7.6.8 --state /path/to/terraform.tfstate
+  ./upgrade --blue-green --fortios-version 8.0.2 --upgrade-path-verified
 EOF
     exit 1
 }
@@ -57,6 +68,7 @@ EOF
 INVENTORY_OVERRIDE=""
 DISCOVER_ARGS=()
 UPGRADE_ARGS=()
+BG_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -84,7 +96,17 @@ while [[ $# -gt 0 ]]; do
         --restore-config|--fgt-api-key|--fgt-mgmt-port)
             [[ -z "${2:-}" ]] && { echo "Error: $1 requires a value"; usage; }
             UPGRADE_ARGS+=("$1" "$2")
+            [[ "$1" == "--fgt-mgmt-port" ]] && BG_ARGS+=("$1" "$2")
             shift 2
+            ;;
+        --start-at|--green-prefix|--blue-mgmt-ip|--green-mgmt-ip|--fgt-ca-file)
+            [[ -z "${2:-}" ]] && { echo "Error: $1 requires a value"; usage; }
+            BG_ARGS+=("$1" "$2")
+            shift 2
+            ;;
+        --yes|--use-private-ip)
+            BG_ARGS+=("$1")
+            shift
             ;;
         --allow-single-instance)
             UPGRADE_ARGS+=("$1")
@@ -93,6 +115,7 @@ while [[ $# -gt 0 ]]; do
         --upgrade-path-verified)
             DISCOVER_ARGS+=("$1")
             UPGRADE_ARGS+=("$1")
+            BG_ARGS+=("$1")
             shift
             ;;
         --help|-h) usage ;;
@@ -170,14 +193,11 @@ if [[ "$MODE" == "in-place" ]]; then
 # ── Blue-Green ────────────────────────────────
 
 elif [[ "$MODE" == "blue-green" ]]; then
+    # blue_green.py refreshes the state and runs discovery itself, against the
+    # terraform/autoscale_template and terraform/existing_vpc_resources states.
+    # It never runs the cutover; it prints the command at the end.
     echo ""
-    echo "Blue-green upgrade is not yet implemented as an automated script."
-    echo ""
-    echo "Follow the manual runbook: upgrade_fortios/RUNBOOK.md"
-    echo ""
-    echo "The discovery step is available:"
-    echo "  python3 scripts/discover.py --state ${STATE_FILE} \\"
-    echo "    --target-version ${FORTIOS_VERSION} \\"
-    echo "    --output state/blue_inventory.json"
-    exit 1
+    python3 "${SCRIPTS_DIR}/blue_green.py" \
+        --fortios-version "${FORTIOS_VERSION}" \
+        ${BG_ARGS[@]+"${BG_ARGS[@]}"}
 fi

@@ -217,6 +217,79 @@ wrong costs only Green.
 
 ---
 
+## Automated Run (Phases 0–3)
+
+`upgrade_fortios/scripts/blue_green.py` runs Phases 0 to 3 on this page in one go, from a
+Blue deployed out of this checkout (`terraform/autoscale_template` and
+`terraform/existing_vpc_resources`, each with its `terraform.tfstate`). It stops before
+the cutover. **It never runs `cutover.py`**: moving production traffic is always a
+step you take yourself, and the script ends by printing the commands.
+
+```bash
+cd upgrade_fortios
+./upgrade --blue-green --fortios-version 8.0.2 --upgrade-path-verified
+```
+
+Pass `--upgrade-path-verified` only after the [upgrade path check](#check-the-upgrade-path-first).
+The script asks before it writes Green's `terraform.tfvars`, before `terraform apply`,
+and before the restore. `--yes` answers those three; there is no option that runs the
+cutover.
+
+| Step | What it does |
+|------|--------------|
+| `preflight` | Checks that Blue's state has an Auto Scaling group, that `terraform` is installed and that the FortiGate admin password is available |
+| `discover` | Runs `state/refresh.sh` and `discover.py`; shows where each spoke's default route points and asks to continue if any does not point at Blue |
+| `backup` | Logs in to Blue's primary over the REST API and saves `state/blue_primary_config.conf`; stops if the backup's version is not the version Blue runs |
+| `tfvars` | Writes `terraform/green_inspection_stack/terraform.tfvars` from Blue's (see below), shows the diff with passwords hidden, keeps the old file as `terraform.tfvars.bak-<time>` |
+| `deploy` | `terraform init`, `plan` and `apply` in `green_inspection_stack`; copies the state to `state/green.tfstate` |
+| `wait` | Waits for Green's primary to be InService, healthy behind Green's GWLB, and answering a REST login |
+| `prepare` | Runs `prepare_green_config.py`: `state/green_primary_config.conf` with Green's GWLB addresses |
+| `restore` | Uploads that file to Green's primary; the FortiGate reboots |
+| `verify` | Waits for it to come back, then checks that its GENEVE peers are Green's GWLB addresses |
+
+**Green's `terraform.tfvars`** takes every value Green's `variables.tf` declares from
+Blue's file, except:
+
+- `asg_module_prefix` and `stack_label`: `green` (`--green-prefix` to change it), and
+  `endpoint_name_az1` / `endpoint_name_az2` follow the prefix
+- `fortios_version`: the target version
+- `access_internet_mode`: `egress_mode` from the inventory, which is the mode Blue's
+  inspection VPC actually uses
+- with FortiFlex, `asg_byol_asg_min_size` and `asg_byol_asg_desired_size` are set to 1
+  (instances that launch together can be given the same serial). Raise them to Blue's
+  values once the FortiGate shows License Status: Valid
+
+Values Green declares but Blue's file does not set are kept from the current Green file,
+if there is one.
+
+**FortiGate access.** The script logs in as `admin` with `fortigate_asg_password` from
+Blue's `terraform.tfvars`, or `FGT_PASSWORD` from the environment when set. A new Green
+FortiGate has no API key, so a session login is the only way in without the GUI. It
+connects to the public address of each primary's management interface; with
+`--use-private-ip` it uses the private address instead, for access over VPN, Direct
+Connect or a jump host. `--blue-mgmt-ip` and `--green-mgmt-ip` give the addresses
+directly.
+
+**Certificates.** By default the script does not check the FortiGates' TLS certificates,
+and prints a warning saying so: a new FortiGate presents only its self-signed factory
+certificate. Anyone who can intercept the management connections could then read the admin
+password and the configuration backup. Reach the FortiGates over a path you trust (a VPN,
+Direct Connect or a jump host with `--use-private-ip`), or install certificates from your
+own CA on the FortiGates and pass that CA with `--fgt-ca-file ca.pem`. With it, each
+certificate must chain to that CA and name the address the script connects to (an IP
+address entry when connecting by IP), or the script stops. This applies to Green as
+well: a Green FortiGate built by `green_inspection_stack` has only its factory certificate,
+so with `--fgt-ca-file` the `wait` step stops until a certificate from your CA is installed
+on it.
+
+**Resuming.** Progress is kept in `state/bluegreen_progress.json`. When a step stops, the
+script names the step to resume from, for example `--start-at restore`.
+
+After it finishes, do Phase 3's checks that need a person (policies on Green, license
+status), then Phase 4.
+
+---
+
 ## Phase 0 — Discovery
 
 **Goal:** Produce a complete inventory of the Blue environment.
