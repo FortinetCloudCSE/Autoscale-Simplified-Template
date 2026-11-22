@@ -79,13 +79,15 @@ upgrade_fortios/
 ├── scripts/
 │   ├── discover.py             — Parse terraform state, output blue_inventory.json
 │   ├── inplace_upgrade.py      — In-place upgrade workflow (Paths A, B, C)
+│   ├── blue_green.py           — Blue-green Phases 0–3 end to end; stops before cutover
 │   ├── prepare_green_config.py — Rewrite Blue's GWLB addresses in the backup for Green
 │   ├── cutover.py              — TGW route flip + NAT GW EIP migration
 │   ├── rollback.py             — Revert TGW routes to Blue + EIP rollback
 │   └── watch_lambda.sh         — Stream Lambda CloudWatch logs during upgrade
 ├── tests/
 │   ├── test_inplace_upgrade.py — Tests against a simulated ASG and Lambda (no AWS calls)
-│   └── test_prepare_green_config.py — Tests for the backup rewrite (no AWS calls)
+│   ├── test_prepare_green_config.py — Tests for the backup rewrite (no AWS calls)
+│   └── test_blue_green.py      — Tests for blue_green.py against fakes (no AWS calls)
 ├── backups/                    — Config backups for a rolling upgrade (not in git)
 └── state/
     ├── refresh.sh              — Copy fresh state files from terraform directories
@@ -155,6 +157,10 @@ python3 tests/test_inplace_upgrade.py
 | 4 Cutover | `cutover.py --dry-run` then `cutover.py` | Monitor traffic |
 | 5 Monitor | 24–48 h observation | Application teams confirm |
 | 6 Cleanup | Manual `terraform destroy` (green_inspection_stack teardown of Blue) | Operator approval |
+
+`./upgrade --blue-green --fortios-version <v>` (`scripts/blue_green.py`) runs Phases 0–3,
+including the backup, Green's tfvars, the restore with Green's GWLB addresses and the GENEVE
+check. It stops there and prints the cutover commands; Phase 4 onwards is always by hand.
 
 ## Key Design Decisions
 
