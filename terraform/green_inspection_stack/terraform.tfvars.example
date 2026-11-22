@@ -156,6 +156,11 @@ fortimanager_sn                 = ""
 fortimanager_vrf_select         = 0
 
 # ── Security Group ─────────────────────────────────────────────────────────────
-# CIDRs allowed for FortiGate management access.
+# CIDRs allowed to reach the Green FortiGates' management interfaces. Use the same list
+# as Blue's autoscale_template: the addresses you manage from, plus the management VPC's
+# CIDR when a jump box, FortiManager or FortiAnalyzer there must reach them.
+# Required with a dedicated management VPC or ENI: terraform stops if the list is empty.
+# Do not use 0.0.0.0/0. The management interface normally has a public address.
+# Format: ["x.x.x.x/32", "y.y.y.0/24"]. Find your IP: curl ifconfig.me
 
-vpc_cidr_sg = ["0.0.0.0/0"]
+vpc_cidr_sg = []

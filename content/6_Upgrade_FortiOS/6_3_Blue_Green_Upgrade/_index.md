@@ -340,7 +340,20 @@ Complete this checklist before Phase 2. All items must be confirmed before deplo
 **Capacity**
 - [ ] AWS account service limits allow the additional EC2 instances, EIPs, and NAT Gateways
 - [ ] NAT Gateway quota allows 2 additional NAT GWs per AZ (Green creates its own temp NAT GWs)
-- [ ] EIP quota allows 2 additional EIPs for Green temp NAT GWs
+- [ ] Elastic IP quota has room for Green while Blue is still running. Count one per
+  Green NAT gateway (`nat_gw` mode), one per Green FortiGate for its dedicated management
+  interface, and one more per Green FortiGate in `eip` mode. Compare with what is in use:
+
+  ```bash
+  aws ec2 describe-addresses --query 'length(Addresses)'
+  aws service-quotas get-service-quota --service-code ec2 --quota-code L-0263D0A3 --query 'Quota.Value'
+  ```
+
+  Terraform does not report a shortfall. The NAT gateway addresses are allocated by
+  Terraform, but each FortiGate's addresses are allocated by the autoscale Lambda when the
+  instance launches. At the limit the Lambda logs `AddressLimitExceeded` and the FortiGate
+  comes up with no public address on that interface, reachable only from inside the
+  management VPC.
 
 **Credentials and Access**
 - [ ] AWS credentials have IAM permissions to create VPC, subnets, NAT GWs, TGW attachments, ASG, GWLB, Lambda, DynamoDB
@@ -358,6 +371,7 @@ Complete this checklist before Phase 2. All items must be confirmed before deplo
 - [ ] `vpc_cidr_inspection` in Green tfvars **matches Blue exactly** (required for config restore)
 - [ ] `access_internet_mode` in Green tfvars matches `egress_mode` in `blue_inventory.json`
 - [ ] `asg_module_prefix` set to `"green"` (avoids resource name collisions with Blue)
+- [ ] `vpc_cidr_sg` in Green tfvars is the same list as Blue's — it is the only thing allowed to reach the Green FortiGates' management interfaces, and `terraform plan` stops if it is empty
 - [ ] `asg_license_directory` points to a valid directory (create empty `asg_license/` for FortiFlex/PAYG)
 
 **FortiManager (if enabled)**
@@ -540,6 +554,7 @@ These checks confirm that Green is structurally sound before automated validatio
 **FortiGate Health**
 - [ ] Green ASG instances launched and in `InService` lifecycle state
 - [ ] `get system status` on each Green FortiGate shows `License Status: Valid`, and each has its own serial
+- [ ] Each Green FortiGate's management interface has the public address you expect. If one has none, look for `AddressLimitExceeded` in the Green autoscale Lambda's log
 - [ ] Green ASG raised from one instance to its final size once the first instance is licensed (FortiFlex)
 - [ ] One Green instance has `ProtectedFromScaleIn: true` (primary elected)
 - [ ] Green primary FortiGate accessible via HTTPS on management port

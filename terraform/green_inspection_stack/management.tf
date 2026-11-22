@@ -55,17 +55,21 @@ data "aws_subnet" "management_public_az2" {
 # Security group for management ENIs
 # Placed in management VPC (dedicated_management_vpc mode) or
 # in the Green inspection VPC (dedicated_management_eni mode).
+#
+# Ingress is limited to vpc_cidr_sg, the same list Blue's management interfaces use
+# (autoscale_template: aws_security_group.management-vpc-sg). The management interface
+# normally has a public address, so this must never be open to 0.0.0.0/0 by default.
 resource "aws_security_group" "management_sg" {
   count       = var.enable_dedicated_management_vpc || var.enable_dedicated_management_eni ? 1 : 0
   description = "Security group for Green FortiGate management ENI"
   vpc_id      = var.enable_dedicated_management_vpc ? data.aws_vpc.management_vpc[0].id : aws_vpc.green_inspection.id
 
   ingress {
-    description = "Allow all ingress"
+    description = "Allow management access from allowed CIDRs"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.vpc_cidr_sg
   }
   egress {
     description = "Allow all egress"
@@ -76,5 +80,12 @@ resource "aws_security_group" "management_sg" {
   }
   tags = {
     Name = "${var.cp}-${var.env}-green-management-sg"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(var.vpc_cidr_sg) > 0
+      error_message = "vpc_cidr_sg is empty, so nothing could reach the Green FortiGates' management interfaces. Set it to the same list as Blue's autoscale_template: the addresses you manage from, and the management VPC's CIDR if a jump box, FortiManager or FortiAnalyzer there must reach them."
+    }
   }
 }
