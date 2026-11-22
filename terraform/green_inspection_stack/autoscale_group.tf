@@ -75,11 +75,11 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
     management_secgrp1 = {
       description = "Security group for Green FortiGate dedicated management port"
       ingress = {
-        all_traffic = {
+        allowed_cidrs = {
           from_port   = "0"
           to_port     = "0"
           protocol    = "-1"
-          cidr_blocks = ["0.0.0.0/0"]
+          cidr_blocks = var.vpc_cidr_sg
         }
       }
       egress = {
