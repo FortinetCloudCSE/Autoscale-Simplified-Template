@@ -128,8 +128,10 @@ class Resp(io.BytesIO):
 class FakeOpener:
     """Answers like a FortiGate. Records requests."""
 
-    def __init__(self, fgt, login_ok=True, backup_get_status=200, config=b'#config-version=FGAAWS-7.6.8-FW-build1:x\n'):
+    def __init__(self, fgt, login_ok=True, backup_get_status=200,
+                 config=b'#config-version=FGAAWS-7.6.8-FW-build1:x\n', gzip_bodies=False):
         self.fgt = fgt
+        self.gzip_bodies = gzip_bodies
         self.login_ok = login_ok
         self.backup_get_status = backup_get_status
         self.config = config
@@ -140,6 +142,13 @@ class FakeOpener:
                       False, None, False, None, None, {})
 
     def open(self, req, timeout=None):
+        resp = self._open(req)
+        if self.gzip_bodies:
+            import gzip
+            resp = Resp(resp.status, gzip.compress(resp.getvalue()))
+        return resp
+
+    def _open(self, req):
         path = req.full_url.split(':443', 1)[1]
         self.requests.append((req.get_method(), path, dict(req.header_items())))
         if path == '/logincheck':
@@ -227,6 +236,18 @@ class FortiGateTests(unittest.TestCase):
         fgt = fgt_with()
         fgt.login = mock.Mock(side_effect=urllib.error.URLError(ConnectionRefusedError()))
         self.assertIsNone(bg.try_login(lambda: fgt))
+
+    def test_gzipped_responses_are_read(self):
+        fgt = fgt_with(gzip_bodies=True)
+        fgt.login()
+        self.assertTrue(fgt.backup().startswith(b'#config-version='))
+        fgt.restore(b'#config-version=x\n')
+        self.assertEqual(fgt.geneve_peers()['geneve-az1'], '10.0.2.171')
+
+    def test_failed_login_shows_the_decoded_response(self):
+        fgt = fgt_with(login_ok=False, gzip_bodies=True)
+        with self.assertRaisesRegex(bg.FortiGateError, "response: '0'"):
+            fgt.login()
 
     def test_geneve_peers(self):
         fgt = fgt_with()

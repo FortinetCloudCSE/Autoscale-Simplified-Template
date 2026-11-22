@@ -32,6 +32,7 @@ Progress is recorded in state/bluegreen_progress.json.
 
 import argparse
 import difflib
+import gzip
 import http.cookiejar
 import json
 import os
@@ -268,6 +269,16 @@ class FortiGateError(Exception):
     pass
 
 
+def gunzip(data):
+    """FortiOS gzips some responses whether or not the client asked for it."""
+    if data[:2] == b'\x1f\x8b':
+        try:
+            return gzip.decompress(data)
+        except (OSError, EOFError):
+            return data
+    return data
+
+
 def tls_context(ca_file=None):
     """
     TLS settings for the FortiGate connections.
@@ -318,10 +329,10 @@ class FortiGate:
         req = urllib.request.Request(self.base + path, data=data, headers=headers, method=method)
         try:
             with self.opener.open(req, timeout=self.timeout) as resp:
-                return resp.status, resp.read()
+                return resp.status, gunzip(resp.read())
         except urllib.error.HTTPError as e:
             with e:
-                return e.code, e.read()
+                return e.code, gunzip(e.read())
 
     def login(self):
         body = urllib.parse.urlencode({'username': self.username, 'secretkey': self.password,
@@ -330,8 +341,9 @@ class FortiGate:
                                   {'Content-Type': 'application/x-www-form-urlencoded'})
         # With ajax=1 FortiOS answers "1" on success; 0 bad credentials, 2 locked out.
         if status != 200 or not data.strip().startswith(b'1') or not self._csrf():
+            text = ' '.join(data[:160].decode('utf-8', 'replace').split())
             raise FortiGateError(f'login to {self.host} as {self.username} failed '
-                                 f'(HTTP {status}, response {data[:40]!r})')
+                                 f'(HTTP {status}, response: {text!r})')
 
     def logout(self):
         try:
