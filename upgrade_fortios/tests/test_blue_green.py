@@ -90,6 +90,39 @@ class TfvarsTests(unittest.TestCase):
         self.assertNotIn('only_in_blue', g)
         self.assertEqual(src['cp'], 'blue')
 
+    def test_serials_blue_holds_are_left_out_of_green(self):
+        blue = bg.parse_tfvars(BLUE_TFVARS)
+        over = bg.green_overrides(blue, {}, '8.0.2', 'green', blue_serials={'FGVM0001'})
+        self.assertEqual(bg.hcl_value(over['fortiflex_sn_list']), ['FGVM0002'])
+
+    def test_serial_list_is_copied_when_blue_holds_none(self):
+        blue = bg.parse_tfvars(BLUE_TFVARS)
+        self.assertNotIn('fortiflex_sn_list', bg.green_overrides(blue, {}, '8.0.2', 'green', set()))
+
+    def test_no_free_serial_for_green_is_refused(self):
+        blue = bg.parse_tfvars(BLUE_TFVARS)
+        with self.assertRaisesRegex(bg.StepError, 'every serial .* is in use by Blue'):
+            bg.green_overrides(blue, {}, '8.0.2', 'green', blue_serials={'FGVM0001', 'FGVM0002'})
+
+    def test_serials_in_use_are_read_from_the_track_table(self):
+        ddb = mock.Mock()
+        ddb.get_item.return_value = {'Item': {'used_sn_map': {'M': {
+            'i-1': {'S': 'FGVM0001'}, 'i-2': {'S': 'FGVM0002'}}}}}
+        self.assertEqual(bg.serials_in_use(ddb, 'asg-fgt_asg_track_table'),
+                         {'i-1': 'FGVM0001', 'i-2': 'FGVM0002'})
+        kw = ddb.get_item.call_args.kwargs
+        self.assertEqual((kw['TableName'], kw['Key']),
+                         ('asg-fgt_asg_track_table', {'Category': {'S': 'fortiflex'}}))
+        ddb.get_item.return_value = {}
+        self.assertEqual(bg.serials_in_use(ddb, 't'), {})
+
+    def test_track_tables_are_found_in_the_state(self):
+        state = {'resources': [
+            {'mode': 'managed', 'type': 'aws_dynamodb_table',
+             'instances': [{'attributes': {'name': 'asg-fgt_asg_track_table'}}]},
+            {'mode': 'data', 'type': 'aws_dynamodb_table', 'instances': [{'attributes': {'name': 'x'}}]}]}
+        self.assertEqual(bg.dynamodb_tables(state), ['asg-fgt_asg_track_table'])
+
     def test_without_fortiflex_sizes_are_copied(self):
         blue = bg.parse_tfvars(BLUE_TFVARS.replace('"FGVM0001",   # first\n  "FGVM0002",', ''))
         over = bg.green_overrides(blue, {}, '8.0.2', 'green')
@@ -128,8 +161,12 @@ class Resp(io.BytesIO):
 class FakeOpener:
     """Answers like a FortiGate. Records requests."""
 
-    def __init__(self, fgt, login_ok=True, backup_get_status=200, config=b'#config-version=FGAAWS-7.6.8-FW-build1:x\n'):
+    def __init__(self, fgt, login_ok=True, backup_get_status=200,
+                 config=b'#config-version=FGAAWS-7.6.8-FW-build1:x\n', gzip_bodies=False,
+                 new_auth=False):
         self.fgt = fgt
+        self.new_auth = new_auth
+        self.gzip_bodies = gzip_bodies
         self.login_ok = login_ok
         self.backup_get_status = backup_get_status
         self.config = config
@@ -140,8 +177,27 @@ class FakeOpener:
                       False, None, False, None, None, {})
 
     def open(self, req, timeout=None):
+        resp = self._open(req)
+        if self.gzip_bodies:
+            import gzip
+            resp = Resp(resp.status, gzip.compress(resp.getvalue()))
+        return resp
+
+    def _open(self, req):
         path = req.full_url.split(':443', 1)[1]
         self.requests.append((req.get_method(), path, dict(req.header_items())))
+        if path == '/api/v2/authentication':
+            if req.get_method() == 'DELETE':
+                return Resp(200, b'{}')
+            if not self.new_auth:                       # older FortiOS
+                return Resp(401, b'{"http_status": 401}')
+            if self.login_ok:
+                self.fgt.jar.set_cookie(self._cookie('ccsrf_token_443_ab12', 'NEWTOKEN'))
+                self.fgt.jar.set_cookie(self._cookie('session_key_443_ab12', 'S'))
+                return Resp(200, b'{"status_message": "LOGIN_SUCCESS", "error": 0}')
+            return Resp(401, b'{"status_message": "LOGIN_FAILED", "error": 1}')
+        if path == '/logincheck' and self.new_auth:     # 7.6.3+: login page, no session
+            return Resp(200, b'<!doctype html><html><title>FortiGate</title></html>')
         if path == '/logincheck':
             if self.login_ok:
                 self.fgt.jar.set_cookie(self._cookie('ccsrftoken', '"TOKEN"'))
@@ -228,6 +284,40 @@ class FortiGateTests(unittest.TestCase):
         fgt.login = mock.Mock(side_effect=urllib.error.URLError(ConnectionRefusedError()))
         self.assertIsNone(bg.try_login(lambda: fgt))
 
+    def test_gzipped_responses_are_read(self):
+        fgt = fgt_with(gzip_bodies=True)
+        fgt.login()
+        self.assertTrue(fgt.backup().startswith(b'#config-version='))
+        fgt.restore(b'#config-version=x\n')
+        self.assertEqual(fgt.geneve_peers()['geneve-az1'], '10.0.2.171')
+
+    def test_failed_login_shows_the_decoded_response(self):
+        fgt = fgt_with(login_ok=False, gzip_bodies=True)
+        with self.assertRaisesRegex(bg.FortiGateError, "response: '0'"):
+            fgt.login()
+
+    def test_fortios_763_login_uses_the_authentication_endpoint(self):
+        fgt = fgt_with(new_auth=True)
+        fgt.login()
+        self.assertEqual(fgt.auth_mode, 'authentication')
+        fgt.restore(b'#config-version=x\n')
+        self.assertEqual(fgt.opener.requests[-1][2].get('X-csrftoken'), 'NEWTOKEN')
+        self.assertFalse(any(p == '/logincheck' for _, p, _ in fgt.opener.requests))
+        fgt.logout()
+        self.assertEqual(fgt.opener.requests[-1][:2], ('DELETE', '/api/v2/authentication'))
+
+    def test_fortios_763_bad_password_is_reported_from_the_new_endpoint(self):
+        fgt = fgt_with(new_auth=True, login_ok=False)
+        with self.assertRaisesRegex(bg.FortiGateError, "LOGIN_FAILED"):
+            fgt.login()
+
+    def test_older_fortios_falls_back_to_logincheck(self):
+        fgt = fgt_with()
+        fgt.login()
+        self.assertEqual(fgt.auth_mode, 'logincheck')
+        self.assertEqual([p for _, p, _ in fgt.opener.requests],
+                         ['/api/v2/authentication', '/logincheck'])
+
     def test_geneve_peers(self):
         fgt = fgt_with()
         fgt.login()
@@ -310,6 +400,9 @@ class FakeAWS:
         return {'AutoScalingGroups': [{'Instances': [
             {'InstanceId': 'i-green', 'LifecycleState': 'InService', 'ProtectedFromScaleIn': False}]}]}
 
+    def get_item(self, TableName, Key, AttributesToGet):
+        return {'Item': {'used_sn_map': {'M': {'i-blue': {'S': 'FGVM0001'}}}}}
+
     def describe_target_health(self, TargetGroupArn):
         return {'TargetHealthDescriptions': [{'Target': {'Id': 'i-green'}, 'TargetHealth': {'State': 'healthy'}}]}
 
@@ -332,7 +425,8 @@ class WholeRunTests(unittest.TestCase):
         st = paths['STATE_DIR']
         paths.update({'INVENTORY': st / 'blue_inventory.json', 'BLUE_BACKUP': st / 'blue_primary_config.conf',
                       'GREEN_CONFIG': st / 'green_primary_config.conf', 'GREEN_STATE': st / 'green.tfstate',
-                      'PROGRESS': st / 'bluegreen_progress.json'})
+                      'PROGRESS': st / 'bluegreen_progress.json',
+                      'BLUE_STATE': st / 'autoscale_template.tfstate'})
         for k, v in paths.items():
             p = mock.patch.object(bg, k, v)
             p.start()
@@ -342,6 +436,9 @@ class WholeRunTests(unittest.TestCase):
         (paths['BLUE_TF_DIR'] / 'terraform.tfstate').write_text(json.dumps({'resources': [
             {'type': 'aws_autoscaling_group', 'instances': [{'attributes': {}}]}]}))
         (paths['VPC_TF_DIR'] / 'terraform.tfstate').write_text('{}')
+        paths['BLUE_STATE'].write_text(json.dumps({'resources': [         # as refresh.sh copies it
+            {'mode': 'managed', 'type': 'aws_dynamodb_table',
+             'instances': [{'attributes': {'name': 'asg-fgt_asg_track_table'}}]}]}))
         (paths['GREEN_TF_DIR'] / 'variables.tf').write_text(GREEN_VARIABLES)
         self.inventory = {
             'discovery_metadata': {'region': 'us-east-1'}, 'egress_mode': 'eip',
@@ -382,7 +479,7 @@ class WholeRunTests(unittest.TestCase):
         aws = aws or FakeAWS()
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            bg.Run(args, clients={'ec2': aws, 'autoscaling': aws, 'elbv2': aws},
+            bg.Run(args, clients={'ec2': aws, 'autoscaling': aws, 'elbv2': aws, 'dynamodb': aws},
                    fgt_factory=self.fgt_factory, runner=self.runner).run()
         return out.getvalue()
 
@@ -394,6 +491,8 @@ class WholeRunTests(unittest.TestCase):
         # Green's tfvars written from Blue's
         g = bg.parse_tfvars((self.paths['GREEN_TF_DIR'] / 'terraform.tfvars').read_text())
         self.assertEqual(bg.hcl_value(g['fortios_version']), '8.0.2')
+        self.assertEqual(bg.hcl_value(g['fortiflex_sn_list']), ['FGVM0002'])   # Blue holds FGVM0001
+        self.assertIn('FGVM0001 is in use by Blue (i-blue)', out)
         # The restored file carries Green's GWLB addresses
         restored = self.paths['GREEN_CONFIG'].read_text()
         self.assertIn('set remote-ip 10.0.2.171', restored)
@@ -444,7 +543,7 @@ class WholeRunTests(unittest.TestCase):
         aws = FakeAWS()
         with contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(bg.StepError, 'GENEVE peers are not'):
-                bg.Run(args, clients={'ec2': aws, 'autoscaling': aws, 'elbv2': aws},
+                bg.Run(args, clients={'ec2': aws, 'autoscaling': aws, 'elbv2': aws, 'dynamodb': aws},
                        fgt_factory=self.fgt_factory, runner=self.runner).run()
 
 
