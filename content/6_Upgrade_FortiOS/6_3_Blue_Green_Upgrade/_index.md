@@ -258,6 +258,10 @@ Blue's file, except:
 - with FortiFlex, `asg_byol_asg_min_size` and `asg_byol_asg_desired_size` are set to 1
   (instances that launch together can be given the same serial). Raise them to Blue's
   values once the FortiGate shows License Status: Valid
+- with FortiFlex, `fortiflex_sn_list` leaves out every serial Blue holds. The script reads
+  them from Blue's Lambda track table in DynamoDB (`used_sn_map` in the `fortiflex` item).
+  Each stack's Lambda knows only its own serials, so without this Green can be given a
+  serial a Blue FortiGate is running on. The step stops if no serial is left for Green
 
 Values Green declares but Blue's file does not set are kept from the current Green file,
 if there is one.

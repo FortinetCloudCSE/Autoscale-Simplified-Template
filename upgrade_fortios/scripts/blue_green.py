@@ -13,6 +13,7 @@ Steps (each can be the starting point with --start-at):
   discover   state/refresh.sh, then discover.py → state/blue_inventory.json
   backup     Back up Blue's primary over the FortiGate REST API → state/blue_primary_config.conf
   tfvars     Generate terraform/green_inspection_stack/terraform.tfvars from Blue's
+             (FortiFlex serials Blue holds, read from its DynamoDB track table, are left out)
   deploy     terraform init / plan / apply in green_inspection_stack, copy the state
   wait       Wait for Green's primary: InService, GWLB-healthy, REST login works
   prepare    prepare_green_config.py → state/green_primary_config.conf (Green's GWLB addresses)
@@ -62,6 +63,7 @@ VPC_TF_DIR = REPO_ROOT / 'terraform' / 'existing_vpc_resources'
 GREEN_TF_DIR = REPO_ROOT / 'terraform' / 'green_inspection_stack'
 
 INVENTORY = STATE_DIR / 'blue_inventory.json'
+BLUE_STATE = STATE_DIR / 'autoscale_template.tfstate'
 BLUE_BACKUP = STATE_DIR / 'blue_primary_config.conf'
 GREEN_CONFIG = STATE_DIR / 'green_primary_config.conf'
 GREEN_STATE = STATE_DIR / 'green.tfstate'
@@ -192,8 +194,12 @@ def variable_names(variables_tf_text):
     return re.findall(r'^variable\s+"([^"]+)"', variables_tf_text, re.M)
 
 
-def green_overrides(blue, inventory, target_version, prefix):
-    """Values Green must not copy from Blue. {name: raw HCL}"""
+def green_overrides(blue, inventory, target_version, prefix, blue_serials=()):
+    """Values Green must not copy from Blue. {name: raw HCL}
+
+    blue_serials: FortiFlex serials Blue's instances hold. Each stack's Lambda tracks
+    only its own serials, so Green would otherwise take one Blue is using and both
+    FortiGates would run on one license."""
     over = {
         'asg_module_prefix': hcl_string(prefix),
         'stack_label': hcl_string(prefix),
@@ -208,7 +214,14 @@ def green_overrides(blue, inventory, target_version, prefix):
     # FortiFlex: two instances launching together can be issued the same serial,
     # so Green starts with one and is raised to Blue's size by hand once licensed.
     flex = hcl_value(blue.get('fortiflex_sn_list', '[]'))
-    if isinstance(flex, list) and flex:
+    flex = [sn for sn in flex if sn] if isinstance(flex, list) else []
+    if flex:
+        free = [sn for sn in flex if sn not in set(blue_serials)]
+        if not free:
+            raise StepError('every serial in fortiflex_sn_list is in use by Blue '
+                            f'({", ".join(flex)}); add a free FortiFlex serial for Green')
+        if len(free) != len(flex):
+            over['fortiflex_sn_list'] = '[' + ', '.join(hcl_string(sn) for sn in free) + ']'
         for name in ('asg_byol_asg_min_size', 'asg_byol_asg_desired_size'):
             val = hcl_value(blue.get(name, '1'))
             if isinstance(val, int) and val > 1:
@@ -430,9 +443,10 @@ def certificate_error(exc):
     return reason if isinstance(reason, ssl.SSLCertVerificationError) else None
 
 
-def try_login(make_fgt):
-    """A logged-in FortiGate, or None while it is not answering yet. A certificate that
-    fails the --fgt-ca-file check is not a transient failure and stops the run."""
+def try_login(make_fgt, errors=None):
+    """A logged-in FortiGate, or None while it is not answering yet; the reason is added
+    to errors when a list is given. A certificate that fails the --fgt-ca-file check is
+    not a transient failure and stops the run."""
     fgt = make_fgt()
     try:
         fgt.login()
@@ -443,6 +457,8 @@ def try_login(make_fgt):
             raise StepError(f'{fgt.host}: certificate check failed ({getattr(bad, "verify_message", None) or bad}). '
                             'A new FortiGate has only its self-signed factory certificate; install '
                             'one from the CA in --fgt-ca-file, or run without --fgt-ca-file')
+        if errors is not None:
+            errors.append(' '.join(str(e).split())[:200])
         return None
 
 
@@ -493,6 +509,25 @@ def gwlb_healthy(elbv2, tg_arn, instance_id):
     return False
 
 
+def dynamodb_tables(tf_state):
+    """Names of the DynamoDB tables in a Terraform state (the Lambda's track tables)."""
+    return [inst['attributes']['name']
+            for r in tf_state.get('resources', [])
+            if r.get('type') == 'aws_dynamodb_table' and r.get('mode', 'managed') == 'managed'
+            for inst in r.get('instances', [])]
+
+
+def serials_in_use(dynamodb, table):
+    """
+    FortiFlex serials the autoscale Lambda has handed out, from its track table:
+    item Category=fortiflex, attribute used_sn_map {instance id: serial}.
+    """
+    resp = dynamodb.get_item(TableName=table, Key={'Category': {'S': 'fortiflex'}},
+                             AttributesToGet=['used_sn_map'])
+    used = resp.get('Item', {}).get('used_sn_map', {}).get('M', {})
+    return {iid: v['S'] for iid, v in used.items() if v.get('S')}
+
+
 def green_resource_attr(green_state, rtype, attr):
     vals = [inst['attributes'].get(attr)
             for r in green_state.get('resources', [])
@@ -536,7 +571,7 @@ class Run:
             region = (load_json(INVENTORY).get('discovery_metadata', {}).get('region')
                       if INVENTORY.exists() else None)
             self.clients = {n: boto3.client(n, region_name=region)
-                            for n in ('ec2', 'autoscaling', 'elbv2')}
+                            for n in ('ec2', 'autoscaling', 'elbv2', 'dynamodb')}
         return self.clients[name]
 
     def blue_tfvars(self):
@@ -657,7 +692,8 @@ class Run:
         target = GREEN_TF_DIR / 'terraform.tfvars'
         existing_text = target.read_text() if target.exists() else ''
         green_vars = variable_names((GREEN_TF_DIR / 'variables.tf').read_text())
-        overrides = green_overrides(blue, inv, self.args.fortios_version, self.args.green_prefix)
+        overrides = green_overrides(blue, inv, self.args.fortios_version, self.args.green_prefix,
+                                    self.blue_serials(blue))
         text, sources = build_green_tfvars(green_vars, blue, parse_tfvars(existing_text), overrides)
 
         new_values = parse_tfvars(text)
@@ -683,6 +719,24 @@ class Run:
                 f'terraform.tfvars.bak-{datetime.now().strftime("%Y%m%d-%H%M%S")}'))
         target.write_text(text)
         os.chmod(target, 0o600)
+
+    def blue_serials(self, blue):
+        """Serials Blue's Lambda has handed out; empty when Blue does not use FortiFlex."""
+        flex = hcl_value(blue.get('fortiflex_sn_list', '[]'))
+        if not (isinstance(flex, list) and any(flex)):
+            return set()
+        tables = dynamodb_tables(load_json(BLUE_STATE))
+        if not tables:
+            raise StepError(f'no DynamoDB track table in {BLUE_STATE.relative_to(UPGRADE_DIR)}; '
+                            "cannot tell which FortiFlex serials Blue holds")
+        used = {}
+        for table in tables:
+            used.update(serials_in_use(self.aws('dynamodb'), table))
+        for iid, sn in sorted(used.items()):
+            print(f'  FortiFlex serial {sn} is in use by Blue ({iid}); Green will not get it')
+        if not used:
+            print('  Blue holds no FortiFlex serials')
+        return set(used.values())
 
     # ── deploy ───────────────────────────────────────────────────────────────
     def deploy(self):
@@ -721,11 +775,12 @@ class Run:
                     self.args.use_private_ip)
                 if not need_login:
                     return primary, host
-                fgt = try_login(lambda: self.fgt_factory(host))
+                errors = []
+                fgt = try_login(lambda: self.fgt_factory(host), errors)
                 if fgt:
                     fgt.logout()
                     return primary, host
-                status += f'; GWLB healthy, REST login to {host} not answering yet'
+                status += f'; GWLB healthy, REST login to {host} failed: {errors[-1]}'
             elif primary:
                 status += f'; primary {primary} not GWLB-healthy yet'
             print(f'  [{ts()}] {asg}: {status}')

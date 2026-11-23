@@ -90,6 +90,39 @@ class TfvarsTests(unittest.TestCase):
         self.assertNotIn('only_in_blue', g)
         self.assertEqual(src['cp'], 'blue')
 
+    def test_serials_blue_holds_are_left_out_of_green(self):
+        blue = bg.parse_tfvars(BLUE_TFVARS)
+        over = bg.green_overrides(blue, {}, '8.0.2', 'green', blue_serials={'FGVM0001'})
+        self.assertEqual(bg.hcl_value(over['fortiflex_sn_list']), ['FGVM0002'])
+
+    def test_serial_list_is_copied_when_blue_holds_none(self):
+        blue = bg.parse_tfvars(BLUE_TFVARS)
+        self.assertNotIn('fortiflex_sn_list', bg.green_overrides(blue, {}, '8.0.2', 'green', set()))
+
+    def test_no_free_serial_for_green_is_refused(self):
+        blue = bg.parse_tfvars(BLUE_TFVARS)
+        with self.assertRaisesRegex(bg.StepError, 'every serial .* is in use by Blue'):
+            bg.green_overrides(blue, {}, '8.0.2', 'green', blue_serials={'FGVM0001', 'FGVM0002'})
+
+    def test_serials_in_use_are_read_from_the_track_table(self):
+        ddb = mock.Mock()
+        ddb.get_item.return_value = {'Item': {'used_sn_map': {'M': {
+            'i-1': {'S': 'FGVM0001'}, 'i-2': {'S': 'FGVM0002'}}}}}
+        self.assertEqual(bg.serials_in_use(ddb, 'asg-fgt_asg_track_table'),
+                         {'i-1': 'FGVM0001', 'i-2': 'FGVM0002'})
+        kw = ddb.get_item.call_args.kwargs
+        self.assertEqual((kw['TableName'], kw['Key']),
+                         ('asg-fgt_asg_track_table', {'Category': {'S': 'fortiflex'}}))
+        ddb.get_item.return_value = {}
+        self.assertEqual(bg.serials_in_use(ddb, 't'), {})
+
+    def test_track_tables_are_found_in_the_state(self):
+        state = {'resources': [
+            {'mode': 'managed', 'type': 'aws_dynamodb_table',
+             'instances': [{'attributes': {'name': 'asg-fgt_asg_track_table'}}]},
+            {'mode': 'data', 'type': 'aws_dynamodb_table', 'instances': [{'attributes': {'name': 'x'}}]}]}
+        self.assertEqual(bg.dynamodb_tables(state), ['asg-fgt_asg_track_table'])
+
     def test_without_fortiflex_sizes_are_copied(self):
         blue = bg.parse_tfvars(BLUE_TFVARS.replace('"FGVM0001",   # first\n  "FGVM0002",', ''))
         over = bg.green_overrides(blue, {}, '8.0.2', 'green')
@@ -367,6 +400,9 @@ class FakeAWS:
         return {'AutoScalingGroups': [{'Instances': [
             {'InstanceId': 'i-green', 'LifecycleState': 'InService', 'ProtectedFromScaleIn': False}]}]}
 
+    def get_item(self, TableName, Key, AttributesToGet):
+        return {'Item': {'used_sn_map': {'M': {'i-blue': {'S': 'FGVM0001'}}}}}
+
     def describe_target_health(self, TargetGroupArn):
         return {'TargetHealthDescriptions': [{'Target': {'Id': 'i-green'}, 'TargetHealth': {'State': 'healthy'}}]}
 
@@ -389,7 +425,8 @@ class WholeRunTests(unittest.TestCase):
         st = paths['STATE_DIR']
         paths.update({'INVENTORY': st / 'blue_inventory.json', 'BLUE_BACKUP': st / 'blue_primary_config.conf',
                       'GREEN_CONFIG': st / 'green_primary_config.conf', 'GREEN_STATE': st / 'green.tfstate',
-                      'PROGRESS': st / 'bluegreen_progress.json'})
+                      'PROGRESS': st / 'bluegreen_progress.json',
+                      'BLUE_STATE': st / 'autoscale_template.tfstate'})
         for k, v in paths.items():
             p = mock.patch.object(bg, k, v)
             p.start()
@@ -399,6 +436,9 @@ class WholeRunTests(unittest.TestCase):
         (paths['BLUE_TF_DIR'] / 'terraform.tfstate').write_text(json.dumps({'resources': [
             {'type': 'aws_autoscaling_group', 'instances': [{'attributes': {}}]}]}))
         (paths['VPC_TF_DIR'] / 'terraform.tfstate').write_text('{}')
+        paths['BLUE_STATE'].write_text(json.dumps({'resources': [         # as refresh.sh copies it
+            {'mode': 'managed', 'type': 'aws_dynamodb_table',
+             'instances': [{'attributes': {'name': 'asg-fgt_asg_track_table'}}]}]}))
         (paths['GREEN_TF_DIR'] / 'variables.tf').write_text(GREEN_VARIABLES)
         self.inventory = {
             'discovery_metadata': {'region': 'us-east-1'}, 'egress_mode': 'eip',
@@ -439,7 +479,7 @@ class WholeRunTests(unittest.TestCase):
         aws = aws or FakeAWS()
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            bg.Run(args, clients={'ec2': aws, 'autoscaling': aws, 'elbv2': aws},
+            bg.Run(args, clients={'ec2': aws, 'autoscaling': aws, 'elbv2': aws, 'dynamodb': aws},
                    fgt_factory=self.fgt_factory, runner=self.runner).run()
         return out.getvalue()
 
@@ -451,6 +491,8 @@ class WholeRunTests(unittest.TestCase):
         # Green's tfvars written from Blue's
         g = bg.parse_tfvars((self.paths['GREEN_TF_DIR'] / 'terraform.tfvars').read_text())
         self.assertEqual(bg.hcl_value(g['fortios_version']), '8.0.2')
+        self.assertEqual(bg.hcl_value(g['fortiflex_sn_list']), ['FGVM0002'])   # Blue holds FGVM0001
+        self.assertIn('FGVM0001 is in use by Blue (i-blue)', out)
         # The restored file carries Green's GWLB addresses
         restored = self.paths['GREEN_CONFIG'].read_text()
         self.assertIn('set remote-ip 10.0.2.171', restored)
@@ -501,7 +543,7 @@ class WholeRunTests(unittest.TestCase):
         aws = FakeAWS()
         with contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(bg.StepError, 'GENEVE peers are not'):
-                bg.Run(args, clients={'ec2': aws, 'autoscaling': aws, 'elbv2': aws},
+                bg.Run(args, clients={'ec2': aws, 'autoscaling': aws, 'elbv2': aws, 'dynamodb': aws},
                        fgt_factory=self.fgt_factory, runner=self.runner).run()
 
 
