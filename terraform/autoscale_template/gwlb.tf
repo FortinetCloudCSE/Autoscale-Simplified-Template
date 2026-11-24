@@ -127,7 +127,7 @@ resource "aws_lb_target_group" "slot" {
     interval          = var.gwlb_health_check_interval
     healthy_threshold = var.gwlb_healthy_threshold
   }
-  tags = local.common_tags
+  tags = merge(local.common_tags, { "Fortinet-Slot" = each.key })
 }
 
 resource "aws_lb_listener" "gwlb" {

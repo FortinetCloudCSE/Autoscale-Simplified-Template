@@ -553,7 +553,9 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   enable_east_west_inspection = true
 
   ## Tag
-  general_tags = local.common_tags
+  # Fortinet-Slot makes the slot's resources easy to recognize. A tag, not a name, so it changes
+  # in place. This call also owns the shared endpoint service and endpoints, which carry it too.
+  general_tags = merge(local.common_tags, { "Fortinet-Slot" = "blue" })
 }
 
 
@@ -677,5 +679,5 @@ module "spk_tgw_gwlb_asg_fgt_igw_green" {
   enable_east_west_inspection = true
 
   ## Tag
-  general_tags = local.common_tags
+  general_tags = merge(local.common_tags, { "Fortinet-Slot" = "green" })
 }
