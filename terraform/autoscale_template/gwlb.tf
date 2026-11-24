@@ -101,6 +101,7 @@ resource "aws_lb" "gwlb" {
   name                             = "${local.shared_prefix}gwlb-fgt"
   load_balancer_type               = "gateway"
   enable_cross_zone_load_balancing = var.allow_cross_zone_load_balancing
+  enable_deletion_protection       = var.gwlb_deletion_protection
   subnets                          = local.gwlb_subnet_ids
   tags                             = local.common_tags
 
