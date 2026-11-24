@@ -1,8 +1,14 @@
 ---
 title: "Discovery"
 menuTitle: "Discovery"
-weight: 64
+weight: 65
 ---
+
+{{% notice note %}}
+Discovery is used by the **in-place** and **separate-VPC blue-green** procedures. The
+recommended [Blue-Green, Same VPC](../6_5_blue_green_same_vpc/) upgrade does not need it:
+Terraform already has everything in the `autoscale_template` state.
+{{% /notice %}}
 
 ## Overview
 

@@ -1,7 +1,7 @@
 ---
 title: "Blue-Green Upgrade in the Same VPC"
-menuTitle: "Blue-Green (Same VPC)"
-weight: 65
+menuTitle: "Blue-Green, Same VPC (Recommended)"
+weight: 62
 ---
 
 ## Overview

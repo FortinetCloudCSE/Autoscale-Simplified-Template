@@ -1,7 +1,7 @@
 ---
-title: "Blue-Green Upgrade"
-menuTitle: "Blue-Green Upgrade"
-weight: 63
+title: "Blue-Green Upgrade (Separate VPC)"
+menuTitle: "Blue-Green, Separate VPC"
+weight: 64
 ---
 
 {{% notice tip %}}
