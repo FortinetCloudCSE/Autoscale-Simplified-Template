@@ -155,19 +155,33 @@ Blue-green requires approximately 2x license capacity during the monitoring wind
 while both Blue and Green ASGs are running simultaneously.
 {{% /notice %}}
 
+### Blue-Green in the Same VPC
+
+The [same-VPC variant](../6_5_blue_green_same_vpc/) builds Green as a second FortiGate group
+("slot") in the same inspection VPC, behind the same GWLB, and cuts over by changing which
+target group the GWLB listener forwards to. Use it when:
+
+- You want the benefits of blue-green without a second VPC, a second template or a Transit
+  Gateway route flip
+- The deployment uses distributed egress: the GWLB endpoints and their routes do not change
+- Running sessions must not be interrupted at the cutover: they stay on Blue until they end
+
+It is done entirely with `terraform apply` in `autoscale_template`, and it needs the same 2x
+license capacity while both slots run.
+
 ---
 
 ## Strategy Comparison
 
-| | In-Place (Path B) | Blue-Green |
-|---|---|---|
-| FortiOS versions | Same major (e.g., 7.6.x) | Any (7.4 → 7.6) |
-| Config sync during upgrade | Required | Not required |
-| Traffic impact | One instance short during each replacement; connections through the replaced instance are dropped | Connections are interrupted once, at the route flip |
-| Rollback | Point the ASGs at the previous launch template version and roll again | Single script, < 60 seconds |
-| Cost | Normal | 2x licenses during monitoring window |
-| Terraform state | Unchanged | New Green state added |
-| Typical duration | ~30 min | Longer (full stack deploy + 24–48h monitoring) |
+| | In-Place (Path B) | Blue-Green | Blue-Green (Same VPC) |
+|---|---|---|---|
+| FortiOS versions | Same major (e.g., 7.6.x) | Any (7.4 → 7.6) | Any (single-step upgrade path) |
+| Config sync during upgrade | Required | Not required | Not required |
+| Traffic impact | One instance short during each replacement; connections through the replaced instance are dropped | Connections are interrupted once, at the route flip | Running sessions stay on Blue; new flows go to Green |
+| Rollback | Point the ASGs at the previous launch template version and roll again | Single script, < 60 seconds | `active_slot` back + `terraform apply` |
+| Cost | Normal | 2x licenses during monitoring window | 2x licenses while both slots run |
+| Terraform state | Unchanged | New Green state added | Same state; slots added and removed |
+| Typical duration | ~30 min | Longer (full stack deploy + 24–48h monitoring) | Green build ~10 min + monitoring |
 
 ---
 

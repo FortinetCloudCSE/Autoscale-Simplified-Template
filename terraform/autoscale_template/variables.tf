@@ -144,17 +144,17 @@ variable "distributed_egress_endpoint_subnet_ids" {
   default     = []
 }
 variable "endpoint_name_az1" {
-  description = "Unused: the template now creates the GWLB endpoints itself (gwlb.tf). Kept so existing tfvars files still work."
+  description = "Name of the gwlb endpoint to route to in AZ1"
   type        = string
   default     = ""
 }
 variable "endpoint_name_az2" {
-  description = "Unused: the template now creates the GWLB endpoints itself (gwlb.tf). Kept so existing tfvars files still work."
+  description = "Name of the gwlb endpoint to route to in AZ2"
   type        = string
   default     = ""
 }
 variable "endpoint_name_az3" {
-  description = "Unused: the template now creates the GWLB endpoints itself (gwlb.tf). Kept so existing tfvars files still work."
+  description = "Name of the gwlb endpoint to route to in AZ3"
   type        = string
   default     = ""
 }

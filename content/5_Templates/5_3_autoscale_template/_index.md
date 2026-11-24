@@ -621,6 +621,12 @@ Setting `asg_ondemand_asg_max_size = 0` skips creation of the on-demand ASG, its
 
 See [Autoscale Group Capacity](../../4_solution_components/4_6_autoscale_group_capacity/) for detailed planning.
 
+{{% notice note %}}
+**Blue-green upgrade slots.** `fgt_slots` and `active_slot` are only used during a FortiOS
+upgrade in the same VPC. Leave them out for a normal deployment: the FortiGate group is then the
+`blue` slot. See [Blue-Green Upgrade in the Same VPC](../../6_upgrade_fortios/6_5_blue_green_same_vpc/).
+{{% /notice %}}
+
 ### Step 10: Configure FortiGate Specifications
 
 ```hcl

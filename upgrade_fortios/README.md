@@ -158,6 +158,11 @@ python3 tests/test_inplace_upgrade.py
 | 5 Monitor | 24–48 h observation | Application teams confirm |
 | 6 Cleanup | Manual `terraform destroy` (green_inspection_stack teardown of Blue) | Operator approval |
 
+**Same-VPC alternative:** `terraform/autoscale_template` can also run a blue-green upgrade by
+itself, with two FortiGate slots behind the shared GWLB (`fgt_slots`, `active_slot`); the cutover
+is a listener change made with `terraform apply`. See the "Blue-Green Upgrade in the Same VPC"
+page in the workshop docs.
+
 `./upgrade --blue-green --fortios-version <v>` (`scripts/blue_green.py`) runs Phases 0–3,
 including the backup, Green's tfvars, the restore with Green's GWLB addresses and the GENEVE
 check. It stops there and prints the cutover commands; Phase 4 onwards is always by hand.

@@ -4,6 +4,11 @@ menuTitle: "Blue-Green Upgrade"
 weight: 63
 ---
 
+{{% notice tip %}}
+A simpler variant builds Green in the **same** VPC, behind the same GWLB, with no second
+template: see [Blue-Green Upgrade in the Same VPC](../6_5_blue_green_same_vpc/).
+{{% /notice %}}
+
 ## Overview
 
 ### What a blue-green upgrade is
