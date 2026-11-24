@@ -23,8 +23,20 @@ locals {
 
   # Without fgt_slots, one "blue" slot is built from the top-level variables, so an existing
   # terraform.tfvars keeps working unchanged.
+  # Every attribute is listed (null = use the top-level variable) so both branches have the same type.
   fgt_slots_input = length(var.fgt_slots) > 0 ? var.fgt_slots : {
-    blue = { name_prefix = var.asg_module_prefix }
+    blue = {
+      name_prefix                   = var.asg_module_prefix
+      fortios_version               = null
+      fgt_instance_type             = null
+      fortiflex_sn_list             = null
+      asg_byol_asg_min_size         = null
+      asg_byol_asg_max_size         = null
+      asg_byol_asg_desired_size     = null
+      asg_ondemand_asg_min_size     = null
+      asg_ondemand_asg_max_size     = null
+      asg_ondemand_asg_desired_size = null
+    }
   }
   fgt_slots = {
     for k, v in local.fgt_slots_input : k => {
