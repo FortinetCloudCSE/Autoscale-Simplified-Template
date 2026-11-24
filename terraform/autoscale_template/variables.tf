@@ -162,17 +162,17 @@ variable "fgt_slots" {
   description = <<-EOT
     FortiGate slots ("blue", "green") for a blue-green upgrade in the same VPC (see gwlb.tf). Each entry is one
     FortiGate autoscale group behind the shared GWLB. Unset values come from the top-level
-    variables. Empty (the default) means one slot, "blue", with name_prefix = asg_module_prefix,
-    which is what a deployment without slots has. The slot that keeps asg_module_prefix as its
-    name_prefix keeps the AWS names of an existing deployment.
+    variables. Empty (the default) means one slot, "blue", which is what a deployment without
+    slots has. Blue always uses asg_module_prefix as its name prefix; green defaults to
+    "<asg_module_prefix>-green".
     Example during an upgrade:
       fgt_slots = {
-        blue  = { name_prefix = "asg" }
-        green = { name_prefix = "green", fortios_version = "8.0.2", fortiflex_sn_list = ["..."] }
+        blue  = {}
+        green = { fortios_version = "8.0.2", fortiflex_sn_list = ["..."] }
       }
     EOT
   type = map(object({
-    name_prefix                   = string
+    name_prefix                   = optional(string)
     fortios_version               = optional(string)
     fgt_instance_type             = optional(string)
     fortiflex_sn_list             = optional(list(string))

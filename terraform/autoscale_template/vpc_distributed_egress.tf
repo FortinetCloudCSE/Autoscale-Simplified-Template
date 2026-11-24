@@ -178,32 +178,32 @@ locals {
 #
 # Default route for each tag-discovered private subnet -- redirect to this VPC's own AZ-matched
 # GWLB Endpoint. Key format ("${spk_vpc key}-${subnet_id}") matches the upstream module's own
-# gwlb_endps merge (modules/aws/gwlb -- examples/.../main.tf ~line 516), now aws_vpc_endpoint.gwlb in gwlb.tf. Only for tag-discovered
+# gwlb_endps merge (modules/aws/gwlb -- examples/.../main.tf ~line 516). Only for tag-discovered
 # (Terraform-owned) infra -- explicit-list subnets never get their route table touched.
 #
 resource "aws_route" "distributed_1_private_default_route_gwlbe_az1" {
   count                  = var.enable_distributed_egress ? 1 : 0
   route_table_id         = data.aws_route_table.distributed_1_private_rt_az1[0].id
   destination_cidr_block = "0.0.0.0/0"
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az1[0].id}"].id
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az1[0].id}"]
 }
 resource "aws_route" "distributed_1_private_default_route_gwlbe_az2" {
   count                  = var.enable_distributed_egress ? 1 : 0
   route_table_id         = data.aws_route_table.distributed_1_private_rt_az2[0].id
   destination_cidr_block = "0.0.0.0/0"
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az2[0].id}"].id
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az2[0].id}"]
 }
 resource "aws_route" "distributed_2_private_default_route_gwlbe_az1" {
   count                  = var.enable_distributed_egress ? 1 : 0
   route_table_id         = data.aws_route_table.distributed_2_private_rt_az1[0].id
   destination_cidr_block = "0.0.0.0/0"
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az1[0].id}"].id
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az1[0].id}"]
 }
 resource "aws_route" "distributed_2_private_default_route_gwlbe_az2" {
   count                  = var.enable_distributed_egress ? 1 : 0
   route_table_id         = data.aws_route_table.distributed_2_private_rt_az2[0].id
   destination_cidr_block = "0.0.0.0/0"
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az2[0].id}"].id
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az2[0].id}"]
 }
 
 #
@@ -285,23 +285,23 @@ resource "aws_route" "distributed_1_ingress_to_gwlbe_az1" {
   count                  = var.enable_distributed_egress ? 1 : 0
   route_table_id         = data.aws_route_table.distributed_1_ingress[0].id
   destination_cidr_block = data.aws_subnet.distributed_1_private_az1[0].cidr_block
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az1[0].id}"].id
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az1[0].id}"]
 }
 resource "aws_route" "distributed_1_ingress_to_gwlbe_az2" {
   count                  = var.enable_distributed_egress ? 1 : 0
   route_table_id         = data.aws_route_table.distributed_1_ingress[0].id
   destination_cidr_block = data.aws_subnet.distributed_1_private_az2[0].cidr_block
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az2[0].id}"].id
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_1-${data.aws_subnet.distributed_1_gwlbe_az2[0].id}"]
 }
 resource "aws_route" "distributed_2_ingress_to_gwlbe_az1" {
   count                  = var.enable_distributed_egress ? 1 : 0
   route_table_id         = data.aws_route_table.distributed_2_ingress[0].id
   destination_cidr_block = data.aws_subnet.distributed_2_private_az1[0].cidr_block
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az1[0].id}"].id
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az1[0].id}"]
 }
 resource "aws_route" "distributed_2_ingress_to_gwlbe_az2" {
   count                  = var.enable_distributed_egress ? 1 : 0
   route_table_id         = data.aws_route_table.distributed_2_ingress[0].id
   destination_cidr_block = data.aws_subnet.distributed_2_private_az2[0].cidr_block
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az2[0].id}"].id
+  vpc_endpoint_id        = module.spk_tgw_gwlb_asg_fgt_igw.gwlb_endps["distributed_2-${data.aws_subnet.distributed_2_gwlbe_az2[0].id}"]
 }

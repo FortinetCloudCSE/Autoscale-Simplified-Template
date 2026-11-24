@@ -430,9 +430,10 @@ locals {
 }
 
 module "spk_tgw_gwlb_asg_fgt_igw" {
-  # Slot "blue". The module address is the one deployments without slots already have.
-  # The registry example has its own provider block, so it cannot use count/for_each: each slot
-  # is a fixed module call, and a slot that is not in fgt_slots gets empty inputs.
+  # Slot "blue". The module address is the one deployments without slots already have. This call
+  # is never removed: it also owns the endpoint service and the GWLB endpoints. The registry
+  # example has its own provider block, so it cannot use count/for_each: each slot is a fixed
+  # module call, and a slot that is not in fgt_slots gets empty inputs (no FortiGates).
 
   # Pinned to a published registry release rather than floating on the upstream main branch.
   # (It tracked main, unpinned, from Nov 2025 until Aug 2026 to pick up fmg_integration support
@@ -452,7 +453,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
 
   ## Root config
   region        = var.aws_region
-  module_prefix = try(local.fgt_slots["blue"].name_prefix, "blue")
+  module_prefix = var.asg_module_prefix
 
   # Use existing inspection VPC resources (looked up by Fortinet-Role tags)
   existing_security_vpc = {
@@ -464,13 +465,13 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   existing_tgw = {
   }
 
-  # The shared GWLB from gwlb.tf. The module creates no target group, listener, endpoint
-  # service or endpoints (a GWLB has one listener only); gwlb.tf creates the slot's target group
-  # and attaches it, and creates all GWLB endpoints, including those of distributed VPCs.
-  existing_gwlb            = { arn = aws_lb.gwlb.arn }
-  existing_gwlb_tgp        = {}
-  existing_gwlb_ep_service = {}
-  spk_vpc                  = {}
+  # The shared GWLB from gwlb.tf. No target group or listener here (a GWLB has one listener
+  # only); gwlb.tf creates the slot's target group and attaches it. This call also creates the
+  # endpoint service and every GWLB endpoint, including those of the distributed VPCs (see
+  # vpc_distributed_egress.tf), whether or not the blue slot is in use.
+  existing_gwlb     = { arn = aws_lb.gwlb.arn }
+  existing_gwlb_tgp = {}
+  spk_vpc           = local.distributed_spk_vpc
 
   existing_subnets = merge(
     {
@@ -577,7 +578,7 @@ module "spk_tgw_gwlb_asg_fgt_igw_green" {
 
   ## Root config
   region        = var.aws_region
-  module_prefix = try(local.fgt_slots["green"].name_prefix, "green")
+  module_prefix = local.slot_prefix["green"]
 
   # Use existing inspection VPC resources (looked up by Fortinet-Role tags)
   existing_security_vpc = {
@@ -589,9 +590,8 @@ module "spk_tgw_gwlb_asg_fgt_igw_green" {
   existing_tgw = {
   }
 
-  # The shared GWLB from gwlb.tf. The module creates no target group, listener, endpoint
-  # service or endpoints (a GWLB has one listener only); gwlb.tf creates the slot's target group
-  # and attaches it, and creates all GWLB endpoints, including those of distributed VPCs.
+  # The shared GWLB from gwlb.tf. No target group, listener, endpoint service or endpoints:
+  # those belong to gwlb.tf and to the blue module call.
   existing_gwlb            = { arn = aws_lb.gwlb.arn }
   existing_gwlb_tgp        = {}
   existing_gwlb_ep_service = {}

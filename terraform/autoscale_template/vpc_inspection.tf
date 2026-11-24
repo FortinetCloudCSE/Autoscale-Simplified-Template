@@ -397,6 +397,33 @@ data "aws_ec2_transit_gateway_route_table" "west-tgw-rtb" {
   }
 }
 
+# GWLB Endpoints (created by the ASG module)
+# count guards against plan-time failure on fresh deployments before the module creates them
+data "aws_vpc_endpoint" "asg_endpoint_az1" {
+  count      = var.modify_existing_route_tables ? 1 : 0
+  depends_on = [module.spk_tgw_gwlb_asg_fgt_igw]
+  filter {
+    name   = "tag:Name"
+    values = [var.endpoint_name_az1]
+  }
+}
+data "aws_vpc_endpoint" "asg_endpoint_az2" {
+  count      = var.modify_existing_route_tables ? 1 : 0
+  depends_on = [module.spk_tgw_gwlb_asg_fgt_igw]
+  filter {
+    name   = "tag:Name"
+    values = [var.endpoint_name_az2]
+  }
+}
+data "aws_vpc_endpoint" "asg_endpoint_az3" {
+  count      = (var.modify_existing_route_tables && var.availability_zone_3 != "") ? 1 : 0
+  depends_on = [module.spk_tgw_gwlb_asg_fgt_igw]
+  filter {
+    name   = "tag:Name"
+    values = [var.endpoint_name_az3]
+  }
+}
+
 # Management VPC resources (for dedicated management VPC mode)
 data "aws_internet_gateway" "management_igw_id" {
   count = var.enable_dedicated_management_vpc ? 1 : 0
@@ -426,19 +453,19 @@ resource "aws_route" "inspection-private-default-route-gwlbe-az1" {
   count                  = var.modify_existing_route_tables ? 1 : 0
   route_table_id         = data.aws_route_table.inspection_private_az1.id
   destination_cidr_block = "0.0.0.0/0"
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["${local.shared_prefix}gwlbe_az1"].id
+  vpc_endpoint_id        = data.aws_vpc_endpoint.asg_endpoint_az1[0].id
 }
 resource "aws_route" "inspection-private-default-route-gwlbe-az2" {
   count                  = var.modify_existing_route_tables ? 1 : 0
   route_table_id         = data.aws_route_table.inspection_private_az2.id
   destination_cidr_block = "0.0.0.0/0"
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["${local.shared_prefix}gwlbe_az2"].id
+  vpc_endpoint_id        = data.aws_vpc_endpoint.asg_endpoint_az2[0].id
 }
 resource "aws_route" "inspection-private-default-route-gwlbe-az3" {
   count                  = (var.modify_existing_route_tables && var.availability_zone_3 != "") ? 1 : 0
   route_table_id         = data.aws_route_table.inspection_private_az3[0].id
   destination_cidr_block = "0.0.0.0/0"
-  vpc_endpoint_id        = aws_vpc_endpoint.gwlb["${local.shared_prefix}gwlbe_az3"].id
+  vpc_endpoint_id        = data.aws_vpc_endpoint.asg_endpoint_az3[0].id
 }
 
 #
