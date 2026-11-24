@@ -5,8 +5,9 @@ weight: 64
 ---
 
 {{% notice tip %}}
-A simpler variant builds Green in the **same** VPC, behind the same GWLB, with no second
-template: see [Blue-Green Upgrade in the Same VPC](../6_5_blue_green_same_vpc/).
+The recommended blue-green upgrade builds Green in the **same** VPC, behind the same GWLB,
+with `terraform apply` in `autoscale_template`: see
+[Blue-Green Upgrade in the Same VPC](../6_5_blue_green_same_vpc/).
 {{% /notice %}}
 
 ## Overview

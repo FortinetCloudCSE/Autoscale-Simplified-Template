@@ -106,21 +106,32 @@ state, and the next `terraform apply` puts the listener back. Always cut over wi
 
 ---
 
-## One-Time Migration of an Existing Deployment
+## One-Time Step for a Running Deployment
 
-A deployment made before the slots existed has the GWLB, listener and target group inside the
-Fortinet module. The template moves them to their new places in the Terraform state with
-`moved` blocks: only the state entries are renamed, nothing in AWS is destroyed or created.
+Run this step once on a deployment whose Terraform state has the GWLB at the Fortinet module's
+address. To check, in `terraform/autoscale_template`:
 
-1. Make sure the deployment is on the current template with module release **1.1.7** and that
-   `terraform plan` shows **No changes**. Update to that version first if not.
+```bash
+terraform state list | grep 'security-vpc-gwlb.aws_lb.gwlb'
+```
+
+If the command prints an address, do the steps below before the first upgrade. If it prints
+nothing, skip this section.
+
+The template contains `moved` blocks that give the GWLB, the listener and the target group their
+slot addresses in the state. Only the state entries change; nothing in AWS is destroyed or
+created.
+
+1. Make sure the deployment uses module release **1.1.7** and that `terraform plan` shows
+   **No changes**.
 2. Save the state:
 
    ```bash
-   terraform state pull > state-before-slots.json
+   terraform state pull > state-backup.json
    ```
 
-3. Update to the template version with slots. `terraform.tfvars` does not need a change.
+3. Update the template files to the current release. `terraform.tfvars` does not need a
+   change: without `fgt_slots`, the deployment is the `blue` slot.
 4. Run `terraform init`, then `terraform plan`. The plan must show:
 
    - three resources that **have moved**:
@@ -269,7 +280,7 @@ aws dynamodb get-item --table-name asg-fgt_asg_track_table \
 
 | Step | Expected plan |
 |------|---------------|
-| Migration (once) | 3 moved, 1–2 to add (attachments), in-place tag and deletion-protection changes, **0 to destroy** |
+| One-time step | 3 moved, 1–2 to add (attachments), in-place tag and deletion-protection changes, **0 to destroy** |
 | Add the new slot | Only the new slot's resources added, **0 to change, 0 to destroy** |
 | Cutover / rollback | **1 to change** (the listener) |
 | Remove the old slot | Only the old slot's FortiGate resources, target group and attachment destroyed |
@@ -281,8 +292,8 @@ destroy or replacement (`~`, `-`, `-/+`) of something outside the step.
 
 ## Validated Configurations
 
-The procedure has been run end to end (migration, new slot, cutover, removal of the old slot)
-with: `eip` egress mode, 2-arm, dedicated management VPC, two availability zones, BYOL with
+Validated end to end (one-time step, new slot, cutover, removal of the old slot) with:
+`eip` egress mode, 2-arm, dedicated management VPC, two availability zones, BYOL with
 FortiFlex, one FortiGate per slot, centralized egress through the Transit Gateway plus two
 distributed-egress VPCs, FortiOS 7.6.8 → 8.0.2.
 
