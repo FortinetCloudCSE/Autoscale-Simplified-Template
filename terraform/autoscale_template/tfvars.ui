@@ -230,6 +230,14 @@ create_tgw_routes_for_existing = false
 # @ui-help: Recommended for production (maximizes availability). Set to false to avoid cross-AZ data transfer charges ($0.01/GB).
 allow_cross_zone_load_balancing = true
 
+# @ui-type: checkbox
+# @ui-label: GWLB Deletion Protection
+# @ui-description: AWS refuses to delete the Gateway Load Balancer while this is on
+# @ui-width: full
+# @ui-default: true
+# @ui-help: Recommended for production. To destroy the deployment, turn it off and apply first. Turn it off before deploying a lab you tear down often.
+gwlb_deletion_protection = true
+
 # @ui-type: text
 # @ui-label: GWLB Endpoint Name AZ1
 # @ui-description: Name for GWLB endpoint in first availability zone

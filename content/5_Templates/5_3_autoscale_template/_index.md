@@ -1484,6 +1484,14 @@ terraform destroy
 
 Type `yes` when prompted.
 
+{{% notice note %}}
+**GWLB deletion protection.** With `gwlb_deletion_protection = true` (the default), AWS refuses
+to delete the Gateway Load Balancer and `terraform destroy` stops with an error. Turn it off
+first: set `gwlb_deletion_protection = false` in `terraform.tfvars`, run `terraform apply`
+(one in-place change), then `terraform destroy`. For a lab you tear down often, set it to
+`false` before the first deployment.
+{{% /notice %}}
+
 {{% notice warning %}}
 **Destroy Order is Critical**
 

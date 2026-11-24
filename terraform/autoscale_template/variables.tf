@@ -99,6 +99,17 @@ variable "enable_tgw_attachment" {
   description = "Allow Inspection VPC to attach to an existing TGW"
   type        = bool
 }
+variable "gwlb_deletion_protection" {
+  description = <<-EOT
+    Turn on AWS deletion protection for the Gateway Load Balancer. The GWLB is shared by every
+    FortiGate slot and stays for the life of the deployment. AWS then refuses to delete it (for
+    example from the console). It does not stop terraform destroy from deleting the resources
+    that depend on the GWLB first. To tear the deployment down: set false, terraform apply, then
+    terraform destroy. Set false before the first deployment in labs you tear down often.
+    EOT
+  type        = bool
+  default     = true
+}
 variable "allow_cross_zone_load_balancing" {
   description = "Allow gateway load balancer to use healthy instances in a different zone"
   type        = bool

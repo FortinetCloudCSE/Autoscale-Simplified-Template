@@ -93,6 +93,9 @@ on-demand group sizes. A value a slot does not set comes from the variable of th
 {{% notice warning %}}
 Never run `terraform destroy` in `autoscale_template` to remove an old slot. It destroys both
 slots **and** the GWLB, listener and endpoints. Remove a slot by taking it out of `fgt_slots`.
+`gwlb_deletion_protection = true` (the default) keeps the GWLB itself, but Terraform deletes the
+listener, endpoints and FortiGates before it reaches the GWLB, so it does not make a destroy
+safe.
 {{% /notice %}}
 
 {{% notice warning %}}
@@ -126,7 +129,8 @@ Fortinet module. The template moves them to their new places in the Terraform st
      `...aws_lb_target_group.gwlb_tgp[0]` → `aws_lb_target_group.slot["blue"]`
    - **1 to add**: `aws_autoscaling_traffic_source_attachment.slot["blue/byol"]` (2 if the
      on-demand group is enabled)
-   - tag updates (`Fortinet-Slot`) as in-place changes
+   - in-place changes: the `Fortinet-Slot` tags, and `enable_deletion_protection` on
+     `aws_lb.gwlb` (unless you set `gwlb_deletion_protection = false`)
    - **0 to destroy**, and no "must be replaced"
 
    If the plan shows anything else, stop and do not apply.
@@ -265,7 +269,7 @@ aws dynamodb get-item --table-name asg-fgt_asg_track_table \
 
 | Step | Expected plan |
 |------|---------------|
-| Migration (once) | 3 moved, 1–2 to add (attachments), tag changes, **0 to destroy** |
+| Migration (once) | 3 moved, 1–2 to add (attachments), in-place tag and deletion-protection changes, **0 to destroy** |
 | Add the new slot | Only the new slot's resources added, **0 to change, 0 to destroy** |
 | Cutover / rollback | **1 to change** (the listener) |
 | Remove the old slot | Only the old slot's FortiGate resources, target group and attachment destroyed |

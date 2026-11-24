@@ -173,6 +173,13 @@ enable_distributed_egress = false
 #
 allow_cross_zone_load_balancing = true
 
+# GWLB deletion protection - AWS refuses to delete the GWLB while this is true.
+# Recommended: true for production. The GWLB is shared by both blue-green upgrade slots.
+# To destroy the deployment: set false, terraform apply, then terraform destroy.
+# Set false before the first deployment in a lab you tear down often.
+#
+gwlb_deletion_protection = true
+
 # GWLB Endpoint names - used for route table lookups
 # These names are assigned to GWLB endpoints during creation
 # Used by route table configuration to direct traffic through endpoints
