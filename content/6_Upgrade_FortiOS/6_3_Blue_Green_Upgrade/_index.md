@@ -1,8 +1,13 @@
 ---
-title: "Blue-Green Upgrade"
-menuTitle: "Blue-Green Upgrade"
-weight: 63
+title: "Blue-Green Upgrade (Separate VPC)"
+menuTitle: "Blue-Green, Separate VPC"
+weight: 64
 ---
+
+{{% notice tip %}}
+A simpler variant builds Green in the **same** VPC, behind the same GWLB, with no second
+template: see [Blue-Green Upgrade in the Same VPC](../6_5_blue_green_same_vpc/).
+{{% /notice %}}
 
 ## Overview
 

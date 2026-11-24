@@ -80,9 +80,11 @@ Replacing instances has its own consequences that a standalone upgrade does not 
 - **Connections are not carried over either.** Autoscale members do not share session
   state, so connections through an instance are dropped when it is replaced.
 
-The strategies below are different answers to these problems. The in-place paths update the
-launch template and then roll or restore instances. Blue-green builds an entirely new stack
-from a new template and cuts traffic over.
+The strategies below are different answers to these problems. **Blue-green in the same VPC is
+the recommended one:** it builds the new FortiGate group next to the old one behind the same
+GWLB and moves new traffic with one listener change. The in-place paths update the launch
+template and then roll or restore instances. Blue-green in a separate VPC builds an entirely
+new stack from a second template and cuts traffic over at the Transit Gateway.
 
 {{% notice note %}}
 "In-place" in this toolset means *the same ASG and Terraform stack is reused*, not that
@@ -94,8 +96,12 @@ replaced by the same ASG.
 
 ## Entry Points
 
-The toolset has two separate entry points — one for each strategy. Run `discover.py` first
-for both strategies to build the inventory file.
+**Blue-Green, Same VPC (recommended):** no scripts. Edit `terraform.tfvars` and run
+`terraform apply` in `terraform/autoscale_template`; see
+[Blue-Green, Same VPC](../6_5_blue_green_same_vpc/).
+
+The other two strategies use the `upgrade_fortios/` toolset. Run `discover.py` first to build
+the inventory file.
 
 **In-Place:**
 
@@ -109,7 +115,7 @@ python3 scripts/inplace_upgrade.py --inventory state/blue_inventory.json
 
 `./upgrade --in-place --fortios-version 7.6.8` runs the same three commands in order.
 
-**Blue-Green:**
+**Blue-Green, Separate VPC:**
 
 ```bash
 cd upgrade_fortios
@@ -124,9 +130,27 @@ python3 scripts/discover.py --state state/autoscale_template.tfstate \
 
 ## When to Use Each Strategy
 
+### Blue-Green, Same VPC (Recommended)
+
+The [same-VPC variant](../6_5_blue_green_same_vpc/) builds Green as a second FortiGate group
+("slot") in the same inspection VPC, behind the same GWLB, and cuts over by changing which
+target group the GWLB listener forwards to. Use it for every upgrade unless one of the limits
+below applies. It is the right choice when:
+
+- You want the benefits of blue-green without a second VPC, a second template or a Transit
+  Gateway route flip
+- The deployment uses distributed egress: the GWLB endpoints and their routes do not change
+- Running sessions must not be interrupted at the cutover: they stay on Blue until they end
+
+It is done entirely with `terraform apply` in `autoscale_template`. Limits: it needs licenses
+for both FortiGate groups while both slots run, room for both groups in the Elastic IP quota and
+the inspection subnets, and a single-step upgrade path from the old version to the new one
+(Green is restored from the old version's backup).
+
 ### In-Place Upgrade
 
-Use in-place when:
+Use in-place when blue-green in the same VPC is not possible (no licenses or quota for a second
+group at the same time), and:
 
 - Upgrading within the same major version (e.g., 7.6.7 → 7.6.8)
 - The deployment is healthy — no known config or licensing issues
@@ -141,9 +165,9 @@ Avoid in-place for:
 - Single-instance groups — replacing the only instance is an outage; scale to two first
 - Deployments with misconfigured alarms, license sync issues, or other known problems
 
-### Blue-Green Upgrade
+### Blue-Green, Separate VPC
 
-Use blue-green when:
+Use the separate-VPC variant when the new version must run in its own inspection VPC, or when:
 
 - Upgrading across major versions (e.g., 7.4 → 7.6)
 - The existing deployment has known configuration problems (broken alarms, license issues)
@@ -159,15 +183,15 @@ while both Blue and Green ASGs are running simultaneously.
 
 ## Strategy Comparison
 
-| | In-Place (Path B) | Blue-Green |
-|---|---|---|
-| FortiOS versions | Same major (e.g., 7.6.x) | Any (7.4 → 7.6) |
-| Config sync during upgrade | Required | Not required |
-| Traffic impact | One instance short during each replacement; connections through the replaced instance are dropped | Connections are interrupted once, at the route flip |
-| Rollback | Point the ASGs at the previous launch template version and roll again | Single script, < 60 seconds |
-| Cost | Normal | 2x licenses during monitoring window |
-| Terraform state | Unchanged | New Green state added |
-| Typical duration | ~30 min | Longer (full stack deploy + 24–48h monitoring) |
+| | Blue-Green, Same VPC (recommended) | In-Place (Path B) | Blue-Green, Separate VPC |
+|---|---|---|---|
+| FortiOS versions | Any (single-step upgrade path) | Same major (e.g., 7.6.x) | Any (7.4 → 7.6) |
+| Config sync during upgrade | Not required | Required | Not required |
+| Traffic impact | Running sessions stay on Blue; new flows go to Green | One instance short during each replacement; connections through the replaced instance are dropped | Connections are interrupted once, at the route flip |
+| Rollback | `active_slot` back + `terraform apply` | Point the ASGs at the previous launch template version and roll again | Single script, < 60 seconds |
+| Cost | 2x licenses while both slots run | Normal | 2x licenses during monitoring window |
+| Terraform state | Same state; slots added and removed | Unchanged | New Green state added |
+| Typical duration | Green build ~10 min + monitoring | ~30 min | Longer (full stack deploy + 24–48h monitoring) |
 
 ---
 

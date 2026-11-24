@@ -32,9 +32,6 @@ locals {
   management_device_index = var.firewall_policy_mode == "2-arm" ? 2 : 1
 }
 locals {
-  enable_ondemand_asg = var.asg_ondemand_asg_max_size > 0
-}
-locals {
   # Forced off regardless of enable_fgt_management_public_ip when the management VPC egresses
   # through its dedicated NAT Gateway instead -- see var.enable_dedicated_management_nat_gateway.
   fgt_management_public_ip_effective = var.enable_fgt_management_public_ip && !var.enable_dedicated_management_nat_gateway
@@ -127,7 +124,317 @@ resource "aws_security_group" "management-vpc-sg" {
   }
 }
 
+# Module inputs for each slot (see gwlb.tf). A slot that is not in fgt_slots gets empty maps,
+# so its module call creates no resources.
+locals {
+  slot_inputs = {
+    for k, v in local.fgt_slots : k => {
+      security_groups = {
+    secgrp1 = {
+      description = "Security group by Terraform"
+      ingress = {
+        all_traffic = {
+          from_port   = "0"
+          to_port     = "0"
+          protocol    = "-1"
+          cidr_blocks = ["0.0.0.0/0"]
+        }
+      }
+      egress = {
+        all_traffic = {
+          from_port   = "0"
+          to_port     = "0"
+          protocol    = "-1"
+          cidr_blocks = ["0.0.0.0/0"]
+        }
+      }
+    }
+    management_secgrp1 = {
+      description = "Security group by Terraform for dedicated management port"
+      ingress = {
+        allowed_cidrs = {
+          from_port   = "0"
+          to_port     = "0"
+          protocol    = "-1"
+          cidr_blocks = var.vpc_cidr_sg
+        }
+      }
+      egress = {
+        all_traffic = {
+          from_port   = "0"
+          to_port     = "0"
+          protocol    = "-1"
+          cidr_blocks = ["0.0.0.0/0"]
+        }
+      }
+    }
+  }
+      asgs = merge(
+    {
+    fgt_byol_asg = {
+      fmg_integration = var.enable_fortimanager_integration ? {
+        ip           = var.fortimanager_ip
+        sn           = var.fortimanager_sn
+        primary_only = true
+        fgt_lic_mgmt = "module"
+        vrf_select   = 1
+      } : { ip = "", sn = "", fgt_lic_mgmt = "module" }
+      primary_scalein_protection = var.primary_scalein_protection
+      extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
+        "dedicated_port" = {
+          device_index     = local.management_device_index
+          enable_public_ip = local.fgt_management_public_ip_effective
+          subnet = concat(
+            [
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
+                zone_name = local.availability_zone_1
+              },
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
+                zone_name = local.availability_zone_2
+              }
+            ],
+            var.availability_zone_3 != "" ? [
+              {
+                id        = local.mgmt_az3_subnet_id
+                zone_name = local.availability_zone_3
+              }
+            ] : []
+          )
+          security_groups = [
+            {
+              id = aws_security_group.management-vpc-sg[0].id
+            }
+          ]
+        }
+      }
+      template_name           = "fgt_asg_template"
+      fgt_version             = v.fortios_version
+      license_type            = "byol"
+      instance_type           = v.fgt_instance_type
+      fgt_password            = var.fortigate_asg_password
+      keypair_name            = var.keypair
+      lic_folder_path         = var.asg_license_directory
+      fortiflex_username      = var.fortiflex_username
+      fortiflex_password      = var.fortiflex_password
+      fortiflex_sn_list       = v.fortiflex_sn_list
+      fortiflex_configid_list = var.fortiflex_configid_list
+
+      enable_fgt_system_autoscale = true
+      intf_security_group = {
+        login_port    = "secgrp1"
+        internal_port = "secgrp1"
+      }
+
+      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress })
+      asg_max_size          = v.asg_byol_asg_max_size
+      asg_min_size          = v.asg_byol_asg_min_size
+      asg_desired_capacity  = v.asg_byol_asg_desired_size
+      create_dynamodb_table         = true
+      dynamodb_table_name           = "fgt_asg_track_table"
+      asg_health_check_grace_period = var.asg_health_check_grace_period
+      # Only scale the BYOL ASG itself when there's no on-demand ASG to burst into --
+      # in hybrid mode (on-demand enabled) BYOL stays fixed at its provisioned size and
+      # all CPU-driven scaling happens on fgt_on_demand_asg instead. See cloudwatch_alarms
+      # below, which routes byol_cpu_above_80/below_30 to whichever ASG is elastic.
+      scale_policies = (v.asg_ondemand_asg_max_size > 0) ? {} : {
+        byol_cpu_above_80 = {
+          policy_type        = "SimpleScaling"
+          adjustment_type    = "ChangeInCapacity"
+          cooldown           = 60
+          scaling_adjustment = 1
+        },
+        byol_cpu_below_30 = {
+          policy_type        = "SimpleScaling"
+          adjustment_type    = "ChangeInCapacity"
+          cooldown           = 60
+          scaling_adjustment = -1
+        }
+      }
+    }
+    },
+    (v.asg_ondemand_asg_max_size > 0) ? {
+    fgt_on_demand_asg = {
+      fmg_integration = var.enable_fortimanager_integration ? {
+        ip           = var.fortimanager_ip
+        sn           = var.fortimanager_sn
+        primary_only = true
+        fgt_lic_mgmt = "module"
+        vrf_select   = var.fortimanager_vrf_select
+      } : { ip = "", sn = "", fgt_lic_mgmt = "module" }
+      primary_scalein_protection = var.primary_scalein_protection
+      extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
+        "dedicated_port" = {
+          device_index     = local.management_device_index
+          enable_public_ip = local.fgt_management_public_ip_effective
+          subnet = concat(
+            [
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
+                zone_name = local.availability_zone_1
+              },
+              {
+                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
+                zone_name = local.availability_zone_2
+              }
+            ],
+            var.availability_zone_3 != "" ? [
+              {
+                id        = local.mgmt_az3_subnet_id
+                zone_name = local.availability_zone_3
+              }
+            ] : []
+          )
+          security_groups = [
+            {
+              id = aws_security_group.management-vpc-sg[0].id
+            }
+          ]
+        }
+      }
+      template_name               = "fgt_asg_template_on_demand"
+      fgt_version                 = v.fortios_version
+      license_type                = "on_demand"
+      instance_type               = v.fgt_instance_type
+      fgt_password                = var.fortigate_asg_password
+      keypair_name                = var.keypair
+      enable_fgt_system_autoscale = true
+      intf_security_group = {
+        login_port    = "secgrp1"
+        internal_port = "secgrp1"
+      }
+      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress })
+      asg_max_size         = v.asg_ondemand_asg_max_size
+      asg_min_size         = v.asg_ondemand_asg_min_size
+      asg_desired_capacity = v.asg_ondemand_asg_desired_size
+      dynamodb_table_name           = "fgt_asg_track_table"
+      asg_health_check_grace_period = var.asg_health_check_grace_period
+      scale_policies = {
+        byol_cpu_above_80 = {
+          policy_type        = "SimpleScaling"
+          adjustment_type    = "ChangeInCapacity"
+          cooldown           = 60
+          scaling_adjustment = 1
+        },
+        byol_cpu_below_30 = {
+          policy_type        = "SimpleScaling"
+          adjustment_type    = "ChangeInCapacity"
+          cooldown           = 60
+          scaling_adjustment = -1
+        },
+        ondemand_cpu_above_80 = {
+          policy_type        = "SimpleScaling"
+          adjustment_type    = "ChangeInCapacity"
+          cooldown           = 60
+          scaling_adjustment = 1
+        },
+        ondemand_cpu_below_30 = {
+          policy_type        = "SimpleScaling"
+          adjustment_type    = "ChangeInCapacity"
+          cooldown           = 60
+          scaling_adjustment = -1
+        }
+      }
+    }
+    } : {}
+  )
+      cloudwatch_alarms = merge(
+    {
+    byol_cpu_above_80 = {
+      comparison_operator = "GreaterThanOrEqualToThreshold"
+      evaluation_periods  = 2
+      metric_name         = "CPUUtilization"
+      namespace           = "AWS/EC2"
+      period              = 120
+      statistic           = "Average"
+      threshold           = 80
+      dimensions = {
+        AutoScalingGroupName = "fgt_byol_asg"
+      }
+      alarm_description   = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_byol."
+      datapoints_to_alarm = 1
+      # Route to whichever ASG is elastic: on-demand's policy in hybrid mode (BYOL stays
+      # fixed), or BYOL's own policy when on-demand is disabled (BYOL is all there is).
+      alarm_asg_policies = {
+        policy_name_map = (v.asg_ondemand_asg_max_size > 0) ? {
+          "fgt_on_demand_asg" = ["byol_cpu_above_80"]
+        } : {
+          "fgt_byol_asg" = ["byol_cpu_above_80"]
+        }
+      }
+    },
+    byol_cpu_below_30 = {
+      comparison_operator = "LessThanThreshold"
+      evaluation_periods  = 2
+      metric_name         = "CPUUtilization"
+      namespace           = "AWS/EC2"
+      period              = 120
+      statistic           = "Average"
+      threshold           = 30
+      dimensions = {
+        AutoScalingGroupName = "fgt_byol_asg"
+      }
+      alarm_description   = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_byol."
+      datapoints_to_alarm = 1
+      alarm_asg_policies = {
+        policy_name_map = (v.asg_ondemand_asg_max_size > 0) ? {
+          "fgt_on_demand_asg" = ["byol_cpu_below_30"]
+        } : {
+          "fgt_byol_asg" = ["byol_cpu_below_30"]
+        }
+      }
+    }
+    },
+    (v.asg_ondemand_asg_max_size > 0) ? {
+    ondemand_cpu_above_80 = {
+      comparison_operator = "GreaterThanOrEqualToThreshold"
+      evaluation_periods  = 2
+      metric_name         = "CPUUtilization"
+      namespace           = "AWS/EC2"
+      period              = 120
+      statistic           = "Average"
+      threshold           = 80
+      dimensions = {
+        AutoScalingGroupName = "fgt_on_demand_asg"
+      }
+      alarm_description = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_ondemand."
+      alarm_asg_policies = {
+        policy_name_map = {
+          "fgt_on_demand_asg" = ["ondemand_cpu_above_80"]
+        }
+      }
+    },
+    ondemand_cpu_below_30 = {
+      comparison_operator = "LessThanThreshold"
+      evaluation_periods  = 2
+      metric_name         = "CPUUtilization"
+      namespace           = "AWS/EC2"
+      period              = 120
+      statistic           = "Average"
+      threshold           = 30
+      dimensions = {
+        AutoScalingGroupName = "fgt_on_demand_asg"
+      }
+      alarm_description = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_ondemand."
+      alarm_asg_policies = {
+        policy_name_map = {
+          "fgt_on_demand_asg" = ["ondemand_cpu_below_30"]
+        }
+      }
+    }
+    } : {}
+  )
+    }
+  }
+}
+
 module "spk_tgw_gwlb_asg_fgt_igw" {
+  # Slot "blue". The module address is the one deployments without slots already have. This call
+  # is never removed: it also owns the endpoint service and the GWLB endpoints. The registry
+  # example has its own provider block, so it cannot use count/for_each: each slot is a fixed
+  # module call, and a slot that is not in fgt_slots gets empty inputs (no FortiGates).
+
   # Pinned to a published registry release rather than floating on the upstream main branch.
   # (It tracked main, unpinned, from Nov 2025 until Aug 2026 to pick up fmg_integration support
   # before that was released; every release since includes it.) After changing the version, run
@@ -158,9 +465,13 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   existing_tgw = {
   }
 
-  # Distributed egress (dual-egress) -- attaches a GWLB Endpoint per discovered distributed VPC
-  # to the same shared GWLB Endpoint Service used above. See vpc_distributed_egress.tf.
-  spk_vpc = local.distributed_spk_vpc
+  # The shared GWLB from gwlb.tf. No target group or listener here (a GWLB has one listener
+  # only); gwlb.tf creates the slot's target group and attaches it. This call also creates the
+  # endpoint service and every GWLB endpoint, including those of the distributed VPCs (see
+  # vpc_distributed_egress.tf), whether or not the blue slot is in use.
+  existing_gwlb     = { arn = aws_lb.gwlb.arn }
+  existing_gwlb_tgp = {}
+  spk_vpc           = local.distributed_spk_vpc
 
   existing_subnets = merge(
     {
@@ -206,46 +517,7 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   )
 
   ## VPC
-  security_groups = {
-    secgrp1 = {
-      description = "Security group by Terraform"
-      ingress = {
-        all_traffic = {
-          from_port   = "0"
-          to_port     = "0"
-          protocol    = "-1"
-          cidr_blocks = ["0.0.0.0/0"]
-        }
-      }
-      egress = {
-        all_traffic = {
-          from_port   = "0"
-          to_port     = "0"
-          protocol    = "-1"
-          cidr_blocks = ["0.0.0.0/0"]
-        }
-      }
-    }
-    management_secgrp1 = {
-      description = "Security group by Terraform for dedicated management port"
-      ingress = {
-        allowed_cidrs = {
-          from_port   = "0"
-          to_port     = "0"
-          protocol    = "-1"
-          cidr_blocks = var.vpc_cidr_sg
-        }
-      }
-      egress = {
-        all_traffic = {
-          from_port   = "0"
-          to_port     = "0"
-          protocol    = "-1"
-          cidr_blocks = ["0.0.0.0/0"]
-        }
-      }
-    }
-  }
+  security_groups = try(local.slot_inputs["blue"].security_groups, {})
 
   vpc_cidr_block     = var.vpc_cidr_inspection
   spoke_cidr_list    = []
@@ -261,264 +533,10 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   fgt_config_shared = {
     fgt_login_port_number = var.fortigate_gui_port != "443" ? var.fortigate_gui_port : ""
   }
-  asgs = merge(
-    {
-    fgt_byol_asg = {
-      fmg_integration = var.enable_fortimanager_integration ? {
-        ip           = var.fortimanager_ip
-        sn           = var.fortimanager_sn
-        primary_only = true
-        fgt_lic_mgmt = "module"
-        vrf_select   = 1
-      } : { ip = "", sn = "", fgt_lic_mgmt = "module" }
-      primary_scalein_protection = var.primary_scalein_protection
-      extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
-        "dedicated_port" = {
-          device_index     = local.management_device_index
-          enable_public_ip = local.fgt_management_public_ip_effective
-          subnet = concat(
-            [
-              {
-                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
-                zone_name = local.availability_zone_1
-              },
-              {
-                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
-                zone_name = local.availability_zone_2
-              }
-            ],
-            var.availability_zone_3 != "" ? [
-              {
-                id        = local.mgmt_az3_subnet_id
-                zone_name = local.availability_zone_3
-              }
-            ] : []
-          )
-          security_groups = [
-            {
-              id = aws_security_group.management-vpc-sg[0].id
-            }
-          ]
-        }
-      }
-      template_name           = "fgt_asg_template"
-      fgt_version             = var.fortios_version
-      license_type            = "byol"
-      instance_type           = var.fgt_instance_type
-      fgt_password            = var.fortigate_asg_password
-      keypair_name            = var.keypair
-      lic_folder_path         = var.asg_license_directory
-      fortiflex_username      = var.fortiflex_username
-      fortiflex_password      = var.fortiflex_password
-      fortiflex_sn_list       = var.fortiflex_sn_list
-      fortiflex_configid_list = var.fortiflex_configid_list
-
-      enable_fgt_system_autoscale = true
-      intf_security_group = {
-        login_port    = "secgrp1"
-        internal_port = "secgrp1"
-      }
-
-      user_conf_content     = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress })
-      asg_max_size          = var.asg_byol_asg_max_size
-      asg_min_size          = var.asg_byol_asg_min_size
-      asg_desired_capacity  = var.asg_byol_asg_desired_size
-      create_dynamodb_table         = true
-      dynamodb_table_name           = "fgt_asg_track_table"
-      asg_health_check_grace_period = var.asg_health_check_grace_period
-      # Only scale the BYOL ASG itself when there's no on-demand ASG to burst into --
-      # in hybrid mode (on-demand enabled) BYOL stays fixed at its provisioned size and
-      # all CPU-driven scaling happens on fgt_on_demand_asg instead. See cloudwatch_alarms
-      # below, which routes byol_cpu_above_80/below_30 to whichever ASG is elastic.
-      scale_policies = local.enable_ondemand_asg ? {} : {
-        byol_cpu_above_80 = {
-          policy_type        = "SimpleScaling"
-          adjustment_type    = "ChangeInCapacity"
-          cooldown           = 60
-          scaling_adjustment = 1
-        },
-        byol_cpu_below_30 = {
-          policy_type        = "SimpleScaling"
-          adjustment_type    = "ChangeInCapacity"
-          cooldown           = 60
-          scaling_adjustment = -1
-        }
-      }
-    }
-    },
-    local.enable_ondemand_asg ? {
-    fgt_on_demand_asg = {
-      fmg_integration = var.enable_fortimanager_integration ? {
-        ip           = var.fortimanager_ip
-        sn           = var.fortimanager_sn
-        primary_only = true
-        fgt_lic_mgmt = "module"
-        vrf_select   = var.fortimanager_vrf_select
-      } : { ip = "", sn = "", fgt_lic_mgmt = "module" }
-      primary_scalein_protection = var.primary_scalein_protection
-      extra_network_interfaces   = !var.enable_dedicated_management_vpc && !var.enable_dedicated_management_eni ? {} : {
-        "dedicated_port" = {
-          device_index     = local.management_device_index
-          enable_public_ip = local.fgt_management_public_ip_effective
-          subnet = concat(
-            [
-              {
-                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az1[0].id : data.aws_subnet.inspection_management_az1[0].id
-                zone_name = local.availability_zone_1
-              },
-              {
-                id        = var.enable_dedicated_management_vpc ? data.aws_subnet.public_subnet_az2[0].id : data.aws_subnet.inspection_management_az2[0].id
-                zone_name = local.availability_zone_2
-              }
-            ],
-            var.availability_zone_3 != "" ? [
-              {
-                id        = local.mgmt_az3_subnet_id
-                zone_name = local.availability_zone_3
-              }
-            ] : []
-          )
-          security_groups = [
-            {
-              id = aws_security_group.management-vpc-sg[0].id
-            }
-          ]
-        }
-      }
-      template_name               = "fgt_asg_template_on_demand"
-      fgt_version                 = var.fortios_version
-      license_type                = "on_demand"
-      instance_type               = var.fgt_instance_type
-      fgt_password                = var.fortigate_asg_password
-      keypair_name                = var.keypair
-      enable_fgt_system_autoscale = true
-      intf_security_group = {
-        login_port    = "secgrp1"
-        internal_port = "secgrp1"
-      }
-      user_conf_content    = templatefile(local.fgt_config_template, { az_list = local.az_list, spoke_cidrs = local.spoke_cidrs, centralized_spoke_cidrs = local.centralized_spoke_cidrs, distributed_egress_cidrs = local.distributed_egress_cidrs, enable_distributed_egress = var.enable_distributed_egress })
-      asg_max_size         = var.asg_ondemand_asg_max_size
-      asg_min_size         = var.asg_ondemand_asg_min_size
-      asg_desired_capacity = var.asg_ondemand_asg_desired_size
-      dynamodb_table_name           = "fgt_asg_track_table"
-      asg_health_check_grace_period = var.asg_health_check_grace_period
-      scale_policies = {
-        byol_cpu_above_80 = {
-          policy_type        = "SimpleScaling"
-          adjustment_type    = "ChangeInCapacity"
-          cooldown           = 60
-          scaling_adjustment = 1
-        },
-        byol_cpu_below_30 = {
-          policy_type        = "SimpleScaling"
-          adjustment_type    = "ChangeInCapacity"
-          cooldown           = 60
-          scaling_adjustment = -1
-        },
-        ondemand_cpu_above_80 = {
-          policy_type        = "SimpleScaling"
-          adjustment_type    = "ChangeInCapacity"
-          cooldown           = 60
-          scaling_adjustment = 1
-        },
-        ondemand_cpu_below_30 = {
-          policy_type        = "SimpleScaling"
-          adjustment_type    = "ChangeInCapacity"
-          cooldown           = 60
-          scaling_adjustment = -1
-        }
-      }
-    }
-    } : {}
-  )
+  asgs = try(local.slot_inputs["blue"].asgs, {})
 
   ## Cloudwatch Alarm
-  cloudwatch_alarms = merge(
-    {
-    byol_cpu_above_80 = {
-      comparison_operator = "GreaterThanOrEqualToThreshold"
-      evaluation_periods  = 2
-      metric_name         = "CPUUtilization"
-      namespace           = "AWS/EC2"
-      period              = 120
-      statistic           = "Average"
-      threshold           = 80
-      dimensions = {
-        AutoScalingGroupName = "fgt_byol_asg"
-      }
-      alarm_description   = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_byol."
-      datapoints_to_alarm = 1
-      # Route to whichever ASG is elastic: on-demand's policy in hybrid mode (BYOL stays
-      # fixed), or BYOL's own policy when on-demand is disabled (BYOL is all there is).
-      alarm_asg_policies = {
-        policy_name_map = local.enable_ondemand_asg ? {
-          "fgt_on_demand_asg" = ["byol_cpu_above_80"]
-        } : {
-          "fgt_byol_asg" = ["byol_cpu_above_80"]
-        }
-      }
-    },
-    byol_cpu_below_30 = {
-      comparison_operator = "LessThanThreshold"
-      evaluation_periods  = 2
-      metric_name         = "CPUUtilization"
-      namespace           = "AWS/EC2"
-      period              = 120
-      statistic           = "Average"
-      threshold           = 30
-      dimensions = {
-        AutoScalingGroupName = "fgt_byol_asg"
-      }
-      alarm_description   = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_byol."
-      datapoints_to_alarm = 1
-      alarm_asg_policies = {
-        policy_name_map = local.enable_ondemand_asg ? {
-          "fgt_on_demand_asg" = ["byol_cpu_below_30"]
-        } : {
-          "fgt_byol_asg" = ["byol_cpu_below_30"]
-        }
-      }
-    }
-    },
-    local.enable_ondemand_asg ? {
-    ondemand_cpu_above_80 = {
-      comparison_operator = "GreaterThanOrEqualToThreshold"
-      evaluation_periods  = 2
-      metric_name         = "CPUUtilization"
-      namespace           = "AWS/EC2"
-      period              = 120
-      statistic           = "Average"
-      threshold           = 80
-      dimensions = {
-        AutoScalingGroupName = "fgt_on_demand_asg"
-      }
-      alarm_description = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_ondemand."
-      alarm_asg_policies = {
-        policy_name_map = {
-          "fgt_on_demand_asg" = ["ondemand_cpu_above_80"]
-        }
-      }
-    },
-    ondemand_cpu_below_30 = {
-      comparison_operator = "LessThanThreshold"
-      evaluation_periods  = 2
-      metric_name         = "CPUUtilization"
-      namespace           = "AWS/EC2"
-      period              = 120
-      statistic           = "Average"
-      threshold           = 30
-      dimensions = {
-        AutoScalingGroupName = "fgt_on_demand_asg"
-      }
-      alarm_description = "This metric monitors average ec2 cpu utilization of Auto Scale group fgt_asg_ondemand."
-      alarm_asg_policies = {
-        policy_name_map = {
-          "fgt_on_demand_asg" = ["ondemand_cpu_below_30"]
-        }
-      }
-    }
-    } : {}
-  )
+  cloudwatch_alarms = try(local.slot_inputs["blue"].cloudwatch_alarms, {})
 
   ## Gateway Load Balancer
   enable_cross_zone_load_balancing = var.allow_cross_zone_load_balancing
@@ -535,5 +553,131 @@ module "spk_tgw_gwlb_asg_fgt_igw" {
   enable_east_west_inspection = true
 
   ## Tag
-  general_tags = local.common_tags
+  # Fortinet-Slot makes the slot's resources easy to recognize. A tag, not a name, so it changes
+  # in place. This call also owns the shared endpoint service and endpoints, which carry it too.
+  general_tags = merge(local.common_tags, { "Fortinet-Slot" = "blue" })
+}
+
+
+module "spk_tgw_gwlb_asg_fgt_igw_green" {
+  # Slot "green". Same inputs as slot "blue"; only the slot's own values differ.
+
+  # Pinned to a published registry release rather than floating on the upstream main branch.
+  # (It tracked main, unpinned, from Nov 2025 until Aug 2026 to pick up fmg_integration support
+  # before that was released; every release since includes it.) After changing the version, run
+  # `terraform init -upgrade` so the new release is actually downloaded. See the local-source
+  # override below for testing unreleased upstream changes (e.g. distributed-egress GENEVE
+  # tunnel support) without re-floating this pin.
+  source  = "fortinetdev/cloud-modules/aws//examples/spk_tgw_gwlb_asg_fgt_igw"
+  version = "1.1.7"
+
+  #
+  # Used for testing development/unreleased upstream changes against a local clone. Never use in
+  # production -- comment out `source`/`version` above and uncomment this instead.
+  #
+
+  #source = "/Users/mwooten/github/40netse/terraform-aws-cloud-modules//examples/spk_tgw_gwlb_asg_fgt_igw"
+
+  ## Root config
+  region        = var.aws_region
+  module_prefix = local.slot_prefix["green"]
+
+  # Use existing inspection VPC resources (looked up by Fortinet-Role tags)
+  existing_security_vpc = {
+    id = data.aws_vpc.inspection.id
+  }
+  existing_igw = {
+    id = data.aws_internet_gateway.inspection.id
+  }
+  existing_tgw = {
+  }
+
+  # The shared GWLB from gwlb.tf. No target group, listener, endpoint service or endpoints:
+  # those belong to gwlb.tf and to the blue module call.
+  existing_gwlb            = { arn = aws_lb.gwlb.arn }
+  existing_gwlb_tgp        = {}
+  existing_gwlb_ep_service = {}
+  spk_vpc                  = {}
+
+  existing_subnets = merge(
+    {
+      fgt_login_az1 = {
+        id                = data.aws_subnet.inspection_public_az1.id
+        availability_zone = local.availability_zone_1
+      },
+      fgt_login_az2 = {
+        id                = data.aws_subnet.inspection_public_az2.id
+        availability_zone = local.availability_zone_2
+      },
+      gwlbe_az1 = {
+        id                = data.aws_subnet.inspection_gwlbe_az1.id
+        availability_zone = local.availability_zone_1
+      },
+      gwlbe_az2 = {
+        id                = data.aws_subnet.inspection_gwlbe_az2.id
+        availability_zone = local.availability_zone_2
+      },
+      fgt_internal_az1 = {
+        id                = data.aws_subnet.inspection_private_az1.id
+        availability_zone = local.availability_zone_1
+      },
+      fgt_internal_az2 = {
+        id                = data.aws_subnet.inspection_private_az2.id
+        availability_zone = local.availability_zone_2
+      }
+    },
+    var.availability_zone_3 != "" ? {
+      fgt_login_az3 = {
+        id                = data.aws_subnet.inspection_public_az3[0].id
+        availability_zone = local.availability_zone_3
+      },
+      gwlbe_az3 = {
+        id                = data.aws_subnet.inspection_gwlbe_az3[0].id
+        availability_zone = local.availability_zone_3
+      },
+      fgt_internal_az3 = {
+        id                = data.aws_subnet.inspection_private_az3[0].id
+        availability_zone = local.availability_zone_3
+      }
+    } : {}
+  )
+
+  ## VPC
+  security_groups = try(local.slot_inputs["green"].security_groups, {})
+
+  vpc_cidr_block     = var.vpc_cidr_inspection
+  spoke_cidr_list    = []
+  availability_zones = var.availability_zone_3 != "" ? [local.availability_zone_1, local.availability_zone_2, local.availability_zone_3] : [local.availability_zone_1, local.availability_zone_2]
+
+  ## Transit Gateway
+  tgw_name        = "${var.cp}-${var.env}-tgw"
+  tgw_description = "tgw for fortigate autoscale group"
+
+  ## Auto scale group
+  fgt_intf_mode            = var.firewall_policy_mode
+  fgt_access_internet_mode = var.access_internet_mode
+  fgt_config_shared = {
+    fgt_login_port_number = var.fortigate_gui_port != "443" ? var.fortigate_gui_port : ""
+  }
+  asgs = try(local.slot_inputs["green"].asgs, {})
+
+  ## Cloudwatch Alarm
+  cloudwatch_alarms = try(local.slot_inputs["green"].cloudwatch_alarms, {})
+
+  ## Gateway Load Balancer
+  enable_cross_zone_load_balancing = var.allow_cross_zone_load_balancing
+  gwlb_health_check = {
+    port              = var.gwlb_health_check_port
+    protocol          = "HTTP"
+    path              = "/"
+    matcher           = "200-399"
+    interval          = var.gwlb_health_check_interval
+    healthy_threshold = var.gwlb_healthy_threshold
+  }
+
+  ## Spoke VPC
+  enable_east_west_inspection = true
+
+  ## Tag
+  general_tags = merge(local.common_tags, { "Fortinet-Slot" = "green" })
 }

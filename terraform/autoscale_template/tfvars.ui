@@ -450,6 +450,27 @@ asg_ondemand_asg_max_size     = 2
 # @ui-default: 0
 asg_ondemand_asg_desired_size = 0
 
+#----------------------------------------------------------------------------------------------------
+# BLUE-GREEN UPGRADE SLOTS (same VPC)
+#----------------------------------------------------------------------------------------------------
+# Leave these out for a normal deployment: the FortiGate group is then the "blue" slot, built from
+# the variables above. Use them only during a blue-green FortiOS upgrade (see the "Blue-Green
+# Upgrade in the Same VPC" page). Each slot is one FortiGate group behind the shared GWLB; the
+# GWLB listener sends new traffic to active_slot. A slot value that is not set comes from the
+# variable above with the same name. Blue always uses asg_module_prefix for its names; green
+# uses "<asg_module_prefix>-green".
+#
+# During an upgrade, for example:
+#
+# fgt_slots = {
+#   blue  = {}
+#   green = {
+#     fortios_version   = "8.0.2"
+#     fortiflex_sn_list = ["FGVMXXXX00000003"]   # only serials blue does not use
+#   }
+# }
+# active_slot = "blue"    # change to "green" for the cutover
+
 #====================================================================================================
 # LICENSING CONFIGURATION
 #====================================================================================================

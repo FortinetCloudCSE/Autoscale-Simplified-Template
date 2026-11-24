@@ -16,47 +16,47 @@ variable "availability_zone_3" {
   description = "Availability Zone 3 for VPC (optional, leave empty for 2-AZ deployments)"
   default     = ""
 }
-variable subnet_bits {
+variable "subnet_bits" {
   description = "Number of bits in the network portion of the subnet CIDR"
 }
 variable "public_subnet_index" {
   description = "Index of the public subnet"
-  default = 0
+  default     = 0
 }
 variable "gwlbe_subnet_index" {
   description = "Index of the management subnet"
-  default = 1
+  default     = 1
 }
 variable "private_subnet_index" {
   description = "Index of the private subnet"
-  default = 2
+  default     = 2
 }
 variable "natgw_subnet_index" {
   description = "Index of the NAT GW subnet"
-  default = 3
+  default     = 3
 }
 variable "access_internet_mode" {
   description = "Variable that defines how the fortigates in the autoscale group will access the internet. 'nat_gw' or 'eip'"
-  type = string
-  default = "nat_gw"
+  type        = string
+  default     = "nat_gw"
 }
 variable "fortigate_gui_port" {
   description = "Fortigate GUI Port"
-  default = "443"
-  type = string
+  default     = "443"
+  type        = string
 }
 variable "firewall_policy_mode" {
   description = "Firewall Policy Mode"
-  type = string
-  default = "2-arm"
+  type        = string
+  default     = "2-arm"
 }
 variable "keypair" {
   description = "Keypair for instances that support keypairs"
 }
 variable "vpc_cidr_sg" {
-    description = "List of CIDRs to allow in security group for management access"
-    type        = list(string)
-    default     = []
+  description = "List of CIDRs to allow in security group for management access"
+  type        = list(string)
+  default     = []
 }
 variable "cp" {
   description = "Customer Prefix to apply to all resources"
@@ -109,21 +109,21 @@ variable "asg_module_prefix" {
   default     = ""
 }
 variable "vpc_cidr_inspection" {
-    description = "CIDR for the whole NS inspection VPC"
+  description = "CIDR for the whole NS inspection VPC"
 }
 variable "vpc_cidr_east" {
-    description = "CIDR for the whole east VPC"
+  description = "CIDR for the whole east VPC"
 }
 variable "vpc_cidr_west" {
-    description = "CIDR for the whole west VPC"
+  description = "CIDR for the whole west VPC"
 }
 variable "vpc_cidr_management" {
-    description = "CIDR for the management VPC"
+  description = "CIDR for the management VPC"
 }
 variable "spoke_cidrs" {
-    description = "List of all spoke VPC CIDRs south of the TGW that need FortiGate east-west inspection routes. Leave empty to default to [vpc_cidr_east, vpc_cidr_west]; override with the real list of production spoke CIDRs if they differ from the demo east/west VPCs."
-    type        = list(string)
-    default     = []
+  description = "List of all spoke VPC CIDRs south of the TGW that need FortiGate east-west inspection routes. Leave empty to default to [vpc_cidr_east, vpc_cidr_west]; override with the real list of production spoke CIDRs if they differ from the demo east/west VPCs."
+  type        = list(string)
+  default     = []
 }
 variable "attach_to_tgw_name" {
   description = "Name of the TGW to attach to"
@@ -158,6 +158,42 @@ variable "endpoint_name_az3" {
   type        = string
   default     = ""
 }
+variable "fgt_slots" {
+  description = <<-EOT
+    FortiGate slots ("blue", "green") for a blue-green upgrade in the same VPC (see gwlb.tf). Each entry is one
+    FortiGate autoscale group behind the shared GWLB. Unset values come from the top-level
+    variables. Empty (the default) means one slot, "blue", which is what a deployment without
+    slots has. Blue always uses asg_module_prefix as its name prefix; green defaults to
+    "<asg_module_prefix>-green".
+    Example during an upgrade:
+      fgt_slots = {
+        blue  = {}
+        green = { fortios_version = "8.0.2", fortiflex_sn_list = ["..."] }
+      }
+    EOT
+  type = map(object({
+    name_prefix                   = optional(string)
+    fortios_version               = optional(string)
+    fgt_instance_type             = optional(string)
+    fortiflex_sn_list             = optional(list(string))
+    asg_byol_asg_min_size         = optional(number)
+    asg_byol_asg_max_size         = optional(number)
+    asg_byol_asg_desired_size     = optional(number)
+    asg_ondemand_asg_min_size     = optional(number)
+    asg_ondemand_asg_max_size     = optional(number)
+    asg_ondemand_asg_desired_size = optional(number)
+  }))
+  default = {}
+  validation {
+    condition     = alltrue([for k in keys(var.fgt_slots) : contains(["blue", "green"], k)])
+    error_message = "fgt_slots keys must be \"blue\" or \"green\"."
+  }
+}
+variable "active_slot" {
+  description = "The fgt_slots key whose target group the GWLB listener forwards to. Changing it is the cutover."
+  type        = string
+  default     = "blue"
+}
 variable "fgt_instance_type" {
   description = "Instance type for all of the Fortigates in the ASG's"
   type        = string
@@ -182,43 +218,43 @@ variable "fortiflex_username" {
   default     = ""
 }
 variable "fortiflex_password" {
-    description = "Fortiflex Password to make FortiFlex API Calls"
-    type        = string
-    default     = ""
+  description = "Fortiflex Password to make FortiFlex API Calls"
+  type        = string
+  default     = ""
 }
-variable fortiflex_sn_list {
-    description = "List of Serial Numbers for FortiFlex"
-    type = list(string)
-    default = [""]
+variable "fortiflex_sn_list" {
+  description = "List of Serial Numbers for FortiFlex"
+  type        = list(string)
+  default     = [""]
 }
-variable fortiflex_configid_list {
-    description = "Config ID for FortiFlex"
-    type = list(string)
-    default = [""]
+variable "fortiflex_configid_list" {
+  description = "Config ID for FortiFlex"
+  type        = list(string)
+  default     = [""]
 }
 variable "asg_byol_asg_min_size" {
-    description = "Minimum size for the BYOL ASG"
-    type        = number
+  description = "Minimum size for the BYOL ASG"
+  type        = number
 }
 variable "asg_byol_asg_max_size" {
-    description = "Maximum size for the BYOL ASG"
-    type        = number
+  description = "Maximum size for the BYOL ASG"
+  type        = number
 }
 variable "asg_byol_asg_desired_size" {
-    description = "Desired size for the BYOL ASG"
-    type        = number
+  description = "Desired size for the BYOL ASG"
+  type        = number
 }
 variable "asg_ondemand_asg_min_size" {
-    description = "Minimum size for the On Demand ASG"
-    type        = number
+  description = "Minimum size for the On Demand ASG"
+  type        = number
 }
 variable "asg_ondemand_asg_max_size" {
-    description = "Maximum size for the OnDemand ASG"
-    type        = number
+  description = "Maximum size for the OnDemand ASG"
+  type        = number
 }
 variable "asg_ondemand_asg_desired_size" {
-    description = "Desired size for the OnDemand ASG"
-    type        = number
+  description = "Desired size for the OnDemand ASG"
+  type        = number
 }
 variable "enable_fortimanager_integration" {
   description = "Boolean to enable FortiManager integration"
