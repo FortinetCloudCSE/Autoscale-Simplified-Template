@@ -538,7 +538,7 @@ terraform apply
 ```
 {{% /notice %}}
 
-See [FortiFlex Setup Guide](/mnt/project/FortiFlex_Setup_Guide.md) for complete configuration details.
+See [Licensing Options](../../4_solution_components/4_4_licensing_options/) for complete configuration details.
 
 #### Option 3: PAYG (AWS Marketplace)
 
@@ -686,8 +686,6 @@ See [FortiManager Integration](../../4_solution_components/4_5_fortimanager_inte
 - Primary FortiGate registers with FortiManager as unauthorized device
 - VDOM exception prevents sync to secondary instances
 - Configuration syncs from FortiManager → Primary → Secondaries
-
-See [FortiManager Integration Configuration](/mnt/project/fmg_integration_configuration.md) for advanced options including UMS mode.
 
 ### Step 12: Configure Network CIDRs
 

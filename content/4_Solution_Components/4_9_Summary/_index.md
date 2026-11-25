@@ -246,6 +246,6 @@ primary_scalein_protection = true
 ## Additional Resources
 
 - [Fortinet Documentation](https://docs.fortinet.com)
-- [FortiFlex Setup Guide](/mnt/project/FortiFlex_Setup_Guide.md)
-- [FortiManager Integration](/mnt/project/fmg_integration_configuration.md)
+- [Licensing Options](../4_4_licensing_options/)
+- [FortiManager Integration](../4_5_fortimanager_integration/)
 - [Terraform Module Repository](https://github.com/fortinetdev/terraform-aws-cloud-modules)
