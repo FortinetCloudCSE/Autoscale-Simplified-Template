@@ -181,12 +181,6 @@ show system global | grep fgfm-allow-vm
 
 ---
 
-## Reference Documentation
-
-For complete FortiManager integration details, including User Managed Scaling (UMS) mode, see the project file: [FortiManager Integration Configuration](/mnt/project/fmg_integration_configuration.md)
-
----
-
 ## Next Steps
 
 After configuring FortiManager integration, proceed to [Autoscale Group Capacity](../4_6_autoscale_group_capacity/) to configure instance counts and scaling behavior.
