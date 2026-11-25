@@ -1,0 +1,13 @@
+# Lacework FortiCNAPP code security settings.
+# Exceptions take the form <criteria>:<value>:<reason>.
+# Lacework reads this file from the default branch (main).
+default:
+  iac:
+    enabled: true
+    scan:
+      exceptions:
+        # AWS resources must specify a Security Group.
+        # The finding has no file: it comes from the Fortinet module. GWLB endpoints
+        # (VPC endpoint type GatewayLoadBalancer) do not accept security groups.
+        # Every instance and interface that the templates create has a security group.
+        - policy:lacework-iac-aws-network-2:False positive

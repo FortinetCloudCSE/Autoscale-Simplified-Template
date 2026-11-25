@@ -113,6 +113,7 @@ variable "gwlb_deletion_protection" {
 variable "allow_cross_zone_load_balancing" {
   description = "Allow gateway load balancer to use healthy instances in a different zone"
   type        = bool
+  default     = true
 }
 variable "asg_module_prefix" {
   description = "Module Prefix for East/West Autoscale Group"
